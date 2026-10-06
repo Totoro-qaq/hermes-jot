@@ -1,0 +1,7 @@
+* text=auto eol=lf
+# Reviewed source is the readable diff; generated bundles retain their exact bytes.
+desktop/plugin.js -text -diff -whitespace linguist-generated=true
+runtime/** -text -diff -whitespace linguist-generated=true
+# Preserve dependency license text verbatim, including upstream line endings.
+LICENSES/** -text -diff -whitespace linguist-vendored=true
+assets/fonts/** -text -diff linguist-vendored=true
