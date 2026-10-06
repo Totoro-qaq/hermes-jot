@@ -1,0 +1,18 @@
+{
+  "project": "dsh-jot",
+  "repository": "https://github.com/Totoro-qaq/dsh-jot",
+  "commit": "a82b969f28cebf3564b9522b7e2f241db89fe27b",
+  "version": "0.2.6",
+  "license": "MIT",
+  "shared": [
+    "src/model.ts",
+    "src/store.ts",
+    "src/file-lock.ts",
+    "src/attachments.ts",
+    "src/exports.ts",
+    "src/client",
+    "assets/icons",
+    "assets/fonts"
+  ],
+  "note": "Source snapshot retained locally for a standalone Hermes package; host integration is replaced, not installed into DSH."
+}

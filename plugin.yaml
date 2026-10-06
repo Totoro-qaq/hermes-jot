@@ -1,0 +1,17 @@
+name: jot
+version: 0.1.0
+description: Human-editable notes, checklists and documents, with optional agent collaboration.
+author: Totoro
+license: MIT
+requires_hermes: ">=0.21.5"
+provides_tools:
+  - jot_list
+  - jot_read
+  - jot_create
+  - jot_update
+  - jot_set_task
+  - jot_delete
+provides_hooks: []
+provides_middleware: []
+requires_env: []
+tags: [desktop, notes, todo, documents, collaboration]

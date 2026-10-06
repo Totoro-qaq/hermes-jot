@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24" role="img" aria-labelledby="title desc">
+  <title id="title">随记 / Jot</title>
+  <desc id="desc">竹青色笔记本封面、暖白纸页，金杏色书签伸出封面顶部，纸页上是一个勾选标记。</desc>
+  <rect x="3.5" y="3.5" width="17" height="18.5" rx="2.5" fill="#3B8C76"/>
+  <path d="M7 3.5V22H6a2.5 2.5 0 0 1-2.5-2.5V6A2.5 2.5 0 0 1 6 3.5h1Z" fill="#185F50"/>
+  <rect x="7" y="5" width="12" height="15.5" rx="1.25" fill="#FFF9EA"/>
+  <path d="M13.5 1h4v9.5l-2-1.5-2 1.5V1Z" fill="#E6AD54"/>
+  <path d="m9.4 14 1.8 1.8 3.4-3.6M9.4 18.2h6.2" fill="none" stroke="#286B5D" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

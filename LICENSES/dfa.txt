@@ -1,0 +1,5 @@
+dfa@1.2.0
+License: MIT
+Source: https://www.npmjs.com/package/dfa
+
+See the package source for license details.

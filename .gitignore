@@ -1,0 +1,10 @@
+node_modules/
+artifacts/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.tgz
+.DS_Store
+docs/IMPLEMENTATION.md
+docs/REVIEW.md

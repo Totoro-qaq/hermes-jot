@@ -1,0 +1,5 @@
+fontkit@2.0.4
+License: MIT
+Source: https://www.npmjs.com/package/fontkit
+
+See the package source for license details.

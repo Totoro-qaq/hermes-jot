@@ -1,0 +1,42 @@
+{
+  "name": "hermes-jot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Human-editable notes and documents for Hermes Desktop, with optional agent collaboration.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "3.14.13",
+    "@tiptap/core": "3.31.4",
+    "@tiptap/extension-highlight": "3.31.4",
+    "@tiptap/extension-table": "3.31.4",
+    "@tiptap/extension-task-item": "3.31.4",
+    "@tiptap/extension-task-list": "3.31.4",
+    "@tiptap/extension-text-style": "3.31.4",
+    "@tiptap/pm": "3.31.4",
+    "@tiptap/starter-kit": "3.31.4",
+    "docx": "9.5.1",
+    "fflate": "0.8.2",
+    "pdfkit": "0.17.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/pdfkit": "0.17.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.25.12",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "tsx": "^4.20.6",
+    "typescript": "^6.0.3"
+  }
+}

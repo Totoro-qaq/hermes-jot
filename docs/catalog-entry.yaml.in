@@ -1,0 +1,17 @@
+# Template only — substitute the user-approved public repository and immutable commit.
+name: jot
+repo: https://github.com/@OWNER@/@REPOSITORY@
+sha: '@FULL_COMMIT_SHA@'
+description: Human-editable notes, checklists and documents for Hermes Desktop, with optional agent collaboration.
+maintainer: '@OWNER@'
+tier: community
+category: desktop
+requires_hermes: '>=0.21.5'
+version: '0.1.0'
+title: 'Jot · 随记'
+readme: true
+capabilities:
+  provides_tools: [jot_list, jot_read, jot_create, jot_update, jot_set_task, jot_delete]
+  provides_hooks: []
+  provides_middleware: []
+  requires_env: []
