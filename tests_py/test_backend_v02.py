@@ -197,6 +197,14 @@ class ChangeEvents(Base):
 
 
 class UnchangedPolls(Base):
+    def setUp(self):
+        super().setUp()
+        # The tag logic is the same on every platform; Windows only switches the fast path off,
+        # which test_windows_hosts_always_ask_the_engine covers.
+        patcher = patch.object(backend, "UNLOCKED_READS", True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def engine_state(self, etag=None):
         """GET /state answered by the real engine, bypassing the Python short-circuit."""
         with patch.object(backend, "state_etag", return_value=None):
