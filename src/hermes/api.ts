@@ -1,6 +1,6 @@
 import type { PluginContext } from '@hermes/plugin-sdk'
 import { JotApiError } from '../client/api.js'
-import type { AttachmentInfo, JotApi, JotState, NoteDownload, RichDoc } from '../client/types.js'
+import type { AttachmentInfo, ImportResult, JotApi, JotState, NoteDownload, RichDoc } from '../client/types.js'
 
 interface Response { status?: number; headers?: Record<string, string>; data?: any; error?: { code: string; message: string }; file?: { path: string; filename: string } }
 
@@ -93,6 +93,18 @@ export function createHermesApi(ctx: PluginContext, ownsProfile: () => boolean,
       assertOwner()
       const response = check(await ctx.rest<Response>('/attachments', { method: 'POST', upload: { filename: file.name, contentType: file.type, bytes }, timeoutMs: 100_000 }))
       return response.data
+    },
+    async importNotes(file, { folderId }): Promise<ImportResult> {
+      const bytes = await file.arrayBuffer()
+      assertOwner()
+      try {
+        const response = check(await ctx.rest<Response>('/import?folderId=' + encodeURIComponent(folderId ?? ''),
+          { method: 'POST', upload: { filename: file.name, contentType: file.type, bytes }, timeoutMs: 300_000 }))
+        return response.data
+      } finally {
+        // Even a failed or timed-out import may have written notes; a state read in flight is stale.
+        generation++
+      }
     },
     async getAttachment(id) {
       assertOwner()

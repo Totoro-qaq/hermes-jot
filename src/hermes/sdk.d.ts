@@ -1,11 +1,16 @@
 declare module '@hermes/plugin-sdk' {
   import type { ReactNode, ComponentType } from 'react'
   interface Atom<T> { get(): T; subscribe(listener: (value: T) => void): () => void }
+  /** A gateway stream frame; plugin broadcasts arrive as `plugin.<id>.<event>`. */
+  interface GatewayEvent { type: string; payload?: unknown; session_id?: string }
+  type GatewayEventListener = (event: GatewayEvent) => void
   interface Contribution { id: string; area: string; title?: string; order?: number; data?: any; render?: (...args: any[]) => ReactNode }
   export interface PluginContext {
     register(item: Contribution): () => void
     registerMany(items: Contribution[]): () => void
     onDispose(fn: () => void): void
+    /** Absent on older hosts. Retired with the plugin; returns a disposer. */
+    onEvent?(type: string, listener: GatewayEventListener): () => void
     addEventListener(target: EventTarget, type: string, listener: EventListener, options?: AddEventListenerOptions | boolean): () => void
     rest<T>(path: string, options?: { method?: string; body?: unknown; upload?: { filename: string; contentType?: string; bytes: ArrayBuffer }; timeoutMs?: number }): Promise<T>
     storage: { get<T>(key: string, fallback: T): T; set(key: string, value: unknown): void; remove(key: string): void }
@@ -21,6 +26,12 @@ declare module '@hermes/plugin-sdk' {
     paneVisibility(id: string): Atom<boolean>
     notify(message: string): void
     notifyError(message: string): void
+    /** Absent on older hosts. Not retired with the plugin: dispose it yourself. */
+    onEvent?(type: string, listener: GatewayEventListener): () => void
+    /** Absent on older hosts. `null` addresses the composer the person last used. */
+    composer?: {
+      insertText(sessionId: string | null, text: string, options?: { mode?: 'block' | 'inline' | 'prefix' }): Promise<boolean>
+    }
   }
   export function useValue<T>(atom: Atom<T>): T
   export function useI18n(): { locale: string }

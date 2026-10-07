@@ -25,7 +25,10 @@ import { NoteList } from './NoteList.js'
 import { noteMatchesQuery, searchElsewhere } from './note-list.js'
 import { NoteOpenConsumer, readHandoffDraft, type NoteOpenRequest } from './note-handoff.js'
 import { consumeJotCommand, type JotCommandRequest } from './commands.js'
-import type { AttachmentInfo, ExportFormat, JotApi, JotLocale, JotState, LibraryExportFormat, Note, RichNode } from './types.js'
+import { startLiveRefresh, type ChangeSignal } from './live-refresh.js'
+import { askAgentMessage, type AskAgentNote, type AskAgentOutcome } from './ask-agent.js'
+import { IMPORT_ACCEPT, importFileProblem, mergeImportResults, summarizeImport } from './import-notes.js'
+import type { AttachmentInfo, ExportFormat, ImportResult, JotApi, JotLocale, JotState, LibraryExportFormat, Note, RichNode } from './types.js'
 import type { AttachmentDialogRequest } from './attachment-dialog.js'
 
 export interface JotAppProps {
@@ -51,6 +54,10 @@ export interface JotAppProps {
   /** Atomically acquire a still-current host recipient before any side effect. */
   onCommandClaim?: (revision: number) => boolean
   onCommandHandled?: (revision: number) => void
+  /** Library changes pushed by the Host; without it the panel polls every few seconds. */
+  changeSignal?: ChangeSignal
+  /** Hand the open note to the conversation, as a reference the agent can read. */
+  onAskAgent?: (note: AskAgentNote) => Promise<AskAgentOutcome>
 }
 
 type SavePhase = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict'
@@ -58,7 +65,6 @@ interface SaveStatus { phase: SavePhase; message?: string }
 type ListView = 'recent' | 'all' | 'trash'
 interface Toast { id: number; text: string; action?: { label: string; run: () => void } }
 
-const POLL_MS = 3000
 const LIST_WIDTH = { min: 220, max: 480, initial: 280 }
 const defaultPreferences = {
   get(key: string): string | null { try { return localStorage.getItem(key) } catch { return null } },
@@ -73,7 +79,7 @@ function Icon({ name }: { name: JotActionIconName }) {
   return <JotActionIcon name={name} />
 }
 
-export function JotApp({ readSelectedText, onEditorSelection, persistence, attachmentPreviewContent, mode, onExpand, openNoteRequest, onNoteRequestHandled, api, locale = 'en', onLocaleChange, chromeInset = false, onEditorFocus, onAttachmentPreview, attachmentDialogRequest, onAttachmentDialogHandled, commandRequest, onCommandClaim, onCommandHandled }: JotAppProps) {
+export function JotApp({ readSelectedText, onEditorSelection, persistence, attachmentPreviewContent, mode, onExpand, openNoteRequest, onNoteRequestHandled, api, locale = 'en', onLocaleChange, chromeInset = false, onEditorFocus, onAttachmentPreview, attachmentDialogRequest, onAttachmentDialogHandled, commandRequest, onCommandClaim, onCommandHandled, changeSignal, onAskAgent }: JotAppProps) {
   const storage = persistence?.preferences ?? defaultPreferences
   const sharedDraftStorage = persistence?.drafts ?? defaultDraftStorage
   const { readDraft, persistDraft, editDraft, savedDraft, recoveryDrafts } = useMemo(() => ({
@@ -272,24 +278,25 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     // A failed poll shows an error; the next successful poll clears only that error.
     const pollError = { current: '' }
     const poll = () => {
-      void refresh().then(() => { if (mounted.current) setError(current => current && current === pollError.current ? '' : current) }, cause => {
+      return refresh().then(() => { if (mounted.current) setError(current => current && current === pollError.current ? '' : current) }, cause => {
         if (!mounted.current) return
         pollError.current = describeError(cause, locale)
         setError(pollError.current)
       })
     }
-    poll()
     // Hidden panels and background windows do not need a live library.
-    const timer = setInterval(() => { if (document.visibilityState !== 'hidden') poll() }, POLL_MS)
-    const visible = () => { if (document.visibilityState === 'visible') poll() }
+    const live = startLiveRefresh({ refresh: poll, signal: changeSignal, isVisible: () => document.visibilityState !== 'hidden' })
+    const visible = () => { if (document.visibilityState === 'visible') live.wake() }
     document.addEventListener('visibilitychange', visible)
+    window.addEventListener('focus', live.wake)
     return () => {
       mounted.current = false
-      clearInterval(timer)
+      live.dispose()
       document.removeEventListener('visibilitychange', visible)
+      window.removeEventListener('focus', live.wake)
       for (const item of drafts.current.values()) persistDraft(item)
     }
-  }, [refresh, api])
+  }, [refresh, api, changeSignal])
 
   useEffect(() => {
     if (!draft?.dirty || statuses[draft.noteId]?.phase === 'conflict' || statuses[draft.noteId]?.phase === 'error') return
@@ -818,6 +825,48 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       : copy('已关闭 AI 协作。', 'AI collaboration is off.'))
   })
 
+  /** The agent cannot see which note is open beside the conversation; this hands it a reference. */
+  const askAgent = () => void perform(async () => {
+    const current = draftRef.current
+    if (!current || !onAskAgent) return
+    if (!snapshotRef.current?.agentEnabled) {
+      showToast(copy('开启 AI 协作后，Hermes 才能读取笔记。', 'Hermes can’t read notes until AI collaboration is on.'),
+        { label: copy('开启', 'Turn on'), run: () => { if (!snapshotRef.current?.agentEnabled) toggleAgent() } })
+      return
+    }
+    // The agent reads the saved note, so what it sees must match the screen.
+    if (current.dirty && !await saveDraft(current.noteId)) return
+    const latest = drafts.current.get(current.noteId) ?? current
+    const outcome = await onAskAgent({ id: latest.noteId, title: latest.title })
+    if (outcome === 'failed') throw new Error(askAgentMessage(outcome, locale))
+    if (mounted.current) showToast(askAgentMessage(outcome, locale))
+  })
+
+  const [importBusy, setImportBusy] = useState(false)
+  const importInput = useRef<HTMLInputElement>(null)
+  /** Files upload one at a time; notes already imported stay even if a later file fails. */
+  const importFiles = async (files: File[]) => {
+    if (importBusy || !files.length || !api.importNotes) return
+    const problem = files.map(file => importFileProblem(file, locale)).find(Boolean)
+    if (problem) { setError(problem); return }
+    const folderId = folderFilter.startsWith('__') ? null : folderFilter
+    const results: ImportResult[] = []
+    setImportBusy(true); setError('')
+    let failure = ''
+    try {
+      for (const file of files) results.push(await api.importNotes(file, { folderId }))
+    } catch (cause) { failure = describeError(cause, locale) }
+    await refresh().catch(() => {})
+    if (!mounted.current) return
+    setImportBusy(false)
+    const summary = summarizeImport(mergeImportResults(results), locale)
+    if (failure) setError(results.length ? `${summary.toast}${copy('。', '. ')}${failure}${summary.details ? `\n${summary.details}` : ''}` : failure)
+    else {
+      if (summary.details) setError(summary.details)
+      showToast(summary.toast)
+    }
+  }
+
   const selectedNote = snapshot?.notes.find(note => note.id === draft?.noteId)
   const recoveries = draft ? recoveryDrafts(draft.noteId) : []
   const selectedStatus = draft ? statuses[draft.noteId] : undefined
@@ -881,6 +930,8 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       onSelect: () => { setFolderForm('create'); setFolderName(''); setFolderDeleteConfirm(false) } }] : []),
     ...(view !== 'trash' && api.exportLibrary ? [{ label: folderFilter === '__all__' ? copy('导出全部笔记…', 'Export all notes…') : copy('导出这些笔记…', 'Export these notes…'),
       icon: 'export' as const, disabled: busy || exportable === 0, onSelect: () => { setExportError(''); setExportOpen(true) } }] : []),
+    ...(view !== 'trash' && api.importNotes ? [{ label: copy('导入笔记…', 'Import notes…'), icon: 'import' as const,
+      disabled: importBusy, onSelect: () => importInput.current?.click() }] : []),
     { separator: true } as const,
     { label: copy('键盘快捷键', 'Keyboard shortcuts'), onSelect: () => setHelpOpen(true) },
     ...(onLocaleChange ? [
@@ -910,6 +961,8 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       { label: copy('永久删除…', 'Delete permanently…'), icon: 'trash' as const, danger: true, disabled: busy, onSelect: () => setPurgeConfirm('note') }] : []),
   ] : [
     ...(agentUndoable ? [{ label: copy('撤销 AI 的修改…', 'Undo AI edits…'), icon: 'restore' as const, disabled: busy, onSelect: () => setRevertConfirm(true) },
+      { separator: true } as const] : []),
+    ...(onAskAgent ? [{ label: copy('让 Hermes 看这条笔记', 'Ask Hermes about this note'), icon: 'ask' as const, disabled: busy, onSelect: askAgent },
       { separator: true } as const] : []),
     { label: draft.pinned ? copy('取消置顶', 'Unpin') : copy('置顶', 'Pin'), icon: 'pin', onSelect: () => patchDraft({ pinned: !draftRef.current?.pinned }), disabled: busy },
     ...(hasFolders ? [{ label: copy('移动到文件夹…', 'Move to folder…'), icon: 'folder' as const, onSelect: () => { setMoveFolder(draftRef.current?.folderId ?? ''); setMoveOpen(true) }, disabled: busy }] : []),
@@ -1081,6 +1134,8 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
               : <span className={`jot-save-label${savePhase === 'error' ? ' is-error' : ''}`} title={saveLabel}>{saveLabel}</span>}
           </span>
           <div className="jot-document-actions">
+            {!selectedDeleted && onAskAgent && <button className="jot-icon-btn" type="button" aria-label={copy('让 Hermes 看这条笔记', 'Ask Hermes about this note')}
+              title={copy('让 Hermes 看这条笔记', 'Ask Hermes about this note')} disabled={busy} onClick={askAgent}><Icon name="ask" /></button>}
             {!selectedDeleted && <button className="jot-icon-btn" type="button" aria-label={copy('添加图片或附件', 'Add image or attachment')} title={copy('添加图片或附件', 'Add image or attachment')}
               disabled={uploadBusy} onClick={() => fileInput.current?.click()}><Icon name="attachment" /></button>}
             <ActionMenu triggerLabel={copy('更多笔记操作', 'More note actions')} items={menuItems} />
@@ -1202,6 +1257,8 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     <style>{jotStyles}</style>
     <input ref={fileInput} type="file" multiple hidden aria-label={copy('选择附件', 'Choose attachments')}
       onChange={event => { const files = [...(event.target.files ?? [])]; event.target.value = ''; void uploadFiles(files) }} />
+    {api.importNotes && <input ref={importInput} type="file" multiple hidden accept={IMPORT_ACCEPT} aria-label={copy('选择要导入的笔记', 'Choose notes to import')}
+      onChange={event => { const files = [...(event.target.files ?? [])]; event.target.value = ''; void importFiles(files) }} />}
     {mode === 'wide' && <header className="jot-workbench-header" data-window-drag={chromeInset ? '' : undefined} aria-label={copy('随记工具栏', 'Jot toolbar')}>
       <JotIcon size={20} />
       <span className="jot-brand">{copy('随记', 'Jot')}</span>
@@ -1233,6 +1290,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     </header>}
     {error && <div className="jot-global-error" role="alert"><span>{error}</span><button className="jot-text-btn" type="button" onClick={() => { setError(''); void refresh().catch(cause => setError(describeError(cause, locale))) }}>{copy('重试', 'Retry')}</button></div>}
     {uploadBusy && <div className="jot-upload-line" role="status">{copy('正在添加附件…', 'Adding files…')}</div>}
+    {importBusy && <div className="jot-upload-line" role="status">{copy('正在导入笔记…', 'Importing notes…')}</div>}
     {dragging && <div className="jot-drop-hint">{copy('松开以添加到笔记', 'Drop files into the note')}</div>}
     {!snapshot ? <div className="jot-loading" role="status">{copy('正在打开随记…', 'Opening Jot…')}</div>
       : <main className="jot-layout">{mode === 'wide' ? <>

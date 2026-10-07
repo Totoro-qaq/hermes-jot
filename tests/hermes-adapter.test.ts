@@ -122,3 +122,47 @@ test('a host echo queued before typing is checked when React applies it, not whe
   assert.equal(pendingReactEffect(), second)
   assert.equal(pendingReactEffect(), second, 'replayed effects must also retain newer input')
 })
+
+test('importing uploads to the import route with the folder and a long timeout', async () => {
+  const calls: Array<{ path: string; options: any }> = []
+  const imported = { notes: 2, attachments: 0, folders: 0, noteIds: ['a', 'b'], skipped: [] }
+  const api = createHermesApi({ rest: async (path: string, options: unknown) => { calls.push({ path, options }); return { status: 200, data: imported } } } as unknown as PluginContext, () => true, save)
+  const bytes = new TextEncoder().encode('# Hello').buffer
+  const file = { name: 'Notes & ideas.md', type: 'text/markdown', arrayBuffer: async () => bytes } as File
+  assert.equal(await api.importNotes!(file, { folderId: 'f/1 2' }), imported)
+  await api.importNotes!(file, { folderId: null })
+  assert.equal(calls[0].path, '/import?folderId=f%2F1%202')
+  assert.equal(calls[1].path, '/import?folderId=')
+  assert.deepEqual(calls[0].options, { method: 'POST', upload: { filename: 'Notes & ideas.md', contentType: 'text/markdown', bytes }, timeoutMs: 300_000 })
+})
+
+test('an import error is raised, and a profile change while reading the file sends nothing', async () => {
+  const api = createHermesApi({ rest: async () => ({ status: 413, error: { code: 'REQUEST_TOO_LARGE', message: 'Too large' } }) } as unknown as PluginContext, () => true, save)
+  await assert.rejects(api.importNotes!({ name: 'a.zip', type: '', arrayBuffer: async () => new ArrayBuffer(1) } as File, { folderId: null }),
+    (error: any) => error.status === 413 && error.code === 'REQUEST_TOO_LARGE')
+  const bytes = deferred<ArrayBuffer>()
+  let owner = true, calls = 0
+  const other = createHermesApi({ rest: async () => { calls++; return {} } } as unknown as PluginContext, () => owner, save)
+  const pending = other.importNotes!({ name: 'a.md', type: '', arrayBuffer: () => bytes.promise } as File, { folderId: null })
+  owner = false
+  bytes.resolve(new ArrayBuffer(1))
+  await assert.rejects(pending, /profile changed/)
+  assert.equal(calls, 0)
+})
+
+test('a state read that started before an import is retried rather than returned stale', async () => {
+  const stale = deferred<unknown>()
+  const state = (notes: number) => ({ version: 1, notes: Array.from({ length: notes }, () => ({})), folders: [], agentEnabled: false })
+  let reads = 0
+  const ctx = { rest: (path: string) => {
+    if (path.startsWith('/import')) return Promise.resolve({ status: 200, data: { notes: 1, attachments: 0, folders: 0, noteIds: ['x'], skipped: [] } })
+    reads++
+    return reads === 1 ? stale.promise : Promise.resolve({ status: 200, headers: { etag: 'after' }, data: state(1) })
+  } } as unknown as PluginContext
+  const api = createHermesApi(ctx, () => true, save)
+  const reading = api.getState()
+  await api.importNotes!({ name: 'a.md', type: '', arrayBuffer: async () => new ArrayBuffer(1) } as File, { folderId: null })
+  stale.resolve({ status: 200, headers: { etag: 'before' }, data: state(0) })
+  assert.equal((await reading).notes.length, 1)
+  assert.equal(reads, 2)
+})

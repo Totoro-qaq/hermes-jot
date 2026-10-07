@@ -4,6 +4,8 @@ import type { HermesPlugin, PluginContext, KeybindContribution } from '@hermes/p
 import { JotApp } from '../client/App.js'
 import { JotIcon } from '../client/JotIcon.js'
 import { readCommandSelection, JOT_COMMANDS } from '../client/commands.js'
+import { createChangeEmitter } from '../client/live-refresh.js'
+import { askAgentReference, deliverAskAgent, type AskAgentNote } from '../client/ask-agent.js'
 import { createControllers } from './controllers.js'
 import { createHermesApi } from './api.js'
 import { createPersistence } from './persistence.js'
@@ -23,6 +25,8 @@ ${hostThemeCss}
 .jot-native-preview{width:100%;border:1px solid var(--ui-stroke-secondary);border-radius:8px;padding:8px 12px;background:var(--ui-bg-secondary)}
 `
 
+/** Broadcast by the Python side after every note mutation. */
+const NOTES_CHANGED = 'plugin.jot.notes.changed'
 const ownerNow = () => JSON.stringify([host.state.connectionId.get() ?? 'local', host.state.profile.get()])
 
 export default {
@@ -49,6 +53,19 @@ export default {
       return controls.forOwner(owner).selectedText || readCommandSelection(target)
     }
     const apis = new Set<ReturnType<typeof createHermesApi>>()
+    // One host subscription feeds every mounted panel. Hosts without the event
+    // stream leave changeSignal undefined, and panels keep their short poll.
+    const changes = createChangeEmitter()
+    const notesChanged = () => changes.emit()
+    const stopEvents = ctx.onEvent?.(NOTES_CHANGED, notesChanged) ?? host.onEvent?.(NOTES_CHANGED, notesChanged)
+    const changeSignal = stopEvents ? changes : undefined
+    const askAgent = (note: AskAgentNote) => {
+      const composer = host.composer
+      return deliverAskAgent(askAgentReference(note), {
+        insert: typeof composer?.insertText === 'function' ? text => composer.insertText(null, text, { mode: 'block' }) : undefined,
+        copy: text => ctx.os.writeClipboard(text),
+      })
+    }
     const open = (action: 'open' | 'new' | 'capture' = 'open', text?: string, requestedTarget?: 'compact' | 'wide') => {
       const { bus, recipient } = controls.forOwner(ownerNow())
       const target = requestedTarget ?? (host.state.activeSessionId.get() ? 'compact' : 'wide')
@@ -74,7 +91,8 @@ export default {
       const command = useSyncExternalStore(bus.subscribe, () => bus.snapshotFor(mode, mode === 'compact' ? recipient : undefined))
       const request = useSyncExternalStore(handoff.subscribe, handoff.getSnapshot)
       return <div className="jot-host"><style>{theme}</style><JotApp mode={mode} locale={locale} onLocaleChange={language.set}
-        api={api} persistence={persistence} onExpand={(...args) => { if (ownerNow() === owner) handoff.open(...args) }}
+        api={api} persistence={persistence} changeSignal={changeSignal}
+        onAskAgent={note => ownerNow() === owner ? askAgent(note) : Promise.resolve('failed' as const)} onExpand={(...args) => { if (ownerNow() === owner) handoff.open(...args) }}
         readSelectedText={() => ownerNow() === owner ? readSelection(owner) : ''}
         onEditorSelection={text => { if (!recipient.signal.aborted) controller.select(selectionId, text) }}
         openNoteRequest={mode === 'wide' ? request : undefined} onNoteRequestHandled={handoff.acknowledge}
@@ -135,6 +153,6 @@ export default {
         id: item.id, label: item.en, category: 'view', defaults: [], run,
       } satisfies KeybindContribution })
     }
-    ctx.onDispose(() => { stopProfile(); stopConnection(); controls.dispose(); for (const api of apis) api.dispose(); apis.clear() })
+    ctx.onDispose(() => { stopEvents?.(); stopProfile(); stopConnection(); controls.dispose(); for (const api of apis) api.dispose(); apis.clear() })
   },
 } satisfies HermesPlugin
