@@ -2,9 +2,9 @@
 
 [简体中文](README.zh-CN.md) · [Guide and permissions](docs/GUIDE.en.md) · [Validation](docs/VALIDATION.md)
 
-![Jot](assets/readme/jot-icon.svg)
+![Jot: notes your Hermes agent can read and update safely](assets/readme/banner.png)
 
-**Keep notes, checklists and documents beside Hermes. Edit them yourself, and invite your agent when useful.**
+**Keep notes, checklists and documents beside Hermes. Edit them yourself; turn on AI collaboration and your agent can read and update them too. Every AI change is revision-checked, and one click undoes it.**
 
 > Catalog submission pending. Native macOS Desktop and agent checks are recorded in [validation](docs/VALIDATION.md), together with platform limits.
 
@@ -16,7 +16,17 @@
 - Optional, user-named folders; sorting, multi-selection, duplication, moving and Trash.
 - Images, file attachments and selected-text capture, with preview, download and default-application actions.
 - TXT, Markdown, PDF and Word (DOCX) export, including folder-organized archives of multiple notes.
-- Optional agent collaboration: find, read, create, append, check tasks and move notes to Trash. Human editors can undo the latest run of AI changes to an existing note.
+- Import Markdown and text files, or a ZIP such as Jot's own library export, with folders and linked files.
+- Optional agent collaboration: find, read, create, edit precisely, append, check tasks and move notes to Trash. Human editors can undo the latest run of AI changes to an existing note.
+
+## Working with your agent
+
+Turn on **Allow AI collaboration** at the bottom of the note list. When you ask, Hermes can then search, read and change your notes through six `jot_*` tools.
+
+- **Ask Hermes about this note** (in the note menu and toolbar) puts a reference to the open note into the message box, so the agent knows which note you mean. Beside a conversation it lands in that conversation's message box; when no message box is open, it is copied for pasting.
+- The agent reads a note as Markdown and changes it with exact find-and-replace edits, so tables, images, colors and other formatting around a change stay as they were. Rewriting a whole note is refused when Markdown cannot represent everything in it, unless you agree to lose that formatting.
+- Changes the agent makes appear in an open Jot panel right away. If you are typing in a note when the agent adds to its end, the new blocks join your draft instead of raising a conflict.
+- Notes the agent changed are marked. **Undo AI edits** restores the version from before its latest run of changes.
 
 ## In Hermes
 
@@ -32,9 +42,13 @@ Captured in the real host with synthetic demo notes and conversations; no person
 
 ## Human control
 
-AI collaboration starts off. Every Jot tool checks the switch, and the tools cannot enable it. Edits require the current revision. Whole-document text replacement that would discard rich formatting is blocked by default. The tool contract requires user consent and an explicit formatting-loss acknowledgement to proceed; appending preserves the existing document.
+AI collaboration starts off. The six tools stay registered with Hermes, so turning collaboration on works in the conversation you already have open; while it is off, every call is refused with a message that tells you where to turn it on, and no tool can enable it. Edits require the current revision. Whole-document text replacement that would discard formatting is blocked by default; the tool contract requires user consent and an explicit formatting-loss acknowledgement to proceed. Precise edits, appending and checklist changes preserve the rest of the document.
 
 Notes are separated by Hermes profile and stored in the host-owned `plugin-data/jot/` directory, outside the plugin installation. Hermes owns model configuration and credentials. Jot needs no extra API key and does not pass keys to its note engine. The tool-access switch does not replace operating-system filesystem permissions.
+
+## Import and portability
+
+Choose **Sort and options → Import notes…** to add Markdown (`.md`, `.markdown`) or text files, or a `.zip` archive. A leading `# Title` becomes the note title; top-level folders in a ZIP become Jot folders, and linked images and files come along as attachments. Jot's own Markdown library export imports back the same way, so an export is a portable copy of your notes. See the [guide](docs/GUIDE.en.md#import) for limits and what an export does not carry.
 
 ## Installation
 
@@ -77,7 +91,7 @@ Editing follows ⌘ on macOS and Ctrl on Windows/Linux. System copy, cut, paste 
 
 ## Implementation
 
-The document model, persistence, revision protection, attachments and exports reuse [dsh-jot](https://github.com/Totoro-qaq/dsh-jot). A Python adapter connects Hermes authentication, profile routing and tool registration to the bundled Node engine over standard input/output. It opens no additional server port.
+The document model, persistence, revision protection, attachments and exports reuse [dsh-jot](https://github.com/Totoro-qaq/dsh-jot). A Python adapter connects Hermes authentication, profile routing and tool registration to the bundled Node engine over standard input/output. It opens no additional server port. The export and import libraries load only for those requests, unchanged-library checks are answered without starting the engine, and Hermes' plugin event bridge tells open Jot panels when notes change.
 
 The rich editor runs inside the official opaque-origin `SandboxedFrame`. The surrounding note workspace and host actions use the SDK. The editor has no host credentials, native filesystem bridge or network access; it exchanges a bounded set of editing messages only with its owning parent component.
 

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FBF6EA"/>
+      <stop offset="1" stop-color="#E4EFE9"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#1F4F45" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="600" fill="url(#bg)"/>
+  <circle cx="1080" cy="80" r="190" fill="#3B8C76" opacity="0.07"/>
+  <circle cx="120" cy="560" r="150" fill="#E6AD54" opacity="0.09"/>
+
+  <g transform="translate(84 92) scale(6.2)">
+    <rect x="3.5" y="3.5" width="17" height="18.5" rx="2.5" fill="#3B8C76"/>
+    <path d="M7 3.5V22H6a2.5 2.5 0 0 1-2.5-2.5V6A2.5 2.5 0 0 1 6 3.5h1Z" fill="#185F50"/>
+    <rect x="7" y="5" width="12" height="15.5" rx="1.25" fill="#FFF9EA"/>
+    <path d="M13.5 1h4v9.5l-2-1.5-2 1.5V1Z" fill="#E6AD54"/>
+    <path d="m9.4 14 1.8 1.8 3.4-3.6M9.4 18.2h6.2" fill="none" stroke="#286B5D" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="84" y="330" font-family="Noto Sans SC" font-weight="700" font-size="92" fill="#1F4F45">Jot</text>
+  <text font-family="Noto Sans SC" font-size="31" fill="#2E3B36">
+    <tspan x="88" y="392">Notes your Hermes agent can</tspan>
+    <tspan x="88" y="436">read and update — safely.</tspan>
+  </text>
+  <text font-family="Noto Sans SC" font-size="21" fill="#5B6B64">
+    <tspan x="88" y="500">Rich text · checklists · tables · files</tspan>
+    <tspan x="88" y="532">Revision checks and one-click undo of AI edits</tspan>
+  </text>
+
+  <g filter="url(#shadow)">
+    <rect x="640" y="96" width="480" height="408" rx="22" fill="#FFFFFF"/>
+  </g>
+  <text x="680" y="158" font-family="Noto Sans SC" font-weight="700" font-size="28" fill="#1F2A26">Release checklist</text>
+  <g transform="translate(680 180)">
+    <rect width="150" height="34" rx="17" fill="#E9F3EF"/>
+    <g transform="translate(12 5) scale(1)" fill="none" stroke="#2F7A66" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11 3.5c.6 3.8 1.9 5.2 5.5 6.2-3.6 1-4.9 2.4-5.5 6.2-.6-3.8-1.9-5.2-5.5-6.2 3.6-1 4.9-2.4 5.5-6.2z"/>
+    </g>
+    <text x="42" y="23" font-family="Noto Sans SC" font-size="17" fill="#2F7A66">AI edited · Undo</text>
+  </g>
+
+  <g font-family="Noto Sans SC" font-size="21" fill="#2E3B36">
+    <rect x="682" y="250" width="22" height="22" rx="5" fill="#3B8C76"/>
+    <path d="m687 261 4 4 8-8" fill="none" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="720" y="268" fill="#8A958F" text-decoration="line-through">Review the brief</text>
+    <rect x="683" y="296" width="20" height="20" rx="5" fill="none" stroke="#9AA7A1" stroke-width="2"/>
+    <text x="720" y="313">Test the first run</text>
+    <rect x="683" y="341" width="20" height="20" rx="5" fill="none" stroke="#9AA7A1" stroke-width="2"/>
+    <text x="720" y="358">Share release notes</text>
+  </g>
+  <rect x="682" y="383" width="200" height="34" rx="8" fill="#FDF4E1"/>
+  <text x="696" y="406" font-family="Noto Sans SC" font-size="17" fill="#9A6A1C">+ added by your agent</text>
+
+  <g font-family="Noto Sans SC" font-size="17" fill="#2E3B36">
+    <rect x="682" y="432" width="398" height="48" rx="8" fill="none" stroke="#D8E1DC" stroke-width="1.5"/>
+    <line x1="881" y1="432" x2="881" y2="480" stroke="#D8E1DC" stroke-width="1.5"/>
+    <text x="698" y="462" font-weight="700">Owner</text>
+    <text x="898" y="462" font-weight="700">Status</text>
+  </g>
+</svg>

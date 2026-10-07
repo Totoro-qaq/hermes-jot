@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Human-editable notes and documents for Hermes Desktop, with optional agent collaboration.",
+  "description": "Notes, checklists and documents beside Hermes that your agent can read and update safely, with revision checks and one-click undo.",
   "license": "MIT",
   "engines": {
     "node": ">=22.19.0"

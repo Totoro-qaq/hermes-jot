@@ -2,14 +2,15 @@
 name: jot
 repo: https://github.com/Totoro-qaq/hermes-jot
 sha: '@FULL_COMMIT_SHA@'
-description: Human-editable notes, checklists and documents for Hermes Desktop, with optional agent collaboration.
+description: Notes, checklists and documents beside Hermes that your agent can read and update safely, with revision checks and one-click undo.
 maintainer: Totoro-qaq
 tier: community
 category: desktop
 requires_hermes: '>=0.21.5'
-version: '0.1.0'
+version: '0.2.0'
 title: 'Jot'
 readme: true
+image: https://raw.githubusercontent.com/Totoro-qaq/hermes-jot/@FULL_COMMIT_SHA@/assets/readme/banner.png
 screenshots:
   - https://raw.githubusercontent.com/Totoro-qaq/hermes-jot/@FULL_COMMIT_SHA@/assets/readme/workspace.en.jpg
   - https://raw.githubusercontent.com/Totoro-qaq/hermes-jot/@FULL_COMMIT_SHA@/assets/readme/sidebar.en.jpg

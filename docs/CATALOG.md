@@ -16,4 +16,4 @@ Before submitting:
 - The entry must disclose the Node subprocess, profile-owned local notes, explicit default-application file opening and opaque editor frame. No updater, model credentials or runtime core patching.
 - Submit one catalog YAML PR to NousResearch/hermes-agent. A package passing validation is not proof of maintainer acceptance.
 
-Expected category: desktop. Name: jot (check availability again before submission). Version: 0.1.0. License: MIT. Tool declarations must exactly match plugin.yaml and runtime/tools.json.
+Expected category: desktop. Name: jot (check availability again before submission). Version: 0.2.0. License: MIT. Tool declarations must exactly match plugin.yaml and runtime/tools.json.
