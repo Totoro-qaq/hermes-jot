@@ -63,5 +63,7 @@ export function hostLabels(locale: JotLocale) {
     /** English words keep working in every language. */
     keywords: [...new Set(['jot', 'notes', lower(name), lower(t('Notes'))])],
     backendOff: t('Enable the Jot backend in Hermes Plugins, then try again.'),
+    /** Thrown from register() on a host without the SDK features Jot needs; Hermes shows it. */
+    outdated: t('Jot requires a recent Hermes Desktop SDK with SandboxedFrame and gateway file downloads. Update Hermes Desktop, then enable Jot again.'),
   }
 }

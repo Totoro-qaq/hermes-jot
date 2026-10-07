@@ -13,7 +13,7 @@ import {
   type RichDoc, type RichMark, type RichNode,
 } from './model.js'
 import { EXPORT_FORMATS, LIBRARY_EXPORT_FORMATS, type ExportFormat, type LibraryExportFormat } from './export-formats.js'
-import { normalizeLocale, translator } from './client/i18n.js'
+import { normalizeLocale, translator, type JotLocale } from './client/i18n.js'
 
 export { EXPORT_FORMATS, LIBRARY_EXPORT_FORMATS, type ExportFormat, type LibraryExportFormat } from './export-formats.js'
 export const MAX_EXPORT_ATTACHMENTS = 100
@@ -34,6 +34,14 @@ type Input = { title: string; content: RichDoc }
 type Titled = Input & { untitled: string }
 
 function invalid(message: string): never { throw new StoreError('INVALID_INPUT', message) }
+/**
+ * The name a PDF prints for an untitled note. The PDF writer draws text glyph by glyph with
+ * Noto Sans SC, which has no Arabic letters and cannot shape or reorder them, so Arabic PDFs
+ * print the English name; file and folder names keep the Arabic one.
+ */
+function pdfUntitled(locale: JotLocale, untitled: string): string {
+  return locale === 'ar' ? 'Untitled' : untitled
+}
 function filename(value: string, untitled = 'Untitled'): string {
   const cleaned = value.normalize('NFC').replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/gu, '_')
     .replace(/^[.\s]+|[.\s]+$/gu, '').slice(0, 100)
@@ -582,8 +590,8 @@ export async function exportJotNote(input: Input, format: ExportFormat, options:
   if (!EXPORT_FORMATS.includes(format)) invalid('Unsupported export format')
   const title = boundedString(input.title, MAX_TITLE_LENGTH, 'title')
   const content = validateRichDoc(input.content)
-  const t = translator(normalizeLocale(options.locale))
-  const untitled = t('Untitled')
+  const locale = normalizeLocale(options.locale)
+  const untitled = translator(locale)('Untitled')
   const validated = { title, content, untitled }
   const assets = await loadAssets(content, options.attachmentLoader)
   let buffer: Buffer, extension: string = format, contentType: string
@@ -600,7 +608,10 @@ export async function exportJotNote(input: Input, format: ExportFormat, options:
   } else if (format === 'docx') {
     buffer = await wordDocument(validated, assets)
     contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  } else { buffer = await pdfDocument(validated, assets, options.fontDirectory); contentType = 'application/pdf' }
+  } else {
+    buffer = await pdfDocument({ ...validated, untitled: pdfUntitled(locale, untitled) }, assets, options.fontDirectory)
+    contentType = 'application/pdf'
+  }
   if (buffer.length > MAX_EXPORT_BYTES) invalid('Export exceeds 50 MiB')
   return { buffer, filename: `${filename(title, untitled)}.${extension}`, contentType }
 }
@@ -642,8 +653,10 @@ function uniquePath(used: Set<string>, directory: string, base: string, extensio
 export async function exportJotLibrary(input: { notes: readonly LibraryExportNote[]; folders: readonly { id: string; name: string }[] },
   format: LibraryExportFormat, options: LibraryExportOptions = {}): Promise<LibraryExport> {
   if (!LIBRARY_EXPORT_FORMATS.includes(format)) invalid('Unsupported export format')
-  const t = translator(normalizeLocale(options.locale))
+  const locale = normalizeLocale(options.locale)
+  const t = translator(locale)
   const untitled = t('Untitled')
+  const printed = format === 'pdf' ? pdfUntitled(locale, untitled) : untitled
   if (!input.notes.length) invalid('There are no notes to export')
   if (input.notes.length > MAX_LIBRARY_EXPORT_NOTES) invalid(`Export at most ${MAX_LIBRARY_EXPORT_NOTES} notes at once; export one folder at a time`)
   if (format === 'pdf' && input.notes.length > MAX_LIBRARY_PDF_NOTES) {
@@ -695,7 +708,7 @@ export async function exportJotLibrary(input: { notes: readonly LibraryExportNot
     const directory = note.folderId ? folders.get(note.folderId) ?? '' : ''
     const title = displayTitle(note, untitled)
     const path = uniquePath(used, directory, filename(title, untitled), `.${format}`)
-    const document = { title, content: note.content, untitled }
+    const document = { title: displayTitle(note, printed), content: note.content, untitled: printed }
     if (format === 'md') {
       // Links are relative to the note's own folder.
       const local: Assets = directory ? new Map([...assets].map(([id, file]) => [id, { ...file, assetPath: `../${file.assetPath}` }])) : assets

@@ -71,6 +71,7 @@ test('labels Hermes samples at registration follow the language', () => {
     if (locale !== 'zh' && locale !== 'zh-hant') assert.equal(labels.name, 'Jot', `${locale} keeps the product name`)
     if (locale !== 'en') {
       assert.notEqual(labels.backendOff, english.backendOff, `${locale} notice`)
+      assert.notEqual(labels.outdated, english.outdated, `${locale} outdated-host error`)
       assert.notEqual(labels.commands['jot.new-note'], english.commands['jot.new-note'], `${locale} command`)
     }
   }

@@ -11,7 +11,7 @@ const BY_CODE: Record<string, Copy> = {
   PERSISTENCE_ERROR: t => t('Could not write to the notes folder. Your changes are still here.'),
   CORRUPT_STATE: t => t('The notes file could not be read. The original and its backup were kept.'),
   HUMAN_ONLY: t => t('Only you can do this.'),
-  AGENT_DISABLED: t => t('AI collaboration is off.'),
+  AGENT_DISABLED: t => t('AI collaboration is turned off.'),
   UNAUTHORIZED: t => t('The Hermes session expired. Reload the Hermes page.'),
   FORBIDDEN: t => t('Hermes refused this request. Reload the page and try again.'),
   // Thrown by the Hermes adapter when the person switched profile or connection under an open panel.

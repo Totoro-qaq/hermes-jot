@@ -205,7 +205,7 @@ test('a failed editor load is described, and reopening tries again', async () =>
   const { describeError } = await import('../src/client/errors.js')
   let calls = 0
   const api = createHermesApi({ rest: async () => { if (++calls === 1) throw new Error('backend off'); return { src: 'blob:editor' } } } as unknown as PluginContext, () => true, save)
-  await assert.rejects(api.loadEditor!(), (error: unknown) => describeError(error, 'fr') === "Impossible de charger l'éditeur de Jot. Réactivez le backend, puis rouvrez cette note.")
+  await assert.rejects(api.loadEditor!(), (error: unknown) => describeError(error, 'fr') === "Impossible de charger l'éditeur Jot. Réactivez le backend, puis rouvrez cette note.")
   assert.equal(await api.loadEditor!(), 'blob:editor')
   assert.equal(await api.loadEditor!(), 'blob:editor')
   assert.equal(calls, 2, 'a loaded editor is cached')

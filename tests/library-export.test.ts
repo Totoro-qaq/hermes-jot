@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import { inflateSync } from 'node:zlib'
 import { strFromU8, unzipSync } from 'fflate'
 import { exportJotLibrary, exportJotNote, MAX_LIBRARY_EXPORT_BYTES, MAX_LIBRARY_EXPORT_NOTES, MAX_LIBRARY_PDF_NOTES, type ExportAttachment, type LibraryExportNote } from '../src/exports.js'
 import { describeError } from '../src/client/errors.js'
@@ -100,6 +101,32 @@ test('archives name the product, the attachments folder and untitled notes in th
   assert.equal(single.filename, 'Unbenannt.md')
   assert.match(single.buffer.toString('utf8'), /^# Unbenannt\n/u)
   assert.equal((await exportJotNote({ title: '', content: docFromMarkdown('body') }, 'txt')).filename, 'Untitled.txt')
+})
+
+/** Unicode code points a PDF's embedded fonts map glyphs to (from its ToUnicode CMaps). */
+function pdfCodePoints(buffer: Uint8Array): Set<number> {
+  const raw = Buffer.from(buffer), text = raw.toString('latin1'), found = new Set<number>()
+  for (const match of text.matchAll(/<<[^]*?>>\s*stream\r?\n/gu)) {
+    const start = match.index + match[0].length, end = text.indexOf('\nendstream', start)
+    let stream: string
+    try { stream = (match[0].includes('/FlateDecode') ? inflateSync(raw.subarray(start, end)) : raw.subarray(start, end)).toString('latin1') } catch { continue }
+    if (!stream.includes('begincmap')) continue
+    for (const [, hex] of stream.matchAll(/<[0-9a-f]+>\s*<([0-9a-f]{4})>/giu)) found.add(Number.parseInt(hex!, 16))
+  }
+  return found
+}
+
+test('an Arabic PDF prints untitled notes in English, since its font has no Arabic letters', async () => {
+  const arabic = (points: Set<number>) => [...points].some(point => point >= 0x0600 && point <= 0x06ff)
+  const single = await exportJotNote({ title: '', content: docFromMarkdown('body') }, 'pdf', { locale: 'ar' })
+  assert.equal(single.filename, 'بلا عنوان.pdf', 'the file name keeps the Arabic word')
+  const printed = pdfCodePoints(single.buffer)
+  assert.ok(printed.has(0x55) && !arabic(printed), 'the heading is drawn as "Untitled"')
+  const archive = unzipSync((await exportJotLibrary({ folders: [], notes: [note('1', '', docFromMarkdown(''))] }, 'pdf', { locale: 'ar' })).buffer)
+  assert.deepEqual(Object.keys(archive), ['بلا عنوان.pdf'])
+  assert.ok(!arabic(pdfCodePoints(archive['بلا عنوان.pdf']!)), 'archived PDFs print the English name too')
+  const russian = pdfCodePoints((await exportJotNote({ title: '', content: docFromMarkdown('body') }, 'pdf', { locale: 'ru' })).buffer)
+  assert.ok(russian.has('Б'.codePointAt(0)!), 'scripts the font covers keep the translated name')
 })
 
 test('library exports refuse empty, oversized and unknown requests', async () => {

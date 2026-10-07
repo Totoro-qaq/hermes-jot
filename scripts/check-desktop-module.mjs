@@ -167,14 +167,17 @@ for (const scenario of scenarios) {
     palette: ['随记：打开随记', '随记：新建笔记', '随记：摘录选中的文字'],
     keybinds: ['随记：打开随记', '随记：新建笔记', '随记：摘录选中的文字'] }, 'Chinese host')
   const page = latest().get('routes:page').render
+  const pane = latest().get('panes:notes')
   const before = contributions.length
   host.switchTo('ja')
   assert.ok(contributions.length > before, 'labels re-register on a locale change')
   const after = latest()
-  assert.deepEqual(labelsOf(after), { route: 'Jot', nav: 'Jot', pane: '随记',
+  assert.deepEqual(labelsOf(after), { route: 'Jot', nav: 'Jot', pane: 'Jot',
     palette: ['Jot：Jot を開く', 'Jot：新しいノート', 'Jot：選択したテキストを取り込む'],
     keybinds: ['Jot：Jot を開く', 'Jot：新しいノート', 'Jot：選択したテキストを取り込む'] }, 'after switching to Japanese')
   assert.equal(after.get('routes:page').render, page, 'the open page keeps its component, so it stays mounted')
+  for (const key of ['tabLead', 'tabTitle', 'tabTitleText']) assert.equal(after.get('panes:notes').data[key], pane.data[key], key)
+  assert.equal(after.get('panes:notes').render, pane.render, 'the side panel keeps its component too')
   assert.equal(after.get('panes:notes').data.tabTitleText(), 'Jot', 'the pane tab follows through tabTitleText')
   assert.ok(after.get('palette:palette-open').data.keywords.includes('ノート'))
   const count = contributions.length
@@ -190,7 +193,17 @@ for (const scenario of scenarios) {
   sdk.host.notifyError = () => {}
 }
 function latestLabelCount(latest) {
-  return [...latest.values()].filter(item => ['routes', 'sidebar.nav', 'palette', 'keybinds'].includes(item.area)).length
+  return [...latest.values()].filter(item => ['routes', 'sidebar.nav', 'panes', 'palette', 'keybinds'].includes(item.area)).length
+}
+
+// Hermes shows the error register() throws on an outdated host, so it is in the Hermes language.
+{
+  const outdated = await loadPlugin(createSdk({ SandboxedFrame: undefined }))
+  const host = hostI18n('es')
+  assert.throws(() => outdated.register(pluginContext({ i18n: host.i18n }).ctx),
+    { message: /^Jot necesita un SDK de Hermes Desktop reciente/u })
+  assert.equal(host.listeners, 0, 'a failed registration leaves no locale listener')
+  assert.throws(() => outdated.register(pluginContext().ctx), { message: /^Jot requires a recent Hermes Desktop SDK/u })
 }
 
 // With useI18n, React surfaces follow Hermes' live language directly.
@@ -203,4 +216,4 @@ function latestLabelCount(latest) {
   live = 'zh-hant'
   assert.equal(render(latest().get('panes:notes').data.tabTitle()), '隨記')
 }
-console.log('PASS compiled Desktop module: ESM evaluation, public imports, entry points, three keybindings, notes.changed subscription with and without host events, and labels in the Hermes language with and without ctx.i18n, onLocaleChange and useI18n')
+console.log('PASS compiled Desktop module: ESM evaluation, public imports, entry points, three keybindings, notes.changed subscription with and without host events, and labels (pane title and outdated-host error included) in the Hermes language with and without ctx.i18n, onLocaleChange and useI18n')

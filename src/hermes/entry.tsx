@@ -37,14 +37,17 @@ export default {
   description: 'Notes, checklists and documents, shared with your agent when you choose.',
   defaultEnabled: false,
   register(ctx: PluginContext) {
-    if (typeof sdk.SandboxedFrame !== 'function' || typeof sdk.captureGatewayFileDownload !== 'function'
-        || typeof sdk.useTheme !== 'function' || !host.state.connectionId || typeof host.revealPane !== 'function'
-        || typeof host.paneVisibility !== 'function') {
-      throw new Error('Jot requires a recent Hermes Desktop SDK with SandboxedFrame and gateway file downloads. Update Hermes Desktop, then enable Jot again.')
-    }
     // Jot follows the Hermes language and never changes it. React reads it live with
     // useI18n; text Hermes samples at registration is re-registered when it changes.
     const hostLocale = createHostLocale(ctx.i18n)
+    if (typeof sdk.SandboxedFrame !== 'function' || typeof sdk.captureGatewayFileDownload !== 'function'
+        || typeof sdk.useTheme !== 'function' || !host.state.connectionId || typeof host.revealPane !== 'function'
+        || typeof host.paneVisibility !== 'function') {
+      // Hermes shows this message to the person, so it is in their language.
+      const message = hostLabels(hostLocale.getSnapshot()).outdated
+      hostLocale.dispose()
+      throw new Error(message)
+    }
     function useJotLocale(): JotLocale {
       const registered = useSyncExternalStore(hostLocale.subscribe, hostLocale.getSnapshot, hostLocale.getSnapshot)
       const live = useHostI18n?.().locale
@@ -135,16 +138,24 @@ export default {
     function PaneTitle() {
       return <>{hostLabels(useJotLocale()).name}</>
     }
+    // Hermes mounts a contribution's render function as a component, so these stay the same
+    // functions across registrations and an open page or side panel stays mounted.
     const renderPage = () => <Surface mode="wide" />
+    const renderPane = () => <SidePanel />
+    const paneLead = () => <JotIcon size={15} />
+    const paneTitle = () => <PaneTitle />
+    const paneTitleText = () => hostLabels(hostLocale.getSnapshot()).name
     const commands = JOT_COMMANDS.map(item => ({ item, run: () => open(item.action, item.action === 'capture' ? readSelection() : undefined) }))
     // Hermes samples these labels at registration, so they are registered again when the
-    // language changes. The same ids replace the entries in place (nothing is removed
-    // first), and the page keeps its render function, so an open page stays mounted.
+    // language changes. The same ids replace the entries in place (nothing is removed first).
+    // Hosts with data.tabTitle render the pane tab live; the rest read its static title.
     const registerLabels = (locale: JotLocale) => {
       const labels = hostLabels(locale)
       ctx.registerMany([
         { id: 'page', area: 'routes', title: labels.name, data: { path: '/jot' }, render: renderPage },
         { id: 'nav', area: 'sidebar.nav', order: 40, data: { path: '/jot', label: labels.name, codicon: 'notebook' } },
+        { id: 'notes', area: 'panes', title: labels.name, data: { placement: 'right', width: '420px',
+          hideOnly: true, tabLead: paneLead, tabTitle: paneTitle, tabTitleText: paneTitleText }, render: renderPane },
         ...commands.flatMap(({ item, run }) => [
           { id: `palette-${item.action}`, area: 'palette', data: {
             id: item.id, action: item.id, label: labels.commands[item.id], keywords: labels.keywords, run,
@@ -157,11 +168,7 @@ export default {
     }
     registerLabels(hostLocale.getSnapshot())
     const stopLabels = hostLocale.subscribe(() => registerLabels(hostLocale.getSnapshot()))
-    // The pane stays registered once: hosts with data.tabTitle render its tab in the live language.
     ctx.registerMany([
-      { id: 'notes', area: 'panes', title: hostLabels(hostLocale.getSnapshot()).name, data: { placement: 'right', width: '420px',
-        hideOnly: true, tabLead: () => <JotIcon size={15} />, tabTitle: () => <PaneTitle />,
-        tabTitleText: () => hostLabels(hostLocale.getSnapshot()).name }, render: () => <SidePanel /> },
       { id: 'composer', area: 'composer.actions', order: 30, render: () => <ComposerButton /> },
       { id: 'slash', area: 'composer.middleware', data: { handler: async (draft: { text: string; attachments?: unknown[] }) => {
         const text = draft.text.trim()
