@@ -60,18 +60,22 @@ function marksAt(nodes: readonly RichNode[], offset: number): RichMark[] | undef
 const markKey = (mark: RichMark) => JSON.stringify(mark)
 
 /**
- * Marks for text replacing no characters (only line breaks, or nothing):
- * formatting shared by both neighbours; at a block or line edge, the one
- * neighbour's marks without its link.
+ * Marks for text replacing no characters (only line breaks, or nothing). A
+ * neighbour inside the find wins over one outside it, so lengthening a
+ * formatted run keeps its formatting; two neighbours on the same side of the
+ * find give their shared marks. A link only grows into a gap it already spans.
  */
-function insertionMarks(nodes: readonly RichNode[], from: number, to: number): RichMark[] {
+function insertionMarks(nodes: readonly RichNode[], from: number, to: number, beforeInFind: boolean, afterInFind: boolean): RichMark[] {
   const before = from > 0 ? marksAt(nodes, from - 1) : null
   const after = marksAt(nodes, to)
-  if (before && after) {
-    const shared = new Set(after.map(markKey))
-    return before.filter(mark => shared.has(markKey(mark)))
+  const shared = (marks: RichMark[], other: RichMark[] | null | undefined) => {
+    const keys = new Set((other ?? []).map(markKey))
+    return marks.filter(mark => keys.has(markKey(mark)))
   }
-  return (before ?? after ?? []).filter(mark => mark.type !== 'link')
+  if (before && after && beforeInFind === afterInFind) return shared(before, after)
+  const [inside, outside] = before && (beforeInFind || !after) ? [before, after] : [after ?? [], before]
+  const links = shared(inside, outside)
+  return inside.filter(mark => mark.type !== 'link' || links.includes(mark))
 }
 
 function mergeInline(nodes: readonly RichNode[]): RichNode[] {
@@ -108,7 +112,7 @@ function replaceInBlock(block: RichNode, start: number, find: string, replace: s
     if (block.type === 'codeBlock') added.push({ type: 'text', text: inserted })
     else {
       const replaced = slice(nodes, from, to).find(node => node.type === 'text')
-      const marks = from < to && replaced ? replaced.marks ?? [] : insertionMarks(nodes, from, to)
+      const marks = from < to && replaced ? replaced.marks ?? [] : insertionMarks(nodes, from, to, prefix > 0, suffix > 0)
       inserted.split('\n').forEach((line, index) => {
         if (index > 0) added.push({ type: 'hardBreak' })
         if (line) added.push(marks.length ? { type: 'text', text: line, marks } : { type: 'text', text: line })

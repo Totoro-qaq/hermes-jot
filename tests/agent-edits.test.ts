@@ -35,6 +35,25 @@ test('text around a match keeps its marks, and replaced text takes the first rep
   assert.deepEqual(edit(docFromMarkdown('**v1**'), 'v1', 'v1.2'), docFromMarkdown('**v1.2**'), 'inside a bold block, insertions stay bold')
 })
 
+test('lengthening a formatted run keeps its formatting wherever the run sits', () => {
+  for (const [source, find, replace, expected] of [
+    ['Owner: **Ana**', 'Ana', 'Anabel', 'Owner: **Anabel**'],
+    ['Owner: **Ana** today', 'Ana', 'Anabel', 'Owner: **Anabel** today'],
+    ['Ship **v1** today', 'v1', 'v1.2', 'Ship **v1.2** today'],
+    ['a **bold** b', 'bold', 'bolder', 'a **bolder** b'],
+    ['Due *Monday* please', 'Monday', 'Monday 9am', 'Due *Monday 9am* please'],
+    ['Meet at `10:00` sharp', '10:00', '10:00 UTC', 'Meet at `10:00 UTC` sharp'],
+    ['Ship **v1** today', 'v1', 'new v1', 'Ship **new v1** today'],
+    ['Ship **v1** today', 'v1 today', 'v1 late today', 'Ship **v1** late today'],
+    ['Ship **v1** today', 'Ship v1', 'Ship it v1', 'Ship it **v1** today'],
+  ] as const) assert.deepEqual(edit(docFromMarkdown(source), find, replace), docFromMarkdown(expected), `${find} -> ${replace} in ${source}`)
+  const link = { type: 'link', attrs: { href: 'https://x.test' } } as const
+  assert.deepEqual(edit(docFromMarkdown('Read [docs](https://x.test) today'), 'docs', 'docs page'),
+    doc(p(text('Read '), text('docs', link), text(' page today'))), 'a link does not grow past its edge mid-sentence')
+  assert.deepEqual(edit(docFromMarkdown('Read [docs](https://x.test) today'), 'do', 'do the '),
+    doc(p(text('Read '), text('do the cs', link), text(' today'))), 'inside a link, insertions stay linked')
+})
+
 test('edits reach table cells, task items, quotes and code blocks', () => {
   const source = docFromMarkdown('| Name | Owner |\n| --- | --- |\n| Launch | Ana |\n\n- [x] Book venue\n- [ ] Send invites\n\n> quoted line\n\n```js\nconst a = 1\nconst b = 2\n```')
   const result = applyTextEdits(source, [
