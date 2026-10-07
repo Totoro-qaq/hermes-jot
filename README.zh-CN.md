@@ -81,7 +81,7 @@ hermes plugins validate . --json
 
 ## 语言
 
-Hermes 版默认使用英文。在“Sort and options → Interface language → 简体中文”切换为中文，随记会记住选择，不影响 Hermes 的语言设置。笔记内容保留你书写的语言。首页 README 和演示材料优先使用英文。
+随记跟随 Hermes 的界面语言（设置 → 外观 → 语言），支持 English、简体中文、繁體中文、日本語、العربية（从右到左）、Русский、Français、Deutsch、Español；Hermes 的其他语言下随记显示英文。笔记内容保留你书写时的语言和文字方向；整库导出的文件与文件夹名称使用当前语言。首页 README 和演示材料优先使用英文。
 
 ## 界面与快捷键
 

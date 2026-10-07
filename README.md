@@ -81,7 +81,7 @@ Jot follows Hermes’ active theme for the workspace, editor and dialogs, includ
 
 ## Language
 
-Jot starts in English. Choose **Sort and options → Interface language → 简体中文** to switch to Chinese; the choice is remembered for Jot without changing Hermes. Notes keep the language you write them in. The main README and demo materials are English-first.
+Jot follows the Hermes interface language (Settings → Appearance → Language): English, 简体中文, 繁體中文, 日本語, العربية (right to left), Русский, Français, Deutsch and Español. Other Hermes languages show Jot in English. Notes keep the language and direction they are written in, and library exports name their files and folders in the current language. The main README and demo materials are English-first.
 
 ## Entry points and shortcuts
 

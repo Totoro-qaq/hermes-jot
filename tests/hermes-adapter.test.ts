@@ -189,7 +189,7 @@ test('Hermes adapter errors carry codes the interface describes in its language'
   let owner = true
   const api = createHermesApi({ rest: async () => ({ status: 200 }), os: { openExternal: async () => false } } as unknown as PluginContext, () => owner, save)
   await assert.rejects(api.openExternal!('file:///etc/passwd'), (error: unknown) => describeError(error, 'de') === 'Jot öffnet nur Web- und E-Mail-Links.')
-  await assert.rejects(api.openExternal!('https://example.com'), (error: unknown) => describeError(error, 'zh') === '没能打开链接。')
+  await assert.rejects(api.openExternal!('https://example.com'), (error: unknown) => describeError(error, 'zh') === '无法打开链接。')
   await assert.rejects(api.exportNote!({ title: 'A', content: docFromText('x') }, 'txt'), (error: unknown) =>
     describeError(error, 'es') === 'Hermes no devolvió el archivo exportado. Inténtalo de nuevo.')
   owner = false

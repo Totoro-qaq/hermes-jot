@@ -28,10 +28,10 @@ test('nothing delivered is reported as a failure, never as success', async () =>
 
 test('outcome copy is localized', () => {
   assert.equal(askAgentMessage('inserted', 'en'), 'Added to the message box')
-  assert.equal(askAgentMessage('inserted', 'zh'), '已放进输入框')
+  assert.equal(askAgentMessage('inserted', 'zh'), '已添加到输入框')
   assert.equal(askAgentMessage('copied', 'en'), 'Copied — paste it into a conversation')
   assert.equal(askAgentMessage('copied', 'zh'), '已复制，可粘贴到对话中')
   assert.match(askAgentMessage('failed', 'en'), /Try again/)
-  assert.equal(askAgentMessage('inserted', 'zh-hant'), '已放入輸入框')
+  assert.equal(askAgentMessage('inserted', 'zh-hant'), '已加入輸入框')
   assert.equal(askAgentMessage('copied', 'de'), 'Kopiert – in eine Konversation einfügen')
 })

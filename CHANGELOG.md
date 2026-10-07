@@ -9,6 +9,10 @@
 - When the agent appends to the note being edited, its new blocks join the open draft instead of raising a "Draft kept" conflict.
 - With collaboration off, tool calls return a message that says where to turn it on. The tools stay registered, so turning collaboration on works in conversations that are already open. Tool schemas are shorter (about 3.1K characters, down from 3.9K).
 
+### Language and layout
+- Jot follows the Hermes interface language: English, Simplified and Traditional Chinese, Japanese, Arabic (right to left), Russian, French, German and Spanish. Jot's own language option is gone. Notes keep the direction of their own text.
+- Header rows, dividers and the list follow Hermes' layout: header lines line up with the sidebar tab row and side-pane headers, the list/editor divider is back, and the bottom row has no extra rule.
+
 ### Notes
 - Import Markdown, text and ZIP files, including Jot's own Markdown library export, with folders, images and file attachments.
 - Open panels refresh through Hermes' plugin event bridge when notes change, instead of polling every 3 seconds; a 30-second check remains as a fallback.

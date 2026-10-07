@@ -2263,6 +2263,9 @@ function requireRevision(body) {
   }
   return body.revision;
 }
+function exportLocale(value) {
+  return typeof value === "string" && value.length <= 64 ? value : void 0;
+}
 function pathId(encoded) {
   try {
     return decodeURIComponent(encoded);
@@ -2362,14 +2365,14 @@ function createJotHandler(store, options = {}) {
         }
       } else if (method === "POST" && path === "/export") {
         const body = await readJson(request);
-        onlyKeys(body, ["title", "content", "format"], "export");
+        onlyKeys(body, ["title", "content", "format", "locale"], "export");
         const title = boundedString(body.title ?? "", MAX_TITLE_LENGTH, "title");
         const content = validateRichDoc(body.content);
         if (typeof body.format !== "string" || !EXPORT_FORMATS.includes(body.format)) {
           throw new HttpError("INVALID_EXPORT_FORMAT", "Choose TXT, Markdown, PDF or DOCX.", 400);
         }
         const { exportJotNote } = await Promise.resolve().then(() => __toESM(require_library(), 1));
-        const exported = await exportJotNote({ title, content }, body.format, { attachmentLoader });
+        const exported = await exportJotNote({ title, content }, body.format, { attachmentLoader, locale: exportLocale(body.locale) });
         sendFile(response, exported);
         return;
       } else if (method === "POST" && path === "/export-library") {
@@ -2384,7 +2387,7 @@ function createJotHandler(store, options = {}) {
         const { exportJotLibrary } = await Promise.resolve().then(() => __toESM(require_library(), 1));
         const exported = await exportJotLibrary({ notes, folders: state.folders }, body.format, {
           attachmentLoader,
-          locale: body.locale === "en" ? "en" : "zh"
+          locale: exportLocale(body.locale)
         });
         sendFile(response, exported, { "x-jot-export-notes": String(exported.notes), "x-jot-export-attachments": String(exported.attachments) });
         return;

@@ -32,7 +32,7 @@ test('the toast counts imported and skipped files; details list skipped paths', 
   // Plural forms follow each language rather than English singular/plural.
   assert.equal(summarizeImport(result(5), 'ru').toast, 'Импортировано 5 заметок')
   assert.equal(summarizeImport(result(22), 'ru').toast, 'Импортировано 22 заметки')
-  assert.equal(summarizeImport(result(1, skipped.slice(0, 1)), 'fr').toast, '1 note importée · 1 ignoré')
+  assert.equal(summarizeImport(result(1, skipped.slice(0, 1)), 'fr').toast, '1 note importée · 1 fichier ignoré')
   assert.equal(summarizeImport(result(2, skipped), 'de').details.split('\n').at(-1), '…und 2 weitere')
 })
 

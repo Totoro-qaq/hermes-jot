@@ -71,6 +71,12 @@ The editor runs inside Hermes' official opaque-origin sandbox without host stora
 
 A prebuilt Node engine handles storage, import and export through request-scoped subprocesses and no listening port; the export and import libraries load only for those requests. Node.js 22.19+ is required; the official Hermes PM prepares dependencies for a normal installation. Imports are staged in `plugin-data/jot/imports/` and removed after each request.
 
+## Language and layout
+
+Jot follows the Hermes interface language and switches with it, without reopening anything: English, Simplified and Traditional Chinese, Japanese, Arabic (right to left), Russian, French, German and Spanish; any other Hermes language shows English. Note text keeps its own language and direction, so a Chinese note stays left to right in the Arabic interface.
+
+Jot's header rows, dividers and list follow Hermes' layout: the header line sits level with the sidebar's tab row and the side pane's header, the list and editor are separated by the same hairline Hermes uses inside panels, and the bottom row carries no extra rule.
+
 ## Themes
 
 Jot follows Hermes’ semantic surface, text, border, accent, button, code and toast tokens. The same mapping is sent to the isolated editor after the host applies a theme, so switching palettes does not require reopening a note. The Jot brand icon retains its colors; user-selected text and highlight colors remain document content, with a dark-mode display treatment. Representative native checks cover Nous, Solarized, Catppuccin and Cyberpunk; third-party themes still determine the quality and contrast of their own tokens.

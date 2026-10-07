@@ -170,7 +170,7 @@ test('Host export and undo refusals reach the user as actionable sentences in th
   }
   const pdf = await host(() => exportJotLibrary({ notes: Array.from({ length: MAX_LIBRARY_PDF_NOTES + 1 },
     (_, index) => note(String(index), `n${index}`, docFromMarkdown('x'))), folders: [] }, 'pdf'))
-  assert.match(describeError(pdf, 'zh'), /PDF 一次最多导出 500 篇/u)
+  assert.match(describeError(pdf, 'zh'), /PDF 一次最多导出 500 条/u)
   assert.match(describeError(pdf, 'en'), /choose Word/u)
   const empty = await host(() => exportJotLibrary({ notes: [], folders: [] }, 'md'))
   assert.equal(describeError(empty, 'zh'), '这里没有可以导出的笔记。')
