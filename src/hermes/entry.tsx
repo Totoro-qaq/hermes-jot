@@ -17,7 +17,7 @@ const { host, useValue, captureGatewayFileDownload, MessageTextContent } = sdk
 const theme = `
 ${hostThemeCss}
 .jot-host{height:100%;min-height:0;min-width:0;overflow:hidden;display:flex;flex-direction:column;font:var(--dsw-font-s-14);color:var(--ui-text-primary)}
-.jot-host>.jot-app{flex:1;min-height:0;height:100%;background:var(--ui-bg-editor)}
+.jot-host>.jot-app{flex:1;min-height:0;height:100%;background:var(--ui-editor-surface-background,var(--ui-bg-editor))}
 .jot-top-layer>.jot-overlay-root{pointer-events:auto}
 .jot-top-layer::backdrop{background:transparent;pointer-events:none}
 .jot-host .jot-app,.jot-top-layer .jot-overlay-root{color-scheme:inherit}
