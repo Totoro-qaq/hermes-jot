@@ -230,7 +230,7 @@ export default {
     'Empty to-do': '空のタスク',
     'Image unavailable': '画像を表示できません',
     Attachment: '添付ファイル',
-    'This change exceeds the note or table limit.': 'この変更は表またはノートの上限を超えます。',
+    'This change exceeds the note or table limit.': 'この変更はノートまたは表の上限を超えます。',
     'Column {range} actions': '列 {range} の操作',
     'Columns {range} actions': '列 {range} の操作',
     'Row {range} actions': '行 {range} の操作',
