@@ -42,7 +42,7 @@ export function CaptureDialog({ notes, capturedText, source = '', currentNoteId 
   }}>
     <div className="jot-capture-field">
       <label htmlFor={`${id}-text`}>{t('Text to capture')}</label>
-      <textarea id={`${id}-text`} className="jot-capture-text" rows={6} autoFocus disabled={busy} value={text}
+      <textarea id={`${id}-text`} dir="auto" className="jot-capture-text" rows={6} autoFocus disabled={busy} value={text}
         onChange={event => setText(event.target.value)} placeholder={t('Paste or write something here…')} />
     </div>
     <div className="jot-capture-field">

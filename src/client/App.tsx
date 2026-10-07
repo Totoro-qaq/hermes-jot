@@ -1101,7 +1101,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
             <Icon name="search" />
             <input ref={searchInput} type="search" value={query} onChange={event => setQuery(event.target.value)}
               onKeyDown={event => { if (event.key === 'Escape' && query) { event.preventDefault(); event.stopPropagation(); setQuery('') } }}
-              placeholder={t('Search notes')} aria-label={t('Search notes')}
+              dir="auto" placeholder={t('Search notes')} aria-label={t('Search notes')}
               title={t('Search notes (/)')} />
             {query && <button type="button" className="jot-search-clear" aria-label={t('Clear search')} title={t('Clear search')}
               onClick={() => { setQuery(''); searchInput.current?.focus() }}><JotActionIcon name="close" size={14} /></button>}
@@ -1257,7 +1257,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
         {selectedDeleted && <div className="jot-notice">{t('This note is in Trash. Restore it to edit again.')}</div>}
         <div className="jot-editor-body">
           <div className="jot-document">
-            <input ref={titleInput} className="jot-title-input" value={draft.title} readOnly={selectedDeleted} maxLength={240}
+            <input ref={titleInput} dir="auto" className="jot-title-input" value={draft.title} readOnly={selectedDeleted} maxLength={240}
               placeholder={t('Untitled')} aria-label={t('Note title')} onChange={event => patchDraft({ title: event.target.value })}
               onKeyDown={event => {
                 // Enter moves from the title into the body, like most note apps.

@@ -153,6 +153,8 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
         },
         attributes: {
           role: 'textbox', 'aria-multiline': 'true',
+          // A note takes the direction of its own text, not of the interface language.
+          dir: 'auto',
           'aria-label': t('Note content'),
           'data-placeholder': t('Start writing…'),
         },
