@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
-import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
+import { defaultRangeExtractor, useVirtualizer } from '../hermes/virtualizer.js'
 import { JotActionIcon } from './icons.js'
 import { activateNoteListItem, buildNoteListRows, formatNoteDate, highlightSegments, nextActiveNoteId, noteDateValue, noteDisplay, noteExcerpt, taskProgress } from './note-list.js'
 import type { NavigationKey, NoteDateBasis } from './note-list.js'

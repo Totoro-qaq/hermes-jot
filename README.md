@@ -1,43 +1,43 @@
-# 随记 · Jot for Hermes
+# Jot for Hermes
 
-[English](README.en.md) · [使用与权限](docs/GUIDE.zh-CN.md) · [验证记录](docs/VALIDATION.md)
+[简体中文](README.zh-CN.md) · [Guide and permissions](docs/GUIDE.en.md) · [Validation](docs/VALIDATION.md)
 
 ![Jot](assets/readme/jot-icon.svg)
 
-**在 Hermes 旁边记下想法、待办和文档。人随时编辑，需要时让 agent 帮忙。**
+**Keep notes, checklists and documents beside Hermes. Edit them yourself, and invite your agent when useful.**
 
-> 本地适配候选版。尚未发布仓库或提交插件目录；真实 Desktop 交互验收和截图仍待完成。
+> Local adaptation candidate. No public repository or catalog submission yet. Native Desktop interaction checks and screenshots are still pending.
 
-## 可以做什么
+## Features
 
-- 在完整工作台或对话旁的面板里写笔记；搜索标题与正文，查看最近修改和置顶笔记。
-- 使用标题、粗体、斜体、下划线、列表、核对清单、引用、代码、文字颜色和高亮。
-- 插入表格，前后加行／列、拖动列宽、自动适应宽度。
-- 自行创建文件夹，也可以一直不分类；支持排序、多选、复制、移动和回收站。
-- 添加图片和文件、摘录选中的文字；使用附件预览、下载和默认应用打开入口。
-- 导出 TXT、Markdown、PDF、Word（DOCX），也可以将多篇笔记按文件夹打包导出。
-- 按需打开 AI 协作：agent 可以查找、读取、新建、追加、勾选待办和移到回收站；已有笔记的 AI 修改可以人工撤销。
+- A full workspace and a panel beside conversations, with title/body search, pinned notes and recent changes.
+- Headings, bold, italic, underline, lists, checklists, quotes, code, text colors and highlighting.
+- Tables with row/column actions, draggable column widths and automatic fitting.
+- Optional, user-named folders; sorting, multi-selection, duplication, moving and Trash.
+- Images, file attachments and selected-text capture, with preview, download and default-application actions.
+- TXT, Markdown, PDF and Word (DOCX) export, including folder-organized archives of multiple notes.
+- Optional agent collaboration: find, read, create, append, check tasks and move notes to Trash. Human editors can undo the latest run of AI changes to an existing note.
 
-## 人始终控制笔记
+## Human control
 
-AI 协作默认关闭。六个 Jot 工具每次调用都会检查开关；工具不能自行打开它。修改要求精确版本，避免覆盖更新；整篇文本替换遇到表格、图片或其他富格式时会拒绝，优先保留原文后追加。
+AI collaboration starts off. Every Jot tool checks the switch, and the tools cannot enable it. Edits require the current revision. Whole-document text replacement is refused when it would discard tables, images or other rich formatting; appending preserves the existing document.
 
-笔记按 Hermes profile 分开，存放在宿主管理的 `plugin-data/jot/`，不在插件安装目录。模型和密钥由 Hermes 管理，Jot 不需要额外 API Key，也不会把密钥传给笔记引擎。AI 工具的开关不替代操作系统文件权限。
+Notes are separated by Hermes profile and stored in the host-owned `plugin-data/jot/` directory, outside the plugin installation. Hermes owns model configuration and credentials. Jot needs no extra API key and does not pass keys to its note engine. The tool-access switch does not replace operating-system filesystem permissions.
 
-## 当前安装方式
+## Local installation
 
-现在只提供本地开发包。安装包包含已构建的界面和笔记引擎，运行时不需要再次执行 npm install。
+This is currently a local development package. The package includes compiled UI and engine files, so end users do not run npm install.
 
-要求：近期 Hermes Desktop / 插件 SDK、Hermes 管理的 Node.js 22.19+。当前验证基线见[验证记录](docs/VALIDATION.md)。
+Requirements: a recent Hermes Desktop/plugin SDK and Hermes-managed Node.js 22.19+. See [validation](docs/VALIDATION.md) for the tested host.
 
-1. 将完整插件目录放到当前 Hermes 数据目录的 `plugins/jot/`。
-2. 执行 `hermes plugins validate /path/to/jot`。
-3. 执行 `hermes plugins enable jot --no-allow-tool-override`。
-4. 在 Desktop 的“技能与工具 → 插件”重新扫描并启用 Jot 的桌面部分；已有后端进程可能需要重启或重新加载插件。
+1. Put the complete package in `plugins/jot/` under the active Hermes data directory.
+2. Run `hermes plugins validate /path/to/jot`.
+3. Run `hermes plugins enable jot --no-allow-tool-override`.
+4. Rescan and enable the Desktop component in Capabilities → Plugins. An already-running backend may need a restart or plugin reload.
 
-Python 后端和 Desktop 界面是两个独立开关。Jot 内的“允许 AI 协作”只控制笔记工具，不影响人工编辑。
+The Python backend and Desktop component have separate enable switches. Jot's own AI collaboration switch controls its note tools while keeping human editing available.
 
-开发者在源码目录运行：
+For development:
 
 ```sh
 npm ci
@@ -46,22 +46,26 @@ hermes --run-module unittest discover -s tests_py -v
 hermes plugins validate . --json
 ```
 
-完整本地检查并打包：`python3 scripts/check.py --package`。开发目录同步到宿主使用 `python3 scripts/install_local.py --home /path/to/hermes-home --replace`；已有本地安装会先备份，笔记数据不移动。请复制实际目录，Desktop 的统一包扫描不会跟随开发符号链接。
+Run `python3 scripts/check.py --package` for the complete local checks and archive. Developers can install that archive with `python3 scripts/install_local.py --home /path/to/hermes-home --replace`; existing local packages are backed up and note data stays in place. Use a real directory: Desktop unified-package discovery does not follow development symlinks.
 
-## 界面与快捷键
+## Language
 
-完整页、右侧面板和输入框入口均通过 Hermes SDK 注册。三条命令为“打开随记”“新建笔记”“摘录选中的文字”，默认不占用快捷键，由用户在 Hermes 设置中绑定。`/jot`、`/jot new`、`/jot capture` 用于打开相应入口。
+Jot starts in English. Choose **Sort and options → Interface language → 简体中文** to switch to Chinese; the choice is remembered for Jot without changing Hermes. Notes keep the language you write them in. The main README and demo materials are English-first.
 
-编辑器沿用 Mac 的 ⌘ 和 Windows/Linux 的 Ctrl 习惯。复制、剪切、粘贴、全选保持系统操作；支持撤销／重做、粗体／斜体／下划线、当前笔记查找和保存。
+## Entry points and shortcuts
 
-## 适配方式
+The page, side panel and composer button register through the Hermes SDK. Open Jot, New note and Capture selected text are rebindable commands with no default bindings. `/jot`, `/jot new` and `/jot capture` open the corresponding entry points.
 
-复用 [dsh-jot](https://github.com/Totoro-qaq/dsh-jot) 的文档模型、持久化、冲突保护、附件与导出逻辑。Python 将 Hermes 的认证、profile 和工具注册接到打包好的 Node 引擎，使用标准输入输出通信，不新开服务端口。
+Editing follows ⌘ on macOS and Ctrl on Windows/Linux. System copy, cut, paste and select-all remain intact, alongside undo/redo, bold/italic/underline, note-local find and save.
 
-富文本编辑器运行在官方 `SandboxedFrame` 的不透明来源里；笔记列表、命令和宿主操作仍由 SDK 提供。编辑器没有宿主密钥、文件访问桥或网络权限，只与创建它的父组件交换明确列出的编辑消息。
+## Implementation
 
-当前没有独立的 Web Dashboard 界面，也不提供云同步、OCR、多人实时协同或手写画板。完整限制见[使用说明](docs/GUIDE.zh-CN.md)。
+The document model, persistence, revision protection, attachments and exports reuse [dsh-jot](https://github.com/Totoro-qaq/dsh-jot). A Python adapter connects Hermes authentication, profile routing and tool registration to the bundled Node engine over standard input/output. It opens no additional server port.
 
-## 许可
+The rich editor runs inside the official opaque-origin `SandboxedFrame`. The surrounding note workspace and host actions use the SDK. The editor has no host credentials, native filesystem bridge or network access; it exchanges a bounded set of editing messages only with its owning parent component.
 
-MIT。原始 Jot 代码与视觉资产的来源记录在 [UPSTREAM.json](UPSTREAM.json)。离线中文 PDF 字体附带其许可证；打包的第三方依赖许可证随发布包提供。
+There is no separate Web Dashboard UI, cloud synchronization, OCR, multi-user live editing or handwriting canvas. See the [guide](docs/GUIDE.en.md) for limits.
+
+## License
+
+MIT. Original Jot source and visual-asset provenance is recorded in [UPSTREAM.json](UPSTREAM.json). The offline Chinese PDF fonts include their licenses, and bundled dependency licenses accompany the package.

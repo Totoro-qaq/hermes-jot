@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { RichEditor, type RichEditorActions } from '../client/RichEditor.js'
 import type { RichDoc } from '../client/types.js'
 import { EditorSync } from './editor-sync.js'
+import { jotStyles } from '../client/styles.js'
 
 let token = ''
 const imageRequests = new Map<number, (url: string) => void>()
@@ -30,6 +31,7 @@ function Editor() {
         token = event.data.token
         document.documentElement.classList.toggle('dark', Boolean(data.dark))
         document.documentElement.style.colorScheme = data.dark ? 'dark' : 'light'
+        document.body.toggleAttribute('data-ds-dark-theme', Boolean(data.dark))
         for (const [key, value] of Object.entries(data.theme ?? {})) {
           if (key.startsWith('--dsw-') && typeof value === 'string') document.documentElement.style.setProperty(key, value)
         }
@@ -126,6 +128,7 @@ function Editor() {
     return () => observer.disconnect()
   }, [Boolean(props)])
   return props && <div ref={root} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
+    <style>{jotStyles}</style>
     <RichEditor value={props.value} locale={props.locale} readOnly={props.readOnly}
       resolveAttachmentUrl={image} onChange={value => send('change', synchronized.current.edited(value))} onBlur={() => send('blur')}
       onReady={value => { actions.current = value; send('ready') }} onRequestAttachment={() => send('upload')} />

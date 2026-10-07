@@ -7,8 +7,9 @@ import { readCommandSelection, JOT_COMMANDS } from '../client/commands.js'
 import { createControllers } from './controllers.js'
 import { createHermesApi } from './api.js'
 import { createPersistence } from './persistence.js'
+import { createLocalePreference } from './locale.js'
 
-const { host, useValue, useI18n, captureGatewayFileDownload, MessageTextContent } = sdk
+const { host, useValue, captureGatewayFileDownload, MessageTextContent } = sdk
 
 const theme = `
 .jot-host,.jot-top-layer{
@@ -33,7 +34,7 @@ const theme = `
 const ownerNow = () => JSON.stringify([host.state.connectionId.get() ?? 'local', host.state.profile.get()])
 
 export default {
-  id: 'jot', name: 'Jot · 随记',
+  id: 'jot', name: 'Jot',
   description: 'Notes, checklists and documents, shared with your agent when you choose.',
   defaultEnabled: false,
   register(ctx: PluginContext) {
@@ -42,6 +43,7 @@ export default {
         || typeof host.paneVisibility !== 'function') {
       throw new Error('Jot requires a recent Hermes Desktop SDK with SandboxedFrame and gateway file downloads. Update Hermes Desktop, then enable Jot again.')
     }
+    const language = createLocalePreference(ctx.storage)
     const controls = createControllers(() => host.navigate('/jot'))
     const changed = () => controls.retainOwner(ownerNow())
     const stopProfile = host.state.profile.subscribe(changed)
@@ -66,7 +68,7 @@ export default {
       const controller = controls.forOwner(owner)
       const { bus, recipient, handoff } = controller
       const selectionId = useMemo(() => crypto.randomUUID(), [])
-      const { locale } = useI18n()
+      const locale = useSyncExternalStore(language.subscribe, language.getSnapshot)
       const api = useMemo(() => {
         const value = createHermesApi(ctx, () => ownerNow() === owner, captureGatewayFileDownload)
         apis.add(value)
@@ -79,7 +81,7 @@ export default {
       useEffect(() => () => { api.dispose(); apis.delete(api) }, [api])
       const command = useSyncExternalStore(bus.subscribe, () => bus.snapshotFor(mode, mode === 'compact' ? recipient : undefined))
       const request = useSyncExternalStore(handoff.subscribe, handoff.getSnapshot)
-      return <div className="jot-host"><style>{theme}</style><JotApp mode={mode} locale={locale.toLowerCase().startsWith('zh') ? 'zh' : 'en'}
+      return <div className="jot-host"><style>{theme}</style><JotApp mode={mode} locale={locale} onLocaleChange={language.set}
         api={api} persistence={persistence} onExpand={(...args) => { if (ownerNow() === owner) handoff.open(...args) }}
         readSelectedText={() => ownerNow() === owner ? readSelection(owner) : ''}
         onEditorSelection={text => { if (!recipient.signal.aborted) controller.select(selectionId, text) }}
@@ -103,16 +105,16 @@ export default {
       return visible ? <Surface mode="compact" /> : null
     }
     function ComposerButton() {
-      const { locale } = useI18n()
+      const locale = useSyncExternalStore(language.subscribe, language.getSnapshot)
       return <button type="button" title={locale.startsWith('zh') ? '打开随记' : 'Open Jot'}
         aria-label={locale.startsWith('zh') ? '打开随记' : 'Open Jot'}
         style={{ border: 0, background: 'transparent', padding: 5, borderRadius: 6, cursor: 'pointer' }}
         onClick={() => open('open', undefined, 'compact')}><JotIcon size={19} /></button>
     }
     ctx.registerMany([
-      { id: 'page', area: 'routes', title: 'Jot · 随记', data: { path: '/jot' }, render: () => <Surface mode="wide" /> },
-      { id: 'nav', area: 'sidebar.nav', order: 40, data: { path: '/jot', label: 'Jot · 随记', codicon: 'notebook' } },
-      { id: 'notes', area: 'panes', title: 'Jot · 随记', data: { placement: 'right', width: '420px',
+      { id: 'page', area: 'routes', title: 'Jot', data: { path: '/jot' }, render: () => <Surface mode="wide" /> },
+      { id: 'nav', area: 'sidebar.nav', order: 40, data: { path: '/jot', label: 'Jot', codicon: 'notebook' } },
+      { id: 'notes', area: 'panes', title: 'Jot', data: { placement: 'right', width: '420px',
         hideOnly: true, tabLead: () => <JotIcon size={15} /> }, render: () => <SidePanel /> },
       { id: 'composer', area: 'composer.actions', order: 30, render: () => <ComposerButton /> },
       { id: 'slash', area: 'composer.middleware', data: { handler: async (draft: { text: string; attachments?: unknown[] }) => {
@@ -122,7 +124,7 @@ export default {
         try {
           if (!(await ctx.rest<{ ready: boolean }>('/health')).ready) throw new Error('Jot needs a complete local build.')
         } catch {
-          host.notifyError('Enable the Jot backend in Hermes Plugins, then try again. / 请先启用随记后端。')
+          host.notifyError('Enable the Jot backend in Hermes Plugins, then try again.')
           return null
         }
         if (ownerNow() !== owner) return null
@@ -135,10 +137,10 @@ export default {
     for (const item of JOT_COMMANDS) {
       const run = () => open(item.action, item.action === 'capture' ? readSelection() : undefined)
       ctx.register({ id: `palette-${item.action}`, area: 'palette', data: {
-        id: item.id, action: item.id, label: `${item.en} / ${item.zh}`, keywords: ['jot', '随记', 'notes', '笔记'], run,
+        id: item.id, action: item.id, label: item.en, keywords: ['jot', '随记', 'notes', '笔记'], run,
       } })
       ctx.register({ id: `key-${item.action}`, area: 'keybinds', data: {
-        id: item.id, label: `${item.en} / ${item.zh}`, category: 'view', defaults: [], run,
+        id: item.id, label: item.en, category: 'view', defaults: [], run,
       } satisfies KeybindContribution })
     }
     ctx.onDispose(() => { stopProfile(); stopConnection(); controls.dispose(); for (const api of apis) api.dispose(); apis.clear() })

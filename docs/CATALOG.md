@@ -2,6 +2,8 @@
 
 Nothing has been submitted or published. The user will decide whether to create a GitHub repository.
 
+The Hermes edition is English-first: `README.md`, catalog copy and primary screenshots use English; `README.zh-CN.md` and a Chinese UI option remain available. Demo note content is English and does not replace existing notes.
+
 Before submitting:
 
 - Finish every pending Desktop validation item in VALIDATION.md; fix any failures and rebuild.

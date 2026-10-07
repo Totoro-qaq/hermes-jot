@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { createPortal } from './layers.js'
+// This component is bundled only into the isolated editor, whose ReactDOM owns
+// the table node view. Unlike menus, its controls must stay in that exact mount.
+import { createPortal } from 'react-dom'
 import type { Editor } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
 import { ActionMenu, type ActionMenuItem } from './ActionMenu.js'
@@ -7,7 +9,7 @@ import { JotActionIcon } from './icons.js'
 import { selectedTable, tableActionAllowed, tableActionTransaction, type TableAction, type TableTarget } from './table-actions.js'
 
 interface ChromeGeometry {
-  column: number; row: number; bottom: number; middle: number
+  column: number; row: number; bottom: number; middle: number; right: number
   columnStart: number; columnWidth: number; rowStart: number; rowHeight: number
 }
 interface TableChrome { mount: HTMLElement; geometry: ChromeGeometry }
@@ -52,12 +54,15 @@ export function TableControls({ editor, readOnly, en }: { editor: Editor; readOn
       const cellBounds = cell.getBoundingClientRect()
       const rowBounds = table.rows[selected.top]?.getBoundingClientRect() ?? cellBounds
       const gutter = tableGutter(shell)
+      const visibleLeft = Math.max(tableBounds.left, area.left)
+      const visibleRight = Math.min(tableBounds.right, area.right)
       const clampX = (x: number) => Math.max(gutter, Math.min(bounds.width - gutter - 28, x))
       const geometry: ChromeGeometry = {
         column: clampX(cellBounds.left + cellBounds.width / 2 - bounds.left - 14),
         row: Math.max(gutter, rowBounds.top + rowBounds.height / 2 - bounds.top - 14),
         bottom: tableBounds.bottom - bounds.top,
-        middle: gutter + area.width / 2 - 14,
+        middle: visibleLeft - bounds.left + Math.max(0, visibleRight - visibleLeft) / 2 - 14,
+        right: Math.min(bounds.width - gutter, visibleRight - bounds.left),
         columnStart: Math.max(gutter, cellBounds.left - bounds.left),
         columnWidth: Math.max(0, Math.min(cellBounds.right, area.right) - Math.max(cellBounds.left, area.left)),
         rowStart: cellBounds.top - bounds.top,
@@ -121,7 +126,7 @@ export function TableControls({ editor, readOnly, en }: { editor: Editor; readOn
         item(en ? `Delete ${target.bottom - target.top} row(s)` : `删除 ${target.bottom - target.top} 行`, 'row-delete', true),
       ]} />
     </span>
-    <span className="jot-table-options">
+    <span className="jot-table-options" style={{ left: geometry.right, right: 'auto' }}>
       <ActionMenu key={`table:${menuKey}`} triggerLabel={en ? 'Table options' : '表格选项'} triggerIcon="table" items={[
         item(en ? 'Auto fit to available width' : '自动适应宽度', 'fit'),
         item(en ? 'Delete table' : '删除表格', 'delete', true),
@@ -129,7 +134,7 @@ export function TableControls({ editor, readOnly, en }: { editor: Editor; readOn
     </span>
     <button type="button" className="jot-icon-btn jot-table-append-column" disabled={!canColumn}
       aria-label={en ? 'Append column at end of table' : '在表格末尾添加列'} title={canColumn ? en ? 'Append column' : '在表格末尾添加列' : disabledTitle}
-      style={{ top: geometry.row }} onMouseDown={event => event.preventDefault()} onClick={() => run('append-column')}>
+      style={{ top: geometry.row, left: geometry.right, right: 'auto' }} onMouseDown={event => event.preventDefault()} onClick={() => run('append-column')}>
       <JotActionIcon name="plus" />
     </button>
     <button type="button" className="jot-icon-btn jot-table-append-row" disabled={!canRow}

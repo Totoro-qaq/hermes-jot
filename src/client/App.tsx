@@ -38,6 +38,7 @@ export interface JotAppProps {
   onNoteRequestHandled?: (revision: number) => void
   api: JotApi
   locale?: JotLocale
+  onLocaleChange?: (locale: JotLocale) => void
   chromeInset?: boolean
   onEditorFocus?: (owner: object) => () => void
   /** false requests the local dialog; undefined retires a superseded gesture. */
@@ -71,7 +72,7 @@ function Icon({ name }: { name: JotActionIconName }) {
   return <JotActionIcon name={name} />
 }
 
-export function JotApp({ readSelectedText, onEditorSelection, persistence, attachmentPreviewContent, mode, onExpand, openNoteRequest, onNoteRequestHandled, api, locale = 'zh', chromeInset = false, onEditorFocus, onAttachmentPreview, attachmentDialogRequest, onAttachmentDialogHandled, commandRequest, onCommandClaim, onCommandHandled }: JotAppProps) {
+export function JotApp({ readSelectedText, onEditorSelection, persistence, attachmentPreviewContent, mode, onExpand, openNoteRequest, onNoteRequestHandled, api, locale = 'en', onLocaleChange, chromeInset = false, onEditorFocus, onAttachmentPreview, attachmentDialogRequest, onAttachmentDialogHandled, commandRequest, onCommandClaim, onCommandHandled }: JotAppProps) {
   const storage = persistence?.preferences ?? defaultPreferences
   const sharedDraftStorage = persistence?.drafts ?? defaultDraftStorage
   const { readDraft, persistDraft, editDraft, savedDraft, recoveryDrafts } = useMemo(() => ({
@@ -884,6 +885,12 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       icon: 'export' as const, disabled: busy || exportable === 0, onSelect: () => { setExportError(''); setExportOpen(true) } }] : []),
     { separator: true } as const,
     { label: copy('键盘快捷键', 'Keyboard shortcuts'), onSelect: () => setHelpOpen(true) },
+    ...(onLocaleChange ? [
+      { separator: true } as const,
+      { heading: copy('界面语言', 'Interface language') },
+      { label: 'English', checked: en, onSelect: () => onLocaleChange('en') },
+      { label: '简体中文', checked: !en, onSelect: () => onLocaleChange('zh') },
+    ] : []),
     ...(view === 'trash' && api.emptyTrash ? [{ label: copy('清空回收站…', 'Empty Trash…'), icon: 'trash' as const, danger: true,
       disabled: busy || trashCount === 0, onSelect: () => setPurgeConfirm('trash') }] : []),
   ]

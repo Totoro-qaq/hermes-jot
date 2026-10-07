@@ -22,6 +22,7 @@ def main():
         ("typecheck", [node, "node_modules/typescript/bin/tsc", "--noEmit"]),
         ("core-tests", [node, "--import", "tsx", "--test", *[str(p.relative_to(ROOT)) for p in sorted((ROOT / "tests").glob("*.test.ts"))]]),
         ("build", [node, "scripts/build.mjs"]),
+        ("desktop-module", [node, "--experimental-vm-modules", "scripts/check-desktop-module.mjs"]),
         ("integration-tests", [hermes, "--run-module", "unittest", "discover", "-s", "tests_py", "-v"]),
         ("plugin-validation", [hermes, "plugins", "validate", str(ROOT), "--install-deps", "--json"]),
     ]

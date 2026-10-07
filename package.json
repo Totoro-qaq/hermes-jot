@@ -12,10 +12,10 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build && node --experimental-vm-modules scripts/check-desktop-module.mjs"
   },
   "dependencies": {
-    "@tanstack/react-virtual": "3.14.13",
+    "@tanstack/virtual-core": "3.17.11",
     "@tiptap/core": "3.31.4",
     "@tiptap/extension-highlight": "3.31.4",
     "@tiptap/extension-table": "3.31.4",

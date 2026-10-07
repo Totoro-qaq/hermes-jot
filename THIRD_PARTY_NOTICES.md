@@ -3,7 +3,6 @@
 The compiled editor and note engine include these dependencies. Hermes supplies the React singleton for the host-facing UI; the isolated editor includes its own React runtime.
 
 - @swc/helpers@0.5.23 — [license](LICENSES/_swc_helpers.txt)
-- @tanstack/react-virtual@3.14.13 — [license](LICENSES/_tanstack_react-virtual.txt)
 - @tanstack/virtual-core@3.17.11 — [license](LICENSES/_tanstack_virtual-core.txt)
 - @tiptap/core@3.31.4 — [license](LICENSES/_tiptap_core.txt)
 - @tiptap/extension-blockquote@3.31.4 — [license](LICENSES/_tiptap_extension-blockquote.txt)
