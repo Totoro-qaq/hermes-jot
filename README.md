@@ -4,7 +4,7 @@
 
 ![Jot: notes your Hermes agent can read and update safely](assets/readme/banner.png)
 
-**Keep notes, checklists and documents beside Hermes. Edit them yourself; turn on AI collaboration and your agent can read and update them too. Every AI change is revision-checked, and one click undoes it.**
+**Keep notes, checklists and documents beside Hermes. Edit them yourself; turn on AI collaboration and your agent can read and update them too. Agent edits use revision checks. For an existing note, undo restores the whole note to before the agent's latest round of changes.**
 
 > Catalog submission pending. Native macOS Desktop and agent checks are recorded in [validation](docs/VALIDATION.md), together with platform limits.
 
@@ -26,7 +26,7 @@ Turn on **Allow AI collaboration** at the bottom of the note list. When you ask,
 - **Ask Hermes about this note** (in the note menu and toolbar) puts a reference to the open note into the message box, so the agent knows which note you mean. Beside a conversation it lands in that conversation's message box; when no message box is open, it is copied for pasting.
 - The agent reads a note as Markdown and changes it with exact find-and-replace edits, so tables, images, colors and other formatting around a change stay as they were. Rewriting a whole note is refused when Markdown cannot represent everything in it, unless you agree to lose that formatting.
 - Changes the agent makes appear in an open Jot panel right away. If you are typing in a note when the agent adds to its end, the new blocks join your draft instead of raising a conflict.
-- Notes the agent changed are marked. **Undo AI edits** restores the version from before its latest run of changes.
+- Notes the agent changed are marked. For an existing note, **Undo AI edits** restores the whole note to before the latest round of consecutive agent edits; it does not undo individual changes one by one. Notes newly created by the agent have no earlier version to restore.
 
 ## In Hermes
 
@@ -34,9 +34,9 @@ Write in a full workspace:
 
 ![Jot workspace in Hermes Desktop](assets/readme/workspace.en.jpg)
 
-Keep a note beside a conversation:
+Keep a note beside a conversation and ask the agent to add to it. Here **Ask Hermes about this note** passed the note to the agent, which appended two checklist items; Jot marks the note **AI edited**:
 
-![Jot beside a real model conversation in Hermes Desktop](assets/readme/sidebar.en.jpg)
+![Jot beside a conversation in which the agent added two checklist items to the open note](assets/readme/sidebar.en.jpg)
 
 Captured in the real host with synthetic demo notes and conversations; no personal project data is shown.
 

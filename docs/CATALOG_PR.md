@@ -8,7 +8,7 @@ Substitute the exact commit for `@FULL_COMMIT_SHA@` after its checks pass on the
 
 ## What does this PR do?
 
-Adds **Jot** to the Desktop plugin catalog: notes, checklists and documents beside Hermes that the agent can read and update safely. People edit rich text, checklists, tables and attachments in a full workspace or in a pane beside a conversation. An optional switch lets the agent use six revision-checked `jot_*` tools; every AI change is marked and can be undone in one click.
+Adds **Jot** to the Desktop plugin catalog: notes, checklists and documents beside Hermes that the agent can read and update safely. People edit rich text, checklists, tables and attachments in a full workspace or in a pane beside a conversation. An optional switch enables six `jot_*` tools, with revision checks on edits. Agent-edited notes are marked; for an existing note, human undo restores the whole note to before the agent's latest round of changes. Newly created notes have no earlier version to restore.
 
 Plugin repository: https://github.com/Totoro-qaq/hermes-jot
 Pinned commit: `@FULL_COMMIT_SHA@` · version `0.2.0` · MIT
@@ -51,7 +51,7 @@ Enable the backend and Desktop component, open Jot, create a note with a table, 
 
 ## Screenshots
 
-Real Hermes Desktop captures using synthetic demo notes and conversations; English-first, with separate Chinese material in the repository.
+Real Hermes Desktop captures of 0.2.0 using synthetic demo notes and conversations; English-first, with separate Chinese material in the repository. In the conversation pane, **Ask Hermes about this note** handed the note to the configured model, which appended two checklist items through `jot_read` and `jot_update`; the note shows **AI edited**.
 
 ![Jot](https://raw.githubusercontent.com/Totoro-qaq/hermes-jot/@FULL_COMMIT_SHA@/assets/readme/banner.png)
 ![Workspace](https://raw.githubusercontent.com/Totoro-qaq/hermes-jot/@FULL_COMMIT_SHA@/assets/readme/workspace.en.jpg)

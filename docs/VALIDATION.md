@@ -20,9 +20,10 @@ Date: 2026-10-07, Asia/Shanghai. Same macOS host as 0.1.0 (below).
 | Caret on external change | Found during this run: a saved change arriving in the open note moved the caret to the end. Fixed (only the changed range is replaced); natively, text typed after an outside change stayed at the caret | Fixed and passed |
 | Real Desktop: language | Switching the Hermes interface language (Settings or `display.language`, then reload) switched Jot's page, side panel, menus, dialogs and sidebar label: Simplified and Traditional Chinese, Japanese, Arabic, Russian, French, German and Spanish inspected. Arabic lays Jot out right to left while Chinese and English notes keep their own direction. Found and fixed during this run: German list controls overlapped in a narrow list, and a localized export's attachment folder was not recognized on import | Passed after fixes |
 | Real Desktop: layout | Page header and side-pane header lines sit level with the sidebar's tab-row line; the list/editor divider is present; the bottom row has no rule; checked in the full page and the conversation side pane | Passed |
+| Screenshots | New English and Chinese workspace and side-pane captures in `assets/readme/` from the 0.2.0 build: synthetic demo notes; in the side pane, **Ask Hermes about this note** put the note into the message box and `MiMo V2.6 Pro` appended two checklist items through `jot_read`/`jot_update`, shown with **AI edited**. Captured in full screen; no personal folders or conversations are visible | Captured and inspected |
 | Cleanup | Collaboration switched back off, test notes moved to Trash, test folder removed; the existing notes were not modified | Done |
 
-Not covered natively for 0.2.0: Windows and Linux Desktop, and new screenshots. The README screenshots are from 0.1.0 and the side-panel image shows three `/jot · (no output)` host notices.
+Not covered natively for 0.2.0: Windows and Linux Desktop.
 
 ## 0.1.0
 
