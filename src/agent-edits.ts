@@ -1,6 +1,15 @@
 /**
  * Exact visible-text replacements for agents. Each edit changes text inside one
  * textblock and leaves every other node, mark and attribute as it was.
+ *
+ * Marks: text that find and replace share at either end stays untouched. When
+ * the edit both removes and adds text, that shared context ends only where it
+ * splits no word, or at a formatting edge in the note. Text added without
+ * replacing any extends its neighbours' marks (see insertionMarks). Text that
+ * replaces text takes, token by token, the marks of the words and characters it
+ * replaces when both split into matching tokens; otherwise all of it takes the
+ * marks shared by every replaced character. So a link only covers new text that
+ * replaced text wholly inside that link.
  */
 import { StoreError, onlyKeys, record, validateRichDoc, type RichDoc, type RichMark, type RichNode } from './model.js'
 
@@ -93,6 +102,50 @@ function mergeInline(nodes: readonly RichNode[]): RichNode[] {
 const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff
 const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff
 
+const WORD = /[\p{L}\p{N}\p{M}_]/u
+const isWord = (code: number | undefined) => code !== undefined && WORD.test(String.fromCodePoint(code))
+/** True when offset `at` (never inside a surrogate pair) falls between two word characters. */
+function splitsWord(text: string, at: number): boolean {
+  if (at < 1 || at >= text.length) return false
+  const back = at > 1 && isLowSurrogate(text.charCodeAt(at - 1)) ? 2 : 1
+  return isWord(text.codePointAt(at - back)) && isWord(text.codePointAt(at))
+}
+/** Words, and every other character on its own. */
+const tokens = (text: string) => text.match(/[\p{L}\p{N}\p{M}_]+|./gsu) ?? []
+
+/** Marks every text character in [from, to) carries, or undefined when the range holds no text. */
+function sharedMarks(nodes: readonly RichNode[], from: number, to: number): RichMark[] | undefined {
+  const runs = slice(nodes, from, to).filter(node => node.type === 'text')
+  if (!runs.length) return undefined
+  return runs.reduce((marks, node) => {
+    const keys = new Set((node.marks ?? []).map(markKey))
+    return marks.filter(mark => keys.has(markKey(mark)))
+  }, runs[0]!.marks ?? [])
+}
+
+/**
+ * Text replacing visible offsets [from, to) with its marks. When the replaced
+ * text and the new text split into the same sequence of words and single
+ * other characters, each new token takes the marks shared by the token it
+ * replaces; otherwise all new text takes the marks shared by every replaced
+ * character. Either way a link covers new text only where it covered all of
+ * the old text that text replaces.
+ */
+function replacementRuns(nodes: readonly RichNode[], text: string, from: number, to: number, inserted: string, fallback: () => RichMark[]) {
+  const before = tokens(text.slice(from, to))
+  const after = tokens(inserted)
+  if (before.length !== after.length || before.length < 2
+    || before.some((token, index) => WORD.test(token) !== WORD.test(after[index]!))) {
+    return [{ text: inserted, marks: sharedMarks(nodes, from, to) ?? fallback() }]
+  }
+  let position = from
+  return after.map((token, index) => {
+    const start = position
+    position += before[index]!.length
+    return { text: token, marks: sharedMarks(nodes, start, position) ?? [] }
+  })
+}
+
 function replaceInBlock(block: RichNode, start: number, find: string, replace: string): void {
   // Characters that find and replace share at either end stay untouched, so the
   // context an agent adds to make a match unique keeps its formatting.
@@ -103,17 +156,27 @@ function replaceInBlock(block: RichNode, start: number, find: string, replace: s
   while (suffix < find.length - prefix && suffix < replace.length - prefix
     && find[find.length - 1 - suffix] === replace[replace.length - 1 - suffix]) suffix++
   if (suffix > 0 && isLowSurrogate(find.charCodeAt(find.length - suffix))) suffix--
+  const nodes = block.content ?? []
+  const text = visibleText(block)
+  if (prefix + suffix < Math.min(find.length, replace.length) && block.type !== 'codeBlock') {
+    // When text is both removed and added, the untouched context ends only
+    // where it splits no word of find or replace, or at a formatting edge.
+    const runEdge = (offset: number) => JSON.stringify(marksAt(nodes, offset - 1)) !== JSON.stringify(marksAt(nodes, offset))
+    const keeps = (at: number, findAt: number, replaceAt: number) =>
+      at === 0 || (!splitsWord(find, findAt) && !splitsWord(replace, replaceAt)) || runEdge(start + findAt)
+    while (!keeps(prefix, prefix, prefix)) prefix -= isLowSurrogate(find.charCodeAt(prefix - 1)) ? 2 : 1
+    while (!keeps(suffix, find.length - suffix, replace.length - suffix)) suffix -= isHighSurrogate(find.charCodeAt(find.length - suffix)) ? 2 : 1
+  }
   const from = start + prefix
   const to = start + find.length - suffix
   const inserted = replace.slice(prefix, replace.length - suffix)
-  const nodes = block.content ?? []
   const added: RichNode[] = []
   if (inserted) {
     if (block.type === 'codeBlock') added.push({ type: 'text', text: inserted })
     else {
-      const replaced = slice(nodes, from, to).find(node => node.type === 'text')
-      const marks = from < to && replaced ? replaced.marks ?? [] : insertionMarks(nodes, from, to, prefix > 0, suffix > 0)
-      inserted.split('\n').forEach((line, index) => {
+      const insertion = () => insertionMarks(nodes, from, to, prefix > 0, suffix > 0)
+      const runs = from < to ? replacementRuns(nodes, text, from, to, inserted, insertion) : [{ text: inserted, marks: insertion() }]
+      for (const { text: value, marks } of runs) value.split('\n').forEach((line, index) => {
         if (index > 0) added.push({ type: 'hardBreak' })
         if (line) added.push(marks.length ? { type: 'text', text: line, marks } : { type: 'text', text: line })
       })

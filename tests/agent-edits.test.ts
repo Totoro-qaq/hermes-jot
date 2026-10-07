@@ -24,7 +24,7 @@ test('a plain edit changes only the matched characters', () => {
   assert.equal(docToText(source), 'Plan\nShip on Monday.\nkeep this', 'the input is not mutated')
 })
 
-test('text around a match keeps its marks, and replaced text takes the first replaced character\'s marks', () => {
+test('text around a match keeps its marks, and replaced text takes the replaced characters\' marks', () => {
   const source = docFromMarkdown('Ship **v1** today')
   assert.deepEqual(edit(source, 'v1 today', 'v2 today'), docFromMarkdown('Ship **v2** today'), 'shared context is untouched')
   assert.deepEqual(edit(source, 'Ship v1', 'Launch v1'), docFromMarkdown('Launch **v1** today'))
@@ -52,6 +52,22 @@ test('lengthening a formatted run keeps its formatting wherever the run sits', (
     doc(p(text('Read '), text('docs', link), text(' page today'))), 'a link does not grow past its edge mid-sentence')
   assert.deepEqual(edit(docFromMarkdown('Read [docs](https://x.test) today'), 'do', 'do the '),
     doc(p(text('Read '), text('do the cs', link), text(' today'))), 'inside a link, insertions stay linked')
+})
+
+test('replaced text spanning several runs keeps each word\'s marks and never splits a word', () => {
+  const link = { type: 'link', attrs: { href: 'https://e.com' } } as const
+  for (const [source, find, replace, expected] of [
+    ['Read [docs](https://e.com) here', 'docs here', 'guide there', 'Read [guide](https://e.com) there'],
+    ['**Note:** call Ann today', 'Note: call Ann', 'Todo: email Ann', '**Todo:** email Ann today'],
+    ['Meet **Bob** at noon', 'Bob at', 'Rob as', 'Meet **Rob** as noon'],
+    ['Read [docs](https://e.com) here', 'docs here', 'guide and more there', 'Read guide and more there'],
+    ['a **bo**ld word', 'bold word', 'brave word', 'a brave word'],
+    ['Due **Mon** 9am', 'Mon 9am', 'Tue 9am', 'Due **Tue** 9am'],
+  ] as const) assert.deepEqual(edit(docFromMarkdown(source), find, replace), docFromMarkdown(expected), `${find} -> ${replace} in ${source}`)
+  assert.deepEqual(edit(docFromMarkdown('See [the docs](https://e.com) now'), 'the docs now', 'the guide now'),
+    doc(p(text('See '), text('the guide', link), text(' now'))), 'a word inside a link stays linked')
+  assert.deepEqual(edit(doc(p(text('\u{1D400}', bold), text('\u{1D400}b'))), '\u{1D400}\u{1D400}b', '\u{1D400}\u{1D400}c'),
+    doc(p(text('\u{1D400}', bold), text('\u{1D400}c'))), 'trimming never splits a surrogate pair')
 })
 
 test('edits reach table cells, task items, quotes and code blocks', () => {
