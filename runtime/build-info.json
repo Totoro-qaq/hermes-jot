@@ -34,7 +34,7 @@
     "src/client/drafts.ts": "386105c8d69cccf01d1a7e5648e6f4755d37a4986c4a1c9ba63c8bba31bd76ef",
     "src/client/editor-append.ts": "b7ca6da33ae41e6f7cd189e943fc306ed2f26b76af26bdb46a25cbc70f620e22",
     "src/client/editor-attachments.ts": "f39e74e406f7a09934317271b6d7bc89e576b4d0cf6439ade08886a23970026a",
-    "src/client/editor-content.ts": "899df00234e6102f7153a14f9d7e6eebecb6c0fc9082919663158140c1914996",
+    "src/client/editor-content.ts": "b7c87db470e7006031ee3a818824ca97e9ee852837bf824ee1b6752438e3d5c0",
     "src/client/editor-extensions.ts": "e3ad5f24f3b4c423bf34afe373f3814c6d7e38b12a54582f4cc460fcc22fe2b7",
     "src/client/editor-shortcuts.ts": "380dd16bd58d9903fa804577236f4313bec30b546baa089e9d6a6f5523198760",
     "src/client/errors.ts": "611ec81a6ed217465d1256ef1806a17390484056704ebd4326be167bfa672b3c",
@@ -74,7 +74,7 @@
     "src/model.ts": "b84fd08765187e031917caa60a233609cc68e0879bed873edf7b79eb5242f3c0",
     "src/store.ts": "83f38afa01892537cf033108bec8a3db2156fccd8d8b566ca070062951049123",
     "src/tool-definition.ts": "81ab33af979ab807929f0bfa620fbd240999ca82841fed9de94f6e9f32f286ab",
-    "src/tools.ts": "5ef6578080320d61f7de08b7b596371e3ce8aef6fbf64cad808fc29c33ebca1b",
+    "src/tools.ts": "9a58441e25491b0d44b36e8964a674c5fa5be6ad3630bd146eb48b2297ddda38",
     "src/worker-request.ts": "ae2d469eb546edc398124e16b433c3b8f9c6ab36d193c4383a6f3b6345ca7381",
     "src/worker.ts": "3149acee72c0b56a7a7f7214e44624ca01b3c9b19db7d27f8cc2dbcb16572af8",
     "tsconfig.json": "a02d5d61e18bafa8a81c32cc254a99d65463614e6fa94da061ac9e3554748413"
