@@ -44,7 +44,7 @@ test('equivalent Unicode titles and timestamps use ids as deterministic ties ind
 })
 
 test('duplicate titles stay within 240 UTF-16 units without dividing a grapheme', () => {
-  const cluster = '👩🏽‍💻'
+  const cluster = '👩🏽\u200d💻'
   const source = { title: `${'a'.repeat(231)}${cluster}${cluster}`, content: note('n').content, folderId: 'folder' }
   const copied = duplicateNoteInput(source)
   assert.ok(copied.title!.length <= 240)

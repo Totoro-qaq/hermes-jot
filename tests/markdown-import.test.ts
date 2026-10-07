@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import { crc32 } from 'node:zlib'
 import { strToU8, zipSync } from 'fflate'
 import { importNotesFile, markdownToNote, resolveArchivePath, titleStem, type ImportExtension } from '../src/markdown-import.js'
 import { exportJotLibrary, exportJotNote } from '../src/exports.js'
@@ -50,7 +51,7 @@ tags: [会议, 2026]
 - 第一层
   - 第二层
     1. 有序
-- [ ] 混合列表保持普通列表
+- [ ] 混合列表里的待办
 
 * [ ] 待办
 * [x] 完成
@@ -62,7 +63,7 @@ tags: [会议, 2026]
 | 梨 |
 `)
   assert.equal(note.title, '周会 纪要', 'a leading H1 becomes the plain-text title and leaves the body')
-  const [paragraph, list, tasks, table, ...rest] = note.content.content
+  const [paragraph, list, mixed, tasks, table, ...rest] = note.content.content
   assert.equal(rest.length, 0)
   assert.deepEqual(paragraph, p(
     t('见 [[项目计划]] 和 ![[草图.png]]，以及 '), t('官网', link('https://example.com/a?b=1')), t(' 与 脚本。'), { type: 'hardBreak' },
@@ -73,8 +74,9 @@ tags: [会议, 2026]
     { type: 'listItem', content: [p(t('第一层')), { type: 'bulletList', content: [
       { type: 'listItem', content: [p(t('第二层')), { type: 'orderedList', attrs: { start: 1 }, content: [{ type: 'listItem', content: [p(t('有序'))] }] }] },
     ] }] },
-    { type: 'listItem', content: [p(t('[ ] 混合列表保持普通列表'))] },
   ] })
+  assert.deepEqual(mixed, { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [p(t('混合列表里的待办'))] }] },
+    'a task item in a mixed list is a checklist of its own')
   assert.deepEqual(tasks, { type: 'taskList', content: [
     { type: 'taskItem', attrs: { checked: false }, content: [p(t('待办'))] },
     { type: 'taskItem', attrs: { checked: true }, content: [p(t('完成'))] },
@@ -514,4 +516,180 @@ test('files linked only from skipped notes are not uploaded, and long skip lists
   assert.ok(result.skipped.some(item => item.path === 'pic.png'))
   assert.deepEqual(result.skipped.at(-1), { path: '…', reason: '7 more files were skipped.' })
   assert.equal((await manifest(target.directory)).attachments.length, 0)
+})
+
+/** A stored ZIP written byte by byte, so a test controls each entry's name bytes, flags and extra fields. */
+function rawZip(entries: Array<{ name: Uint8Array; data: Uint8Array; flags?: number; extra?: Uint8Array }>): Uint8Array {
+  const local: Uint8Array[] = [], central: Uint8Array[] = []
+  let offset = 0
+  for (const { name, data, flags = 0, extra = new Uint8Array() } of entries) {
+    const header = Buffer.alloc(30)
+    header.writeUInt32LE(0x04034b50, 0); header.writeUInt16LE(20, 4); header.writeUInt16LE(flags, 6)
+    header.writeUInt32LE(crc32(data), 14); header.writeUInt32LE(data.length, 18); header.writeUInt32LE(data.length, 22)
+    header.writeUInt16LE(name.length, 26); header.writeUInt16LE(extra.length, 28)
+    const record = Buffer.alloc(46)
+    record.writeUInt32LE(0x02014b50, 0); record.writeUInt16LE(20, 4); record.writeUInt16LE(20, 6); record.writeUInt16LE(flags, 8)
+    record.writeUInt32LE(crc32(data), 16); record.writeUInt32LE(data.length, 20); record.writeUInt32LE(data.length, 24)
+    record.writeUInt16LE(name.length, 28); record.writeUInt16LE(extra.length, 30); record.writeUInt32LE(offset, 42)
+    local.push(header, name, extra, data)
+    central.push(record, name, extra)
+    offset += 30 + name.length + extra.length + data.length
+  }
+  const directory = Buffer.concat(central)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10)
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...local, directory, end])
+}
+/** Info-ZIP Unicode Path extra field (0x7075) naming `raw` as `name`. */
+function unicodePath(raw: Uint8Array, name: string, crc = crc32(raw)): Uint8Array {
+  const utf8 = Buffer.from(name, 'utf8')
+  const field = Buffer.alloc(9)
+  field.writeUInt16LE(0x7075, 0); field.writeUInt16LE(5 + utf8.length, 2); field.writeUInt8(1, 4); field.writeUInt32LE(crc, 5)
+  return Buffer.concat([field, utf8])
+}
+const GBK: Record<string, string> = { 笔: 'b1ca', 记: 'bcc7', 第: 'b5da', 一: 'd2bb', 篇: 'c6aa', 图: 'cdbc', 片: 'c6ac', 无: 'cede', 标: 'b1ea', 题: 'cce2', 文: 'cec4', 件: 'bcfe' }
+const gbk = (text: string): Uint8Array => Buffer.concat([...text].map(char => GBK[char] ? Buffer.from(GBK[char], 'hex') : Buffer.from(char, 'latin1')))
+
+test('ZIP entry names without the UTF-8 flag keep their folders, titles and linked files', async ctx => {
+  // macOS Archive Utility, ditto and Info-ZIP zip store UTF-8 without flag bit 11; Chinese Windows stores GBK.
+  for (const [label, encode] of [['UTF-8 without the flag', (text: string) => Buffer.from(text, 'utf8')], ['GBK', gbk]] as const) {
+    const target = await stores(ctx)
+    const zip = rawZip([
+      { name: encode('笔记/第一篇.md'), data: strToU8('# 第一篇\n\n![图](图片.png)\n\n[文件](文件.txt)') },
+      { name: encode('笔记/图片.png'), data: png },
+      { name: encode('笔记/无标题.md'), data: strToU8('正文') },
+      { name: encode('笔记/文件.txt'), data: strToU8('附带的文本') },
+    ])
+    const result = await run(target, zip, 'zip', 'vault.zip')
+    assert.deepEqual({ notes: result.notes, attachments: result.attachments, folders: result.folders, skipped: result.skipped },
+      { notes: 3, attachments: 1, folders: 1, skipped: [] }, label)
+    const state = await target.store.readState()
+    assert.deepEqual(state.folders.map(folder => folder.name), ['笔记'], label)
+    assert.deepEqual(state.notes.map(note => note.title).sort(), ['文件', '无标题', '第一篇'], label)
+    const first = state.notes.find(note => note.title === '第一篇')!
+    assert.ok(state.notes.every(note => note.folderId === state.folders[0]!.id), label)
+    const [image, card] = first.content.content
+    assert.equal(image!.type, 'image', label)
+    const { attachment, bytes } = await target.attachments.content(String(image!.attrs!.attachmentId))
+    assert.deepEqual([attachment.name, bytes], ['图片.png', png], label)
+    assert.equal(card!.type, 'paragraph', `${label}: the linked .txt file is a note of its own, so the link stays text`)
+  }
+})
+
+test('ZIP names: a Unicode Path field wins when its CRC matches, and CP437 is the last fallback', async ctx => {
+  const target = await stores(ctx)
+  const raw = strToU8('x/a.md'), stale = strToU8('y.md')
+  const zip = rawZip([
+    { name: raw, data: strToU8('来自扩展字段'), extra: unicodePath(raw, '项目/计划.md') },
+    { name: stale, data: strToU8('名称已改'), extra: unicodePath(stale, '错误.md', 0) },
+    { name: Uint8Array.from([0x8e, ...strToU8('.md')]), data: strToU8('CP437') },
+    { name: strToU8('标记.md'), data: strToU8('flagged'), flags: 0x800 },
+  ])
+  const result = await run(target, zip, 'zip')
+  assert.deepEqual([result.notes, result.skipped], [4, []])
+  const state = await target.store.readState()
+  assert.deepEqual(state.folders.map(folder => folder.name), ['项目'])
+  assert.deepEqual(state.notes.map(note => note.title).sort(), ['y', 'Ä', '标记', '计划'].sort())
+})
+
+/** Export one note as Markdown and import it again. */
+const roundTrip = async (content: RichNode[]): Promise<RichNode[]> => {
+  const exported = await exportJotNote({ title: 'T', content: validateRichDoc({ type: 'doc', content }) }, 'md')
+  return markdownToNote(exported.buffer.toString('utf8')).content.content
+}
+const list = (type: 'bulletList' | 'orderedList', texts: string[], start?: number): RichNode =>
+  ({ type, ...(type === 'orderedList' ? { attrs: { start: start ?? 1 } } : {}), content: texts.map(text => ({ type: 'listItem', content: [p(t(text))] })) })
+const tasks = (...items: Array<[string, boolean]>): RichNode =>
+  ({ type: 'taskList', content: items.map(([text, checked]) => ({ type: 'taskItem', attrs: { checked }, content: [p(t(text))] })) })
+
+test('task status is decided per item, and adjacent lists stay separate through a Markdown round trip', async ctx => {
+  assert.deepEqual(blocks('- a\n- [ ] b\n- [x] c\n- d\n\n3. one\n4. [ ] two\n5. three'), [
+    list('bulletList', ['a']), tasks(['b', false], ['c', true]), list('bulletList', ['d']),
+    list('orderedList', ['one'], 3), tasks(['two', false]), list('orderedList', ['three'], 5),
+  ])
+  assert.deepEqual(blocks('- top\n  - plain\n  - [x] nested'), [{ type: 'bulletList', content: [
+    { type: 'listItem', content: [p(t('top')), list('bulletList', ['plain']), tasks(['nested', true])] },
+  ] }], 'nested lists split the same way')
+  const adjacent = [
+    list('bulletList', ['point']), tasks(['todo', false]), tasks(['done', true]), list('bulletList', ['again']), list('bulletList', ['and again']),
+    list('orderedList', ['first'], 1), list('orderedList', ['second'], 1), p(t('end')),
+    { type: 'bulletList', content: [{ type: 'listItem', content: [p(t('outer')), tasks(['inner', false]), list('bulletList', ['inner list'])] }] },
+  ]
+  assert.deepEqual(await roundTrip(adjacent), adjacent)
+  const source = await stores(ctx)
+  await source.store.createNote({ title: 'Lists', content: validateRichDoc({ type: 'doc', content: adjacent }) })
+  const state = await source.store.readState()
+  const exported = await exportJotLibrary({ notes: state.notes, folders: state.folders }, 'md')
+  const target = await stores(ctx)
+  await run(target, exported.buffer, 'zip', exported.filename)
+  assert.deepEqual((await target.store.readState()).notes[0]!.content.content, adjacent)
+})
+
+test('bold, italic and strike survive a Markdown round trip beside spaces and punctuation', async () => {
+  const italic: RichMark = { type: 'italic' }, strike: RichMark = { type: 'strike' }, underline: RichMark = { type: 'underline' }
+  assert.deepEqual(await roundTrip([p(t('Hello '), t('world ', bold), t('again'))]), [p(t('Hello '), t('world', bold), t(' again'))],
+    'edge spaces move outside the delimiters')
+  assert.deepEqual(await roundTrip([p(t('a'), t(' b ', bold, underline), t('c'))]), [p(t('a'), t(' ', underline), t('b', bold, underline), t(' ', underline), t('c'))],
+    'moved spaces keep the other marks')
+  for (const content of [
+    [p(t('abc'), t('(x)', bold), t('def'))],
+    [p(t('foo'), t('.bar', italic), t('baz'))],
+    [p(t('价格'), t('（含税）', bold), t('为100'))],
+    [p(t('x'), t('~y~', strike), t('z'))],
+    [p(t('a'), t('*', bold, italic), t('b'))],
+    [p(t('赞'), t('👍', bold), t('了'))],
+    [p(t('see'), t('code', bold, { type: 'code' }), t('here'))],
+    [p(t('a'), t('b', bold), t('c', italic), t('d', strike), t('e', bold, italic, strike))],
+    [p(t('go '), t('(here)', bold, link('https://example.com')), t('!'))],
+  ]) assert.deepEqual(await roundTrip(content), content)
+  assert.deepEqual(blocks('<strong>a</strong> <em>b</em> <s>c</s> <strong>*d*</strong> **<em>e</em>**'), [p(
+    t('a', bold), t(' '), t('b', italic), t(' '), t('c', strike), t(' '), t('d', bold, italic), t(' '), t('e', bold, italic),
+  )], 'the HTML forms Jot writes import as marks')
+})
+
+test('Markdown export keeps list continuations inside long-numbered items and leading spaces out of code blocks', async () => {
+  const nested = [{ type: 'orderedList', attrs: { start: 100 }, content: [
+    { type: 'listItem', content: [p(t('a')), list('bulletList', ['nested']), { type: 'codeBlock', attrs: { language: null }, content: [t('  code')] }] },
+    { type: 'listItem', content: [p(t('b')), p(t('second paragraph'))] },
+  ] }, { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [p(t('task')), list('orderedList', ['sub'], 1)] }] }]
+  assert.deepEqual(await roundTrip(nested), nested)
+  const spaced = [
+    p(t('    indented text')), p(t(' one space')), p(t('　　全角缩进')), p(t('trailing  ')),
+    p(t('line'), { type: 'hardBreak' }, t('     after a break')),
+    { type: 'heading', attrs: { level: 2 }, content: [t('  spaced heading')] },
+  ]
+  assert.deepEqual(await roundTrip(spaced), spaced)
+})
+
+test('HTML-block entities decode like Markdown text and never resolve object properties', () => {
+  assert.deepEqual(blocks('<div>\nuse &constructor; &toString; here &copy; 2024 &mdash; x &hellip; &amp;amp; &#x41;&#66; &#0; &nosuch;\n</div>'), [
+    p(t('use &constructor; &toString; here © 2024 — x … &amp; AB &#0; &nosuch;')),
+  ])
+  assert.deepEqual(blocks('<p><img src="x.png" alt="a &constructor; &eacute;"></p>'), [p(t('a &constructor; é'))])
+})
+
+test('a note too large for Jot is skipped without failing the archive, however many rows or lines it has', async ctx => {
+  for (const bad of ['a|b\n-|-\n' + 'c|d\n'.repeat(150_000), '<div>\n' + 'a\n'.repeat(150_000)]) {
+    assert.throws(() => convert(bad), (error: unknown) => invalid(error) && /too complex/u.test((error as Error).message))
+    const target = await stores(ctx)
+    const result = await run(target, zipSync({ 'good.md': strToU8('good'), 'other.md': strToU8('other'), 'bad.md': strToU8(bad) }), 'zip')
+    assert.equal(result.notes, 2)
+    assert.deepEqual(result.skipped.map(item => item.path), ['bad.md'])
+    assert.match(result.skipped[0]!.reason, /too large or complex/u)
+  }
+  assert.equal(blocks(`| h |\n| - |\n${'| r |\n'.repeat(4_000)}`).length, 4_001, 'a long table within the node limit still imports')
+})
+
+test('an import that would pass the notes storage limit fails before uploading, and a failed save removes its uploads', async ctx => {
+  const target = await stores(ctx)
+  const notes = Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`n${index}.md`, strToU8(`![p](pic.png)\n\n${'中'.repeat(199_000)}`)]))
+  const before = await target.store.readState()
+  await assert.rejects(run(target, zipSync({ ...notes, 'pic.png': png }), 'zip'),
+    (error: unknown) => invalid(error) && /32 MiB/u.test((error as Error).message))
+  assert.deepEqual(await target.store.readState(), before)
+  assert.equal((await manifest(target.directory)).attachments.length, 0)
+  target.store.importNotes = async () => { throw new StoreError('INVALID_INPUT', 'Notes storage has reached its size limit') }
+  await assert.rejects(run(target, zipSync({ 'a.md': strToU8('![p](pic.png)'), 'pic.png': png }), 'zip'), invalid)
+  assert.equal((await manifest(target.directory)).attachments.length, 0, 'the uploaded image was rolled back')
 })

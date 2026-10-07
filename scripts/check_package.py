@@ -14,6 +14,8 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+# Hermes' plugin scanner flags these as hidden-text injection; packaged text writes them as escapes instead.
+INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]")
 
 
 def main():
@@ -36,6 +38,15 @@ def main():
         package = parent / "jot"
         if not (package / "plugin.yaml").is_file():
             raise SystemExit("Expected a complete jot/ package.")
+        for member in sorted(package.rglob("*")):
+            try:
+                text = member.read_bytes().decode("utf-8") if member.is_file() else ""
+            except UnicodeDecodeError:
+                continue
+            hidden = INVISIBLE.search(text)
+            if hidden:
+                raise SystemExit("Invisible or bidirectional Unicode U+%04X in packaged %s, line %d; write it as an escape."
+                                 % (ord(hidden.group()), member.relative_to(package).as_posix(), text.count("\n", 0, hidden.start()) + 1))
         # Export and import code loads lazily from library.cjs; the per-request engine stays small.
         if not (package / "runtime/library.cjs").is_file() or b"pdfkit" in (package / "runtime/worker.cjs").read_bytes():
             raise SystemExit("The packaged engine must keep export code in runtime/library.cjs.")

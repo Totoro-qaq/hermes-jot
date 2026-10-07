@@ -68,7 +68,9 @@ export const MAX_DOC_BYTES = 1_048_576
 export const MAX_TEXT_LENGTH = 200_000
 export const MAX_TITLE_LENGTH = 240
 export const MAX_FOLDER_NAME_LENGTH = 80
-const MAX_NODES = 10_000
+export const MAX_NODES = 10_000
+/** The whole notes file (jot.json), checked on every save. */
+export const MAX_STATE_BYTES = 32 * 1_048_576
 const MAX_DEPTH = 32
 export const TEXT_COLORS = ['#374151', '#dc2626', '#d97706', '#16a34a', '#2563eb', '#9333ea', '#db2777'] as const
 export const HIGHLIGHT_COLORS = ['#fef08a', '#fed7aa', '#bbf7d0', '#bfdbfe', '#e9d5ff', '#fecdd3'] as const

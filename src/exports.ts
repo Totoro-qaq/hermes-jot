@@ -124,20 +124,39 @@ function markedHtml(node: RichNode): string {
   }
   return text
 }
+/** The longest run of backticks, without spreading every match into one call. */
+const longestBackticks = (text: string): number => {
+  let longest = 0
+  for (const match of text.matchAll(/`+/gu)) longest = Math.max(longest, match[0].length)
+  return longest
+}
+const EMPHASIS: Partial<Record<string, { delimiter: string; tag: string }>> = {
+  bold: { delimiter: '**', tag: 'strong' }, italic: { delimiter: '*', tag: 'em' }, strike: { delimiter: '~~', tag: 's' },
+}
+/** CommonMark punctuation (P and S categories) or whitespace beside a delimiter can stop it opening or closing. */
+const EDGE_STARTS = /^[\p{P}\p{S}\s]/u, EDGE_ENDS = /[\p{P}\p{S}\s]$/u
 function inlineMarkdown(node: RichNode): string {
   if (node.type === 'hardBreak') return '  \n'
-  let text = mdEscape(node.text ?? '')
+  const raw = node.text ?? ''
   const marks = node.marks ?? []
-  if (marks.some(mark => mark.type === 'code')) {
-    const raw = node.text ?? ''
-    const longest = Math.max(0, ...[...raw.matchAll(/`+/gu)].map(match => match[0].length))
-    const fence = '`'.repeat(longest + 1)
+  const code = marks.some(mark => mark.type === 'code')
+  const emphasis = marks.flatMap(mark => EMPHASIS[mark.type] ?? [])
+  // Delimiters must touch the text, so edge whitespace stays outside bold, italic and strike (inside the other marks).
+  const [, lead = '', core = raw, trail = ''] = code || !emphasis.length ? [] : /^(\s*)([\s\S]*?)(\s*)$/u.exec(raw)!
+  let text = mdEscape(core)
+  if (code) {
+    const fence = '`'.repeat(longestBackticks(raw) + 1)
     text = `${fence} ${raw.replace(/\n/gu, ' ')} ${fence}`
   }
+  if (text) {
+    for (const { delimiter, tag } of emphasis) {
+      // Beside punctuation a delimiter run may not open or close (`abc**\(x\)**def`); HTML tags always do.
+      text = EDGE_STARTS.test(text) || EDGE_ENDS.test(text) ? `<${tag}>${text}</${tag}>` : `${delimiter}${text}${delimiter}`
+    }
+  }
+  text = `${lead}${text}${trail}`
   for (const mark of marks) {
-    if (mark.type === 'bold') text = `**${text}**`
-    else if (mark.type === 'italic') text = `*${text}*`
-    else if (mark.type === 'strike') text = `~~${text}~~`
+    if (EMPHASIS[mark.type]) continue
     else if (mark.type === 'underline') text = `<u>${text}</u>`
     else if (mark.type === 'link') text = `[${text}](<${String(mark.attrs?.href).replace(/</gu, '%3C').replace(/>/gu, '%3E')}>)`
     else if (mark.attrs?.color) text = `<span style="${mark.type === 'highlight' ? 'background-color' : 'color'}:${mark.attrs.color}">${text}</span>`
@@ -172,14 +191,42 @@ function htmlBlock(node: RichNode, assets: Assets): string {
   const body = (node.content ?? []).map(child => htmlBlock(child, assets)).join('')
   return node.type === 'blockquote' ? `<blockquote>${body}</blockquote>` : body
 }
-function markdownBlock(node: RichNode, assets: Assets): string {
-  const inline = () => (node.content ?? []).map(inlineMarkdown).join('')
+/**
+ * Inline content as Markdown. Whitespace at the start or end of a line is
+ * written as an entity: Markdown would trim it, and four leading spaces would
+ * start an indented code block.
+ */
+function inlineLines(nodes: readonly RichNode[]): string {
+  return nodes.map((node, index) => {
+    let text = inlineMarkdown(node)
+    if (node.type === 'hardBreak') return text
+    const entity = (space: string) => `&#${space.codePointAt(0)};`
+    if (index === 0 || nodes[index - 1]!.type === 'hardBreak') text = text.replace(/^\s/u, entity)
+    if (index === nodes.length - 1 || nodes[index + 1]!.type === 'hardBreak') text = text.replace(/\s$/u, entity)
+    return text
+  }).join('')
+}
+/**
+ * Blocks separated by blank lines. A list right after a list of the same kind
+ * switches its marker (`-`/`*`, `.`/`)`); with one marker, Markdown reads the
+ * two as a single list.
+ */
+function markdownBlocks(nodes: readonly RichNode[], assets: Assets): string {
+  const kind = (node?: RichNode) => node?.type === 'orderedList' ? 'ordered' : node?.type === 'bulletList' || node?.type === 'taskList' ? 'bullet' : null
+  let alternate = false
+  return nodes.map((node, index) => {
+    alternate = kind(node) !== null && kind(node) === kind(nodes[index - 1]) ? !alternate : false
+    return markdownBlock(node, assets, alternate)
+  }).join('\n\n')
+}
+function markdownBlock(node: RichNode, assets: Assets, alternate = false): string {
+  const inline = () => inlineLines(node.content ?? [])
   if (node.type === 'paragraph') return inline()
   if (node.type === 'heading') return `${'#'.repeat(Number(node.attrs?.level))} ${inline()}`
   if (node.type === 'horizontalRule') return '---'
   if (node.type === 'codeBlock') {
     const raw = inlineText(node)
-    const fence = '`'.repeat(Math.max(3, 1 + Math.max(0, ...[...raw.matchAll(/`+/gu)].map(match => match[0].length))))
+    const fence = '`'.repeat(Math.max(3, 1 + longestBackticks(raw)))
     const language = String(node.attrs?.language ?? '')
     return `${fence}${/^[a-zA-Z0-9_+-]*$/u.test(language) ? language : ''}\n${raw}\n${fence}`
   }
@@ -202,12 +249,12 @@ function markdownBlock(node: RichNode, assets: Assets): string {
     return [header, header.map(() => '---'), ...values].map(row => `| ${row.join(' | ')} |`).join('\n')
   }
   if (['bulletList', 'orderedList', 'taskList'].includes(node.type)) return (node.content ?? []).map((item, index) => {
-    const prefix = node.type === 'orderedList' ? `${Number(node.attrs?.start ?? 1) + index}. `
-      : node.type === 'taskList' ? item.attrs?.checked ? '- [x] ' : '- [ ] ' : '- '
-    const body = (item.content ?? []).map(child => markdownBlock(child, assets)).join('\n\n')
-    return `${prefix}${body.replace(/\n/gu, '\n    ')}`
+    const marker = node.type === 'orderedList' ? `${Number(node.attrs?.start ?? 1) + index}${alternate ? ')' : '.'} ` : alternate ? '* ' : '- '
+    const prefix = node.type === 'taskList' ? `${marker}${item.attrs?.checked ? '[x]' : '[ ]'} ` : marker
+    // Continuation lines start at the item's content column: the marker's width ("100. " needs five spaces).
+    return `${prefix}${markdownBlocks(item.content ?? [], assets).replace(/\n/gu, `\n${' '.repeat(marker.length)}`)}`
   }).join('\n')
-  const body = (node.content ?? []).map(child => markdownBlock(child, assets)).join('\n\n')
+  const body = markdownBlocks(node.content ?? [], assets)
   return node.type === 'blockquote' ? body.split('\n').map(line => `> ${line}`).join('\n') : body
 }
 
@@ -537,7 +584,7 @@ export async function exportJotNote(input: Input, format: ExportFormat, options:
     buffer = Buffer.from(`${title}\n\n${content.content.map(node => plainBlock(node, assets)).join('\n\n')}\n`, 'utf8')
     contentType = 'text/plain; charset=utf-8'
   } else if (format === 'md') {
-    const text = `# ${mdEscape(title || 'Untitled')}\n\n${content.content.map(node => markdownBlock(node, assets)).join('\n\n')}\n`
+    const text = `# ${mdEscape(title || 'Untitled')}\n\n${markdownBlocks(content.content, assets)}\n`
     if (assets.size) {
       const entries: Record<string, Uint8Array> = { 'note.md': strToU8(text) }
       for (const file of assets.values()) entries[file.assetPath] = file.data
@@ -646,7 +693,7 @@ export async function exportJotLibrary(input: { notes: readonly LibraryExportNot
     if (format === 'md') {
       // Links are relative to the note's own folder.
       const local: Assets = directory ? new Map([...assets].map(([id, file]) => [id, { ...file, assetPath: `../${file.assetPath}` }])) : assets
-      addEntry(path, strToU8(`# ${mdEscape(title)}\n\n${note.content.content.map(node => markdownBlock(node, local)).join('\n\n')}\n`), true)
+      addEntry(path, strToU8(`# ${mdEscape(title)}\n\n${markdownBlocks(note.content.content, local)}\n`), true)
     } else {
       const data = format === 'docx' ? await wordDocument(document, assets) : await pdfDocument(document, assets, options.fontDirectory)
       if (data.length > MAX_EXPORT_BYTES) invalid('Export exceeds 50 MiB')

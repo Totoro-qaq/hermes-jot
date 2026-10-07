@@ -5,10 +5,11 @@
  */
 import MarkdownIt, { type MarkdownIt as Parser, type Token } from 'markdown-it'
 import { unzipSync } from 'fflate'
+import { stat } from 'node:fs/promises'
 import { crc32 } from 'node:zlib'
 import {
-  StoreError, HIGHLIGHT_COLORS, MAX_FOLDER_NAME_LENGTH, MAX_TITLE_LENGTH, TEXT_COLORS,
-  docFromText, documentAttachmentIds, normalizePaletteColor, validateId, validateRichDoc,
+  StoreError, HIGHLIGHT_COLORS, MAX_FOLDER_NAME_LENGTH, MAX_NODES, MAX_STATE_BYTES, MAX_TITLE_LENGTH, TEXT_COLORS,
+  docFromText, documentAttachmentIds, normalizePaletteColor, validateId, validateRichDoc, validatedDocText,
   type RichDoc, type RichMark, type RichMarkType, type RichNode,
 } from './model.js'
 import type { ImportNoteInput, JotStore } from './store.js'
@@ -30,6 +31,8 @@ export const MAX_IMPORT_ATTACHMENTS = 1_000
 export const MAX_IMPORT_NOTE_BYTES = 4 * 1_048_576
 const MAX_ZIP_ENTRIES = 100_000
 const MAX_SKIPPED = 1_000
+/** A saved note's fields besides its title, document and text: id, folder, dates, revision and JSON keys. */
+const NOTE_OVERHEAD_BYTES = 320
 const NOTE_EXTENSIONS = new Set(['md', 'markdown', 'txt'])
 const MARK_ORDER: RichMarkType[] = ['bold', 'italic', 'strike', 'underline', 'code', 'link', 'textStyle', 'highlight']
 
@@ -66,13 +69,9 @@ function markdown(): Parser {
 
 const FRONT_MATTER = /^---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/u
 
-const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+/** HTML entities as markdown-it decodes them in Markdown text; a match holds no backslash, so only the entity changes. */
 function decodeEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-f]{1,6}|#[0-9]{1,7}|[a-z]+);/giu, (match, entity: string) => {
-    if (entity[0] !== '#') return ENTITIES[entity.toLowerCase()] ?? match
-    const code = entity[1] === 'x' || entity[1] === 'X' ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10)
-    return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : '�'
-  })
+  return text.replace(/&(?:#x[0-9a-f]{1,6}|#[0-9]{1,7}|[a-z][a-z0-9]{1,31});/giu, match => markdown().utils.unescapeAll(match))
 }
 const BLOCK_TAGS = new Set(['p', 'div', 'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'table', 'thead', 'tbody',
   'ul', 'ol', 'section', 'article', 'header', 'footer', 'details', 'summary'])
@@ -99,7 +98,10 @@ function htmlBlockNodes(html: string, context: ConvertContext): RichNode[] {
   let text = ''
   let link: { href: string; start: number } | null = null
   const flush = () => {
-    for (const line of text.split('\n').map(value => value.trim()).filter(Boolean)) blocks.push({ type: 'paragraph', content: [{ type: 'text', text: line }] })
+    for (const line of text.split('\n').map(value => value.trim()).filter(Boolean)) {
+      context.spend(2)
+      blocks.push({ type: 'paragraph', content: [{ type: 'text', text: line }] })
+    }
     text = ''
     if (link) link.start = 0
   }
@@ -124,6 +126,7 @@ function htmlBlockNodes(html: string, context: ConvertContext): RichNode[] {
         const caption = describe(text.slice(link.start))
         text = text.slice(0, link.start)
         flush()
+        context.spend(1)
         blocks.push({ type: 'attachment', attrs: { attachmentId: id, caption } })
       }
       link = null
@@ -133,7 +136,7 @@ function htmlBlockNodes(html: string, context: ConvertContext): RichNode[] {
     else if (name === 'img') {
       const alt = describe(htmlAttribute(tag, 'alt'))
       const id = context.resolveFile(htmlAttribute(tag, 'src'))
-      if (id) { flush(); blocks.push({ type: 'image', attrs: { attachmentId: id, alt } }) }
+      if (id) { flush(); context.spend(1); blocks.push({ type: 'image', attrs: { attachmentId: id, alt } }) }
       else text += alt
     }
   }
@@ -183,8 +186,17 @@ function spanMarks(attributes: string): RichMark[] {
 interface ConvertContext {
   /** Attachment id for a link or image destination that names a file in the import. */
   resolveFile(href: string): string | null
+  /**
+   * Count block nodes as they are made; past Jot's node limit the note fails at
+   * once (a StoreError, so an archive skips it) instead of growing without bound.
+   */
+  spend(count: number): void
 }
 
+/** Inline HTML that Jot's Markdown export writes where `**`, `*` or `~~` could not open or close. */
+const HTML_MARKS: Partial<Record<string, readonly RichMark[]>> = Object.assign(Object.create(null) as object, {
+  strong: [{ type: 'bold' }], em: [{ type: 'italic' }], s: [{ type: 'strike' }], u: [{ type: 'underline' }],
+})
 /** Deeper inline nesting adds no marks; the bound keeps each step constant on unclosed `<u>`/`<span>` runs. */
 const MAX_INLINE_DEPTH = 128
 
@@ -235,10 +247,12 @@ function inlineNodes(tokens: readonly Token[] | null): RichNode[] {
         if (!tag) break
         const name = tag[2]!.toLowerCase()
         const selfClosing = /\/\s*$/u.test(tag[3]!)
+        const tagMarks = HTML_MARKS[name]
         if (name === 'br') nodes.push({ type: 'hardBreak' })
-        else if (name === 'u' || name === 'span') {
-          if (tag[1]) close(name)
-          else if (!selfClosing) open(name, name === 'u' ? [{ type: 'underline' }] : spanMarks(tag[3]!))
+        else if (tagMarks || name === 'span') {
+          // HTML tags pair only with HTML tags, never with Markdown's own delimiters.
+          if (tag[1]) close(`<${name}>`)
+          else if (!selfClosing) open(`<${name}>`, tagMarks ? [...tagMarks] : spanMarks(tag[3]!))
         }
         break
       }
@@ -290,8 +304,22 @@ function cellAlign(token: Token): string | null {
   return align ?? null
 }
 
+type ListEntry = { blocks: RichNode[]; marker: RegExpExecArray | null }
+function taskItem({ blocks: item, marker }: ListEntry): RichNode {
+  const content = [...item[0]!.content!]
+  const rest = content[0]!.text!.slice(marker![0].length).replace(/^[ \t]+/u, '')
+  if (rest) content[0] = { ...content[0]!, text: rest }
+  else {
+    content.shift()
+    if (content[0]?.type === 'hardBreak') content.shift()
+  }
+  return { type: 'taskItem', attrs: { checked: marker![1] !== ' ' },
+    content: [content.length ? { type: 'paragraph', content } : { type: 'paragraph' }, ...item.slice(1)] }
+}
+
 function blocksFrom(tokens: readonly Token[], context: ConvertContext): RichNode[] {
   let index = 0
+  const add = (blocks: RichNode[], node: RichNode) => { context.spend(1); blocks.push(node) }
   const parse = (closing?: string): RichNode[] => {
     const blocks: RichNode[] = []
     while (index < tokens.length) {
@@ -301,21 +329,22 @@ function blocksFrom(tokens: readonly Token[], context: ConvertContext): RichNode
         case 'paragraph_open': {
           const inline = tokens[index++]!
           index++
-          blocks.push(paragraph(inline, context))
+          add(blocks, paragraph(inline, context))
           break
         }
         case 'heading_open': {
           const inline = tokens[index++]!
           index++
           const content = inlineNodes(inline.children)
-          blocks.push({ type: 'heading', attrs: { level: Number(token.tag.slice(1)) }, ...(content.length ? { content } : {}) })
+          add(blocks, { type: 'heading', attrs: { level: Number(token.tag.slice(1)) }, ...(content.length ? { content } : {}) })
           break
         }
         case 'bullet_list_open': case 'ordered_list_open': {
           const ordered = token.type === 'ordered_list_open'
-          const items: Array<{ blocks: RichNode[]; marker: RegExpExecArray | null }> = []
+          const items: ListEntry[] = []
           while (tokens[index]?.type === 'list_item_open') {
             index++
+            context.spend(1)
             const first = tokens[index]?.type === 'paragraph_open' ? tokens[index + 1]?.content ?? '' : null
             const item = parse('list_item_close')
             if (item[0]?.type !== 'paragraph') item.unshift({ type: 'paragraph' })
@@ -324,41 +353,39 @@ function blocksFrom(tokens: readonly Token[], context: ConvertContext): RichNode
             items.push({ blocks: item, marker: marker && leading?.type === 'text' && leading.text!.startsWith(marker[0]) ? marker : null })
           }
           index++
-          if (items.length && items.every(item => item.marker)) {
-            blocks.push({ type: 'taskList', content: items.map(({ blocks: item, marker }) => {
-              const first = item[0]!
-              const content = [...first.content!]
-              const rest = content[0]!.text!.slice(marker![0].length).replace(/^[ \t]+/u, '')
-              if (rest) content[0] = { ...content[0]!, text: rest }
-              else {
-                content.shift()
-                if (content[0]?.type === 'hardBreak') content.shift()
-              }
-              return { type: 'taskItem', attrs: { checked: marker![1] !== ' ' },
-                content: [content.length ? { type: 'paragraph', content } : { type: 'paragraph' }, ...item.slice(1)] }
-            }) })
-          } else if (items.length) {
-            const start = Math.min(1_000_000, Math.max(1, Math.trunc(Number(token.attrGet('start') ?? 1)) || 1))
-            blocks.push({ type: ordered ? 'orderedList' : 'bulletList', ...(ordered ? { attrs: { start } } : {}),
-              content: items.map(item => ({ type: 'listItem', content: item.blocks })) })
+          const start = Math.min(1_000_000, Math.max(1, Math.trunc(Number(token.attrGet('start') ?? 1)) || 1))
+          // Task status is per item: each run of task items is a checklist and the items between stay a list,
+          // so a GFM list that mixes both, or Jot's own list exported next to a checklist, keeps its checkboxes.
+          for (let from = 0; from < items.length;) {
+            const task = items[from]!.marker !== null
+            let to = from + 1
+            while (to < items.length && (items[to]!.marker !== null) === task) to++
+            const run = items.slice(from, to)
+            if (task) add(blocks, { type: 'taskList', content: run.map(taskItem) })
+            else {
+              add(blocks, { type: ordered ? 'orderedList' : 'bulletList', ...(ordered ? { attrs: { start: Math.min(1_000_000, start + from) } } : {}),
+                content: run.map(item => ({ type: 'listItem', content: item.blocks })) })
+            }
+            from = to
           }
           break
         }
         case 'blockquote_open': {
           const content = parse('blockquote_close')
-          blocks.push({ type: 'blockquote', content: content.length ? content : [{ type: 'paragraph' }] })
+          add(blocks, { type: 'blockquote', content: content.length ? content : [{ type: 'paragraph' }] })
           break
         }
         case 'fence': case 'code_block': {
           const info = token.type === 'fence' ? token.info.trim().split(/\s+/u)[0] ?? '' : ''
           const language = /^[\w+#.-]{1,80}$/u.test(info) ? info : null
           const text = token.content.replace(/\n$/u, '')
-          blocks.push({ type: 'codeBlock', attrs: { language }, ...(text ? { content: [{ type: 'text', text }] } : {}) })
+          add(blocks, { type: 'codeBlock', attrs: { language }, ...(text ? { content: [{ type: 'text', text }] } : {}) })
           break
         }
-        case 'hr': blocks.push({ type: 'horizontalRule' }); break
-        case 'html_block': blocks.push(...htmlBlockNodes(token.content, context)); break
-        case 'table_open': blocks.push(...table()); break
+        case 'hr': add(blocks, { type: 'horizontalRule' }); break
+        // Never spread these into push: an HTML block or table can yield more nodes than a call takes arguments.
+        case 'html_block': for (const node of htmlBlockNodes(token.content, context)) blocks.push(node); break
+        case 'table_open': for (const node of table()) blocks.push(node); break
         default: break
       }
     }
@@ -375,10 +402,11 @@ function blocksFrom(tokens: readonly Token[], context: ConvertContext): RichNode
         rows.at(-1)?.push({ header: token.type === 'th_open', align: cellAlign(token), inline })
       }
     }
-    const width = Math.max(0, ...rows.map(row => row.length))
+    const width = rows.reduce((widest, row) => Math.max(widest, row.length), 0)
     if (!rows.length || !width) return []
     if (width > 50 || rows.length > 200) {
       // Too large for a Jot table: keep every value as one readable line per row.
+      context.spend(rows.length)
       return rows.map(row => {
         const content: RichNode[] = []
         row.forEach((cell, column) => {
@@ -391,6 +419,7 @@ function blocksFrom(tokens: readonly Token[], context: ConvertContext): RichNode
     // Jot writes a blank header row for a table without one; keep that table header-less.
     const blankHeader = rows.length > 1 && rows[0]!.every(cell => !cell.inline?.content.trim())
     const body = blankHeader ? rows.slice(1) : rows
+    context.spend(1 + body.length * (1 + 2 * width))
     return [{ type: 'table', content: body.map((row, rowIndex) => ({ type: 'tableRow', content: Array.from({ length: width }, (_, column) => {
       const cell = row[column]
       return { type: rowIndex === 0 && !blankHeader ? 'tableHeader' : 'tableCell',
@@ -412,7 +441,12 @@ const inlineText = (node: RichNode): string => node.type === 'text' ? node.text 
 export function markdownToNote(source: string, options: { fallbackTitle?: string; resolveFile?: (href: string) => string | null } = {}): { title: string; content: RichDoc } {
   if (typeof source !== 'string') invalid('Markdown text is required')
   const body = source.replace(/^\ufeff/u, '').replace(FRONT_MATTER, '')
-  const context: ConvertContext = { resolveFile: href => href ? options.resolveFile?.(href) ?? null : null }
+  /** Blocks only, so never more than the document holds; -1 allows for a leading H1 that becomes the title. */
+  let nodes = -1
+  const context: ConvertContext = {
+    resolveFile: href => href ? options.resolveFile?.(href) ?? null : null,
+    spend: count => { if ((nodes += count) > MAX_NODES) invalid('Document is too complex') },
+  }
   const blocks = blocksFrom(markdown().parse(body, {}), context)
   let title = truncate((options.fallbackTitle ?? '').trim(), MAX_TITLE_LENGTH).trim()
   const first = blocks[0]
@@ -448,7 +482,7 @@ export function resolveArchivePath(href: string, directory: string): string | nu
 
 /** A portable stored name for an imported attachment, within AttachmentStore's name rules. */
 function attachmentName(name: string): string {
-  let clean = name.replace(/[\u0000-\u001f\u007f/\\‪-‮⁦-⁩]/gu, '_').trim()
+  let clean = name.replace(/[\u0000-\u001f\u007f/\\\u202a-\u202e\u2066-\u2069]/gu, '_').trim()
   if (!clean || clean === '.' || clean === '..') return 'attachment'
   const dot = clean.lastIndexOf('.')
   const extension = dot > 0 && clean.length - dot <= 16 ? clean.slice(dot) : ''
@@ -536,40 +570,58 @@ export async function importNotesFile(store: JotStore, attachments: AttachmentSt
   const candidates: Candidate[] = []
   /** Placeholder attachment id → archive entry, replaced by managed ids after upload. */
   const placeholders = new Map<string, ArchiveEntry>()
+  /**
+   * The notes file after this import, estimated as each note is converted. The
+   * import stops before any upload once it would pass the state limit; each
+   * note's document stays in memory until the save, so this also bounds memory.
+   */
+  let stateBytes = await stat(store.statePath).then(info => info.size, () => 0)
   const convert = (path: string, data: Uint8Array, plain: boolean, fallbackTitle: string, resolveFile?: (href: string) => string | null) => {
     if (data.byteLength > MAX_IMPORT_NOTE_BYTES) { skip(path, 'The note is larger than 4 MiB.'); return }
     const text = decodeUtf8(data)
     if (text === null) { skip(path, 'The file is not UTF-8 text.'); return }
+    let note: { title: string; content: RichDoc }
     try {
-      const note = plain
+      note = plain
         ? { title: fallbackTitle, content: docFromText(text) }
         : markdownToNote(text, { fallbackTitle, resolveFile })
-      candidates.push({ ...note, folderName: extension === 'zip' ? folderName(path) : null, path })
     } catch (error) {
       if (!(error instanceof StoreError)) throw error
       skip(path, `The note is too large or complex for Jot: ${error.message}.`)
+      return
     }
+    stateBytes += NOTE_OVERHEAD_BYTES + Buffer.byteLength(JSON.stringify(note.title), 'utf8')
+      + Buffer.byteLength(JSON.stringify(note.content), 'utf8') + Buffer.byteLength(JSON.stringify(validatedDocText(note.content)), 'utf8')
+    if (stateBytes > MAX_STATE_BYTES) {
+      invalid(`These notes would take Jot's notes storage past its ${MAX_STATE_BYTES / 1_048_576} MiB limit; import fewer notes at a time`)
+    }
+    candidates.push({ ...note, folderName: extension === 'zip' ? folderName(path) : null, path })
   }
 
-  let archive: { bytes: Uint8Array; crcs: number[] } | undefined
+  let archive: { bytes: Uint8Array; central: CentralEntry[] } | undefined
   if (extension !== 'zip') convert(basename(input.filename) || `note.${extension}`, bytes, extension === 'txt', titleStem(input.filename))
   else {
     const entries: ArchiveEntry[] = []
     const names = new Set<string>()
     const paths = new Set<string>()
     let position = -1
+    // fflate reads a name without the UTF-8 flag as Latin-1. Folders, titles and links use the name the
+    // archiver meant; fflate's own name stays the key of its output.
+    archive = { bytes, central: centralDirectory(bytes) }
+    const central = archive.central
     try {
       unzipSync(bytes, { filter: file => {
         position++
         if (position >= MAX_ZIP_ENTRIES) invalid(`The ZIP archive has more than ${MAX_ZIP_ENTRIES.toLocaleString('en')} entries`)
-        const path = file.name.replace(/\\/gu, '/').normalize('NFC')
+        const display = central[position]?.name ?? invalid('The ZIP archive is damaged')
+        const path = display.replace(/\\/gu, '/').normalize('NFC')
         if (path.endsWith('/')) return false
         const segments = path.split('/')
-        if (/^(?:\/|[a-z]:)/iu.test(path) || segments.includes('..')) { skip(file.name, 'Unsafe path in the archive.'); return false }
+        if (/^(?:\/|[a-z]:)/iu.test(path) || segments.includes('..')) { skip(display, 'Unsafe path in the archive.'); return false }
         const parts = segments.filter(segment => segment && segment !== '.')
         if (!parts.length || parts[0] === '__MACOSX' || parts.some(segment => segment.startsWith('.'))) return false
         const normalized = parts.join('/')
-        if (names.has(file.name) || paths.has(normalized)) { skip(file.name, 'Duplicate entry in the archive.'); return false }
+        if (names.has(file.name) || paths.has(normalized)) { skip(display, 'Duplicate entry in the archive.'); return false }
         names.add(file.name)
         paths.add(normalized)
         if (file.compression !== 0 && file.compression !== 8) { skip(normalized, 'Unsupported ZIP compression.'); return false }
@@ -580,7 +632,6 @@ export async function importNotesFile(store: JotStore, attachments: AttachmentSt
       if (error instanceof StoreError) throw error
       invalid('The file is not a readable ZIP archive')
     }
-    archive = { bytes, crcs: centralCrcs(bytes) }
     const notes = entries.filter(entry => NOTE_EXTENSIONS.has(extensionOf(entry.path)))
     if (notes.length > MAX_IMPORT_NOTES) invalid(`A ZIP import holds at most ${MAX_IMPORT_NOTES.toLocaleString('en')} notes; import one folder at a time`)
     const readable = notes.filter(entry => entry.size <= MAX_IMPORT_NOTE_BYTES)
@@ -685,12 +736,15 @@ export async function importNotesFile(store: JotStore, attachments: AttachmentSt
   }
 }
 
+interface CentralEntry { crc: number; name: string }
+
 /**
- * CRC-32 values from the central directory, by entry position, read the same
- * way fflate walks it. fflate inflates into a buffer of the declared size and
- * does not check CRCs, so a damaged or understated entry would be silently cut.
+ * Central-directory entries by position, read the same way fflate walks them.
+ * fflate inflates into a buffer of the declared size and does not check CRCs,
+ * so a damaged or understated entry would be silently cut; the CRC-32 here
+ * catches that. Names follow {@link entryName}.
  */
-function centralCrcs(data: Uint8Array): number[] {
+function centralDirectory(data: Uint8Array): CentralEntry[] {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
   const u16 = (offset: number) => view.getUint16(offset, true)
   const u32 = (offset: number) => view.getUint32(offset, true)
@@ -705,17 +759,54 @@ function centralCrcs(data: Uint8Array): number[] {
     const zip64 = u32(end - 12)
     if (zip64 + 56 <= data.length && u32(zip64) === 0x06064b50) { count = u32(zip64 + 32); offset = u32(zip64 + 48) }
   }
-  const crcs: number[] = []
+  if (count > MAX_ZIP_ENTRIES) invalid(`The ZIP archive has more than ${MAX_ZIP_ENTRIES.toLocaleString('en')} entries`)
+  const entries: CentralEntry[] = []
   for (let index = 0; index < count; index++) {
     if (offset + 46 > data.length || u32(offset) !== 0x02014b50) invalid('The ZIP archive is damaged')
-    crcs.push(u32(offset + 16))
-    offset += 46 + u16(offset + 28) + u16(offset + 30) + u16(offset + 32)
+    const nameEnd = offset + 46 + u16(offset + 28), extraEnd = nameEnd + u16(offset + 30)
+    if (extraEnd > data.length) invalid('The ZIP archive is damaged')
+    entries.push({ crc: u32(offset + 16), name: entryName(data.subarray(offset + 46, nameEnd), u16(offset + 8), data.subarray(nameEnd, extraEnd)) })
+    offset = extraEnd + u16(offset + 32)
   }
-  return crcs
+  return entries
+}
+
+/** The upper half of CP437, the ZIP format's default code page. */
+const CP437 = 'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ '
+let gb18030: TextDecoder | null | undefined
+
+/**
+ * An entry name as the archiver meant it. The UTF-8 flag (bit 11) decides when
+ * set. Otherwise an Info-ZIP Unicode Path field (0x7075) whose CRC matches the
+ * stored name wins; then the name itself if it is valid UTF-8 (macOS Archive
+ * Utility, ditto and Info-ZIP zip store UTF-8 without the flag); then GB18030,
+ * which Chinese Windows writes; and last CP437, the ZIP default.
+ */
+function entryName(raw: Uint8Array, flags: number, extra: Uint8Array): string {
+  if (flags & 0x800) return new TextDecoder().decode(raw)
+  for (let at = 0; at + 4 <= extra.length;) {
+    const id = extra[at]! | extra[at + 1]! << 8, size = extra[at + 2]! | extra[at + 3]! << 8
+    const field = extra.subarray(at + 4, at + 4 + size)
+    if (id === 0x7075 && field.length > 5 && field[0] === 1
+      && (field[1]! | field[2]! << 8 | field[3]! << 16 | field[4]! << 24) >>> 0 === crc32(raw)) {
+      const name = decodeUtf8(field.subarray(5))
+      if (name) return name
+    }
+    at += 4 + size
+  }
+  const utf8 = decodeUtf8(raw)
+  if (utf8 !== null) return utf8
+  if (gb18030 === undefined) {
+    try { gb18030 = new TextDecoder('gb18030', { fatal: true }) } catch { gb18030 = null }
+  }
+  if (gb18030) {
+    try { return gb18030.decode(raw) } catch { /* not GB18030 either */ }
+  }
+  return Array.from(raw, byte => byte < 0x80 ? String.fromCharCode(byte) : CP437[byte - 0x80]!).join('')
 }
 
 /** Inflate chosen entries by their central-directory position and check their declared sizes and CRCs. */
-function inflate(archive: { bytes: Uint8Array; crcs: number[] }, entries: readonly ArchiveEntry[]): Map<number, Uint8Array> {
+function inflate(archive: { bytes: Uint8Array; central: CentralEntry[] }, entries: readonly ArchiveEntry[]): Map<number, Uint8Array> {
   const wanted = new Map(entries.map(entry => [entry.index, entry]))
   const result = new Map<number, Uint8Array>()
   if (!wanted.size) return result
@@ -725,7 +816,7 @@ function inflate(archive: { bytes: Uint8Array; crcs: number[] }, entries: readon
   catch { invalid('The ZIP archive is damaged') }
   for (const entry of entries) {
     const data = files[entry.name]
-    if (!data || data.byteLength !== entry.size || crc32(data) !== archive.crcs[entry.index]) invalid('The ZIP archive is damaged')
+    if (!data || data.byteLength !== entry.size || crc32(data) !== archive.central[entry.index]?.crc) invalid('The ZIP archive is damaged')
     result.set(entry.index, data)
   }
   return result

@@ -5,7 +5,7 @@ import { acquireFileLock } from './file-lock.js'
 import {
   StoreError, appendBlocks, boundedString, docFromText, documentAttachmentIds, onlyKeys, record,
   validateActor, validateId, validateRichDoc, validatedDocText,
-  MAX_FOLDER_NAME_LENGTH, MAX_TEXT_LENGTH, MAX_TITLE_LENGTH,
+  MAX_FOLDER_NAME_LENGTH, MAX_STATE_BYTES, MAX_TEXT_LENGTH, MAX_TITLE_LENGTH,
   type Actor, type CreateNoteInput, type Folder, type JotState,
   type Note, type NoteSummary, type RichDoc, type UpdateNotePatch,
 } from './model.js'
@@ -17,7 +17,6 @@ export const LOCK_FILENAME = '.jot.lock'
 /** Best-effort attribution beside jot.json, so older plugin versions can still read the notes file. */
 export const ACTIVITY_FILENAME = 'jot.activity.json'
 const MAX_ACTIVITY_BYTES = 2 * 1_048_576
-const MAX_STATE_BYTES = 32 * 1_048_576
 /** Pre-AI versions live beside jot.json, one small file per note, so the notes file format never changes. */
 export const AGENT_UNDO_DIRECTORY = 'jot.agent-undo'
 const MAX_UNDO_BYTES = 2 * 1_048_576

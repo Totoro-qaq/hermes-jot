@@ -66,7 +66,7 @@ test('a far-away body match shows the matching passage rather than the opening p
 })
 
 test('matched excerpts preserve whole emoji and combining-character graphemes', () => {
-  const family = '👩🏽‍💻'
+  const family = '👩🏽\u200d💻'
   const text = `${family.repeat(30)} cafe\u0301 的已确认要求 ${family.repeat(30)}`
   const excerpt = noteExcerpt(text, '已确认要求', 18)
   assert.ok(excerpt.includes('已确认要求'))
