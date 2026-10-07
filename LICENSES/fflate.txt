@@ -1,11 +1,11 @@
-fflate@0.8.2
+fflate@0.8.3
 License: MIT
 Source: https://www.npmjs.com/package/fflate
 
 LICENSE
 MIT License
 
-Copyright (c) 2023 Arjun Barrett
+Copyright (c) 2026 Arjun Barrett
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
