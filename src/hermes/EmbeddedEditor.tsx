@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as sdk from '@hermes/plugin-sdk'
 import { HOST_THEME_PROPERTIES } from './theme.js'
 import type { RichEditorActions, RichEditorProps } from '../client/RichEditor.js'
+import { describeError } from '../client/errors.js'
 
 const { SandboxedFrame, useTheme } = sdk
 
@@ -27,7 +28,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
   callbacks.current = props
   const token = useMemo(() => crypto.randomUUID(), [])
   const [source, setSource] = useState('')
-  const [error, setError] = useState('')
+  /** Why the editor did not load, described in the current language when shown. */
+  const [error, setError] = useState<unknown>(null)
   const [height, setHeight] = useState(430)
   const theme = useTheme()
   const post = (kind: string, data?: unknown) => frame.current?.contentWindow?.postMessage({ channel: 'jot-editor', token, kind, data }, '*')
@@ -57,8 +59,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
   useEffect(() => {
     let live = true
     const load = props.loadEditor
-    if (!load) { setError('Hermes editor backend is unavailable.'); return }
-    void load().then(value => { if (live) setSource(value) }, () => { if (live) setError('Could not load the Jot editor. Re-enable the backend and reopen this note.') })
+    if (!load) { setError({ code: 'EDITOR_UNAVAILABLE' }); return }
+    void load().then(value => { if (live) setSource(value) }, cause => { if (live) setError(cause ?? { code: 'EDITOR_UNAVAILABLE' }) })
     return () => { live = false }
   }, [props.loadEditor])
   useEffect(() => {
@@ -112,7 +114,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
     return () => cancelAnimationFrame(repaint)
   }, [theme.resolvedMode, theme.renderedMode, theme.themeName, theme.theme])
   return <div ref={root} className="jot-embedded-editor" style={{ minWidth: 0, width: '100%' }}>
-    {error ? <p role="alert">{error}</p> : source ? <SandboxedFrame ref={frame} src={source}
+    {error ? <p role="alert">{describeError(error, props.locale ?? 'en')}</p> : source ? <SandboxedFrame ref={frame} src={source}
       title={props.locale === 'zh' ? '随记正文编辑器' : 'Jot document editor'} onLoad={sync}
       style={{ display: 'block', width: '100%', height, border: 0, background: 'transparent' }} />
       : <p role="status">{props.locale === 'zh' ? '正在载入编辑器…' : 'Loading editor…'}</p>}

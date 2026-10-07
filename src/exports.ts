@@ -13,6 +13,7 @@ import {
   type RichDoc, type RichMark, type RichNode,
 } from './model.js'
 import { EXPORT_FORMATS, LIBRARY_EXPORT_FORMATS, type ExportFormat, type LibraryExportFormat } from './export-formats.js'
+import { normalizeLocale, translator } from './client/i18n.js'
 
 export { EXPORT_FORMATS, LIBRARY_EXPORT_FORMATS, type ExportFormat, type LibraryExportFormat } from './export-formats.js'
 export const MAX_EXPORT_ATTACHMENTS = 100
@@ -22,17 +23,21 @@ export interface ExportOptions {
   attachmentLoader?: (id: string) => Promise<ExportAttachment>
   /** Trusted host option only; never derive font paths from document content. */
   fontDirectory?: string
+  /** The interface language (any Hermes or BCP 47 tag) for names Jot makes up, such as "Untitled"; English by default. */
+  locale?: string
 }
 export interface NoteExport { buffer: Buffer; filename: string; contentType: string }
 type Loaded = ExportAttachment & { assetPath: string; image?: { type: 'png' | 'jpg'; width: number; height: number } }
 type Assets = Map<string, Loaded>
 type Input = { title: string; content: RichDoc }
+/** A document with the localized name an empty title is shown as. */
+type Titled = Input & { untitled: string }
 
 function invalid(message: string): never { throw new StoreError('INVALID_INPUT', message) }
-function filename(value: string): string {
+function filename(value: string, untitled = 'Untitled'): string {
   const cleaned = value.normalize('NFC').replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/gu, '_')
     .replace(/^[.\s]+|[.\s]+$/gu, '').slice(0, 100)
-  return !cleaned || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(cleaned) ? 'Untitled' : cleaned
+  return !cleaned || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(cleaned) ? untitled : cleaned
 }
 function imageInfo(data: Buffer): Loaded['image'] {
   let width = 0, height = 0, type: 'png' | 'jpg'
@@ -277,7 +282,7 @@ function docxInline(node: RichNode): ParagraphChild[] {
   const link = node.marks?.find(mark => mark.type === 'link')
   return [link ? new ExternalHyperlink({ link: String(link.attrs?.href), children: [run] }) : run]
 }
-async function wordDocument(input: Input, assets: Assets): Promise<Buffer> {
+async function wordDocument(input: Titled, assets: Assets): Promise<Buffer> {
   let counter = 0
   const numbering: { reference: string; levels: { level: number; format: typeof LevelFormat.DECIMAL; text: string; start: number }[] }[] = []
   const heading = [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4, HeadingLevel.HEADING_5, HeadingLevel.HEADING_6]
@@ -338,7 +343,7 @@ async function wordDocument(input: Input, assets: Assets): Promise<Buffer> {
       ...(node.type === 'codeBlock' ? { shading: { fill: 'F1F5F9', type: ShadingType.CLEAR }, run: { font: 'Consolas' } } : {}),
     })]
   })
-  const children = [new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun(input.title || 'Untitled')] }), ...blocks(input.content.content)]
+  const children = [new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun(input.title || input.untitled)] }), ...blocks(input.content.content)]
   return Packer.toBuffer(new Document({ title: input.title, creator: 'Jot', numbering: { config: numbering },
     styles: { default: { document: { run: { font: { name: 'Noto Sans SC', eastAsia: 'Noto Sans SC' }, size: 22 }, paragraph: { spacing: { line: 300 } } } } },
     sections: [{ properties: { page: { margin: { top: 900, right: 900, bottom: 900, left: 900 } } }, children }],
@@ -348,7 +353,7 @@ async function wordDocument(input: Input, assets: Assets): Promise<Buffer> {
 interface PdfRun { text: string; marks?: RichMark[] }
 interface PdfFragment extends PdfRun { width: number }
 interface PdfLine { fragments: PdfFragment[] }
-async function pdfDocument(input: Input, assets: Assets, fontDirectory?: string): Promise<Buffer> {
+async function pdfDocument(input: Titled, assets: Assets, fontDirectory?: string): Promise<Buffer> {
   const fonts = fontDirectory ?? fileURLToPath(new URL('../assets/fonts/', import.meta.url))
   const doc = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true, info: { Title: input.title, Creator: 'Jot' } })
   const stream = doc as unknown as Readable
@@ -555,7 +560,7 @@ async function pdfDocument(input: Input, assets: Assets, fontDirectory?: string)
       }
     }
     doc.y = 48
-    write([{ text: input.title || 'Untitled', marks: [{ type: 'bold' }] }], 22, 0, 16)
+    write([{ text: input.title || input.untitled, marks: [{ type: 'bold' }] }], 22, 0, 16)
     blocks(input.content.content)
     const range = doc.bufferedPageRange()
     for (let index = range.start; index < range.start + range.count; index++) {
@@ -577,14 +582,16 @@ export async function exportJotNote(input: Input, format: ExportFormat, options:
   if (!EXPORT_FORMATS.includes(format)) invalid('Unsupported export format')
   const title = boundedString(input.title, MAX_TITLE_LENGTH, 'title')
   const content = validateRichDoc(input.content)
-  const validated = { title, content }
+  const t = translator(normalizeLocale(options.locale))
+  const untitled = t('Untitled')
+  const validated = { title, content, untitled }
   const assets = await loadAssets(content, options.attachmentLoader)
   let buffer: Buffer, extension: string = format, contentType: string
   if (format === 'txt') {
     buffer = Buffer.from(`${title}\n\n${content.content.map(node => plainBlock(node, assets)).join('\n\n')}\n`, 'utf8')
     contentType = 'text/plain; charset=utf-8'
   } else if (format === 'md') {
-    const text = `# ${mdEscape(title || 'Untitled')}\n\n${markdownBlocks(content.content, assets)}\n`
+    const text = `# ${mdEscape(title || untitled)}\n\n${markdownBlocks(content.content, assets)}\n`
     if (assets.size) {
       const entries: Record<string, Uint8Array> = { 'note.md': strToU8(text) }
       for (const file of assets.values()) entries[file.assetPath] = file.data
@@ -595,7 +602,7 @@ export async function exportJotNote(input: Input, format: ExportFormat, options:
     contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   } else { buffer = await pdfDocument(validated, assets, options.fontDirectory); contentType = 'application/pdf' }
   if (buffer.length > MAX_EXPORT_BYTES) invalid('Export exceeds 50 MiB')
-  return { buffer, filename: `${filename(title)}.${extension}`, contentType }
+  return { buffer, filename: `${filename(title, untitled)}.${extension}`, contentType }
 }
 
 /** Larger libraries export folder by folder; this bounds one request's time and memory. */
@@ -606,7 +613,6 @@ export const MAX_LIBRARY_EXPORT_BYTES = 200 * 1_024 * 1_024
 export interface LibraryExportNote { id: string; title: string; text: string; content: RichDoc; folderId: string | null }
 export interface LibraryExport extends NoteExport { notes: number; attachments: number }
 export interface LibraryExportOptions extends ExportOptions {
-  locale?: 'zh' | 'en'
   now?: Date
   /** Trusted host limit, optionally lowered for constrained hosts; requests cannot raise the 200 MiB cap. */
   maxBytes?: number
@@ -636,7 +642,8 @@ function uniquePath(used: Set<string>, directory: string, base: string, extensio
 export async function exportJotLibrary(input: { notes: readonly LibraryExportNote[]; folders: readonly { id: string; name: string }[] },
   format: LibraryExportFormat, options: LibraryExportOptions = {}): Promise<LibraryExport> {
   if (!LIBRARY_EXPORT_FORMATS.includes(format)) invalid('Unsupported export format')
-  const en = options.locale === 'en'
+  const t = translator(normalizeLocale(options.locale))
+  const untitled = t('Untitled')
   if (!input.notes.length) invalid('There are no notes to export')
   if (input.notes.length > MAX_LIBRARY_EXPORT_NOTES) invalid(`Export at most ${MAX_LIBRARY_EXPORT_NOTES} notes at once; export one folder at a time`)
   if (format === 'pdf' && input.notes.length > MAX_LIBRARY_PDF_NOTES) {
@@ -647,8 +654,8 @@ export async function exportJotLibrary(input: { notes: readonly LibraryExportNot
   const notes = input.notes.map(note => ({ ...note, content: validateRichDoc(note.content) }))
   const used = new Set<string>()
   const folders = new Map<string, string>()
-  for (const folder of input.folders) folders.set(folder.id, uniquePath(used, '', filename(folder.name), ''))
-  const attachmentDirectory = uniquePath(used, '', en ? 'attachments' : '附件', '')
+  for (const folder of input.folders) folders.set(folder.id, uniquePath(used, '', filename(folder.name, untitled), ''))
+  const attachmentDirectory = uniquePath(used, '', filename(t('attachments')), '')
 
   // Every attachment is read once, however many notes use it.
   const ids = new Set<string>()
@@ -684,12 +691,11 @@ export async function exportJotLibrary(input: { notes: readonly LibraryExportNot
     entries[path] = compressed ? data : [data, { level: 0 }]
   }
   for (const file of assets.values()) addEntry(file.assetPath, file.data, false)
-  const untitled = en ? 'Untitled' : '无标题'
   for (const note of notes) {
     const directory = note.folderId ? folders.get(note.folderId) ?? '' : ''
     const title = displayTitle(note, untitled)
-    const path = uniquePath(used, directory, filename(title), `.${format}`)
-    const document = { title, content: note.content }
+    const path = uniquePath(used, directory, filename(title, untitled), `.${format}`)
+    const document = { title, content: note.content, untitled }
     if (format === 'md') {
       // Links are relative to the note's own folder.
       const local: Assets = directory ? new Map([...assets].map(([id, file]) => [id, { ...file, assetPath: `../${file.assetPath}` }])) : assets
@@ -705,5 +711,5 @@ export async function exportJotLibrary(input: { notes: readonly LibraryExportNot
   if (buffer.length > maxBytes) invalid('The export exceeds 200 MiB; export one folder at a time')
   const now = options.now ?? new Date()
   const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  return { buffer, filename: `${en ? 'Jot' : '随记'}-${day}.zip`, contentType: 'application/zip', notes: notes.length, attachments: assets.size }
+  return { buffer, filename: `${filename(t('Jot'))}-${day}.zip`, contentType: 'application/zip', notes: notes.length, attachments: assets.size }
 }

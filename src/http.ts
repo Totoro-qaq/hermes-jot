@@ -141,6 +141,15 @@ function requireRevision(body: Record<string, unknown>): number {
   return body.revision as number
 }
 
+/**
+ * The interface language an export names files in. The export library maps the tag to one
+ * of Jot's languages with normalizeLocale (anything else is English); that mapping and the
+ * catalogs stay in the lazily loaded library, so every other request keeps a small engine.
+ */
+function exportLocale(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length <= 64 ? value : undefined
+}
+
 function pathId(encoded: string): string {
   try { return decodeURIComponent(encoded) }
   catch { throw new HttpError('INVALID_INPUT', 'Invalid encoded identifier.', 400) }
@@ -237,7 +246,7 @@ export function createJotHandler(store: JotStore, options: JotHttpOptions = {}) 
         }
       } else if (method === 'POST' && path === '/export') {
         const body = await readJson(request)
-        onlyKeys(body, ['title', 'content', 'format'], 'export')
+        onlyKeys(body, ['title', 'content', 'format', 'locale'], 'export')
         const title = boundedString(body.title ?? '', MAX_TITLE_LENGTH, 'title')
         const content = validateRichDoc(body.content)
         if (typeof body.format !== 'string' || !EXPORT_FORMATS.includes(body.format as ExportFormat)) {
@@ -245,7 +254,7 @@ export function createJotHandler(store: JotStore, options: JotHttpOptions = {}) 
         }
         // PDF, Word and ZIP code loads only for exports; every other request stays small.
         const { exportJotNote } = await import('./library.js')
-        const exported = await exportJotNote({ title, content }, body.format as ExportFormat, { attachmentLoader })
+        const exported = await exportJotNote({ title, content }, body.format as ExportFormat, { attachmentLoader, locale: exportLocale(body.locale) })
         sendFile(response, exported)
         return
       } else if (method === 'POST' && path === '/export-library') {
@@ -260,7 +269,7 @@ export function createJotHandler(store: JotStore, options: JotHttpOptions = {}) 
         const notes = state.notes.filter(note => note.deletedAt === null && (folderId === undefined || note.folderId === folderId))
         const { exportJotLibrary } = await import('./library.js')
         const exported = await exportJotLibrary({ notes, folders: state.folders }, body.format as LibraryExportFormat, {
-          attachmentLoader, locale: body.locale === 'en' ? 'en' : 'zh',
+          attachmentLoader, locale: exportLocale(body.locale),
         })
         sendFile(response, exported, { 'x-jot-export-notes': String(exported.notes), 'x-jot-export-attachments': String(exported.attachments) })
         return

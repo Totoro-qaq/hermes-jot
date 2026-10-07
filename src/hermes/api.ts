@@ -1,6 +1,7 @@
 import type { PluginContext } from '@hermes/plugin-sdk'
 import { JotApiError } from '../client/api.js'
-import type { AttachmentInfo, ImportResult, JotApi, JotState, NoteDownload, RichDoc } from '../client/types.js'
+import { describeSkipReason } from '../client/errors.js'
+import type { AttachmentInfo, ImportResult, JotApi, JotLocale, JotState, NoteDownload, RichDoc } from '../client/types.js'
 
 interface Response { status?: number; headers?: Record<string, string>; data?: any; error?: { code: string; message: string }; file?: { path: string; filename: string } }
 
@@ -26,8 +27,13 @@ export function hostRestError(cause: unknown): unknown {
   return cause
 }
 
+/** Errors raised here carry a code, so the interface describes them in its own language. */
+const failure = (code: string, message: string) => new JotApiError(0, code, message)
+
+/** `locale` reads the interface language at call time: exports name files in it and import reasons follow it. */
 export function createHermesApi(ctx: PluginContext, ownsProfile: () => boolean,
-  captureGatewayFileDownload: () => (path: string, suggestedName: string) => Promise<void>): HermesJotApi {
+  captureGatewayFileDownload: () => (path: string, suggestedName: string) => Promise<void>,
+  locale: () => JotLocale = () => 'en'): HermesJotApi {
   let disposed = false
   let cached: { tag: string; state: JotState; sequence: number } | undefined
   let sequence = 0
@@ -56,7 +62,7 @@ export function createHermesApi(ctx: PluginContext, ownsProfile: () => boolean,
     assertOwner()
     const save = captureGatewayFileDownload()
     const response = await rpc(path, 'POST', body)
-    if (!response.file) throw new Error('No export file was returned.')
+    if (!response.file) throw failure('EXPORT_FILE_MISSING', 'No export file was returned.')
     const file = response.file
     return { blob: new Blob(), filename: file.filename, save: () => save(file.path, file.filename),
       notes: Number(response.headers?.['x-jot-export-notes'] ?? 0), attachments: Number(response.headers?.['x-jot-export-attachments'] ?? 0) }
@@ -65,7 +71,7 @@ export function createHermesApi(ctx: PluginContext, ownsProfile: () => boolean,
     assertOwner()
     const response = check(await rest<Response>(`/attachments/${encodeURIComponent(id)}/inline`))
     const item = response.data
-    if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'].includes(item.mimeType)) throw new Error('Unsupported inline type.')
+    if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'].includes(item.mimeType)) throw failure('ATTACHMENT_PREVIEW_FAILED', 'Unsupported inline type.')
     // The editor has an opaque origin; a host-origin blob URL is not a portable
     // capability into that sandbox. Verified data URLs need no host credentials.
     return `data:${item.mimeType};base64,${item.base64}`
@@ -73,12 +79,17 @@ export function createHermesApi(ctx: PluginContext, ownsProfile: () => boolean,
   return {
     async openExternal(url) {
       assertOwner()
-      if (!['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) throw new Error('Unsupported link.')
-      if (!await ctx.os.openExternal(url)) throw new Error('Could not open the link.')
+      if (!['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) throw failure('UNSUPPORTED_LINK', 'Unsupported link.')
+      if (!await ctx.os.openExternal(url)) throw failure('LINK_OPEN_FAILED', 'Could not open the link.')
     },
     loadEditor: () => {
       assertOwner()
       editorSource ??= rest<{ src: string }>('/editor').then(response => response.src)
+        .catch(cause => {
+          // A failed load is not cached, so reopening the note after re-enabling the backend works.
+          editorSource = undefined
+          throw cause instanceof JotApiError ? cause : failure('EDITOR_UNAVAILABLE', cause instanceof Error ? cause.message : 'The editor did not load.')
+        })
       return editorSource
     },
     async getState() {
@@ -118,7 +129,10 @@ export function createHermesApi(ctx: PluginContext, ownsProfile: () => boolean,
       try {
         const response = check(await rest<Response>('/import?folderId=' + encodeURIComponent(folderId ?? ''),
           { method: 'POST', upload: { filename: file.name, contentType: file.type, bytes }, timeoutMs: 300_000 }))
-        return response.data
+        const result = response.data as ImportResult
+        const language = locale()
+        return Array.isArray(result?.skipped)
+          ? { ...result, skipped: result.skipped.map(item => ({ ...item, reason: describeSkipReason(item.reason, language) })) } : result
       } finally {
         // Even a failed or timed-out import may have written notes; a state read in flight is stale.
         generation++
@@ -143,7 +157,7 @@ export function createHermesApi(ctx: PluginContext, ownsProfile: () => boolean,
       const response = check(await rest<Response>(`/attachments/${encodeURIComponent(id)}/preview`))
       return { path: response.data.path }
     },
-    exportNote: (input, format) => download('/export', { ...input, format }),
+    exportNote: (input, format) => download('/export', { ...input, format, locale: locale() }),
     exportLibrary: options => download('/export-library', options),
     resolveAttachmentUrl(id) {
       const existing = images.get(id)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import * as sdk from '@hermes/plugin-sdk'
 import type { HermesPlugin, PluginContext, KeybindContribution } from '@hermes/plugin-sdk'
 import { JotApp } from '../client/App.js'
@@ -9,10 +9,13 @@ import { askAgentReference, deliverAskAgent, type AskAgentNote } from '../client
 import { createControllers } from './controllers.js'
 import { createHermesApi } from './api.js'
 import { createPersistence } from './persistence.js'
-import { createLocalePreference } from './locale.js'
+import { createHostLocale, hostLabels } from './host-locale.js'
+import { normalizeLocale, type JotLocale } from '../client/i18n.js'
 import { hostThemeCss } from './theme.js'
 
 const { host, useValue, captureGatewayFileDownload, MessageTextContent } = sdk
+/** Hermes' live interface language for React; absent on older hosts. */
+const useHostI18n = typeof sdk.useI18n === 'function' ? sdk.useI18n : undefined
 
 const theme = `
 ${hostThemeCss}
@@ -39,7 +42,14 @@ export default {
         || typeof host.paneVisibility !== 'function') {
       throw new Error('Jot requires a recent Hermes Desktop SDK with SandboxedFrame and gateway file downloads. Update Hermes Desktop, then enable Jot again.')
     }
-    const language = createLocalePreference(ctx.storage)
+    // Jot follows the Hermes language and never changes it. React reads it live with
+    // useI18n; text Hermes samples at registration is re-registered when it changes.
+    const hostLocale = createHostLocale(ctx.i18n)
+    function useJotLocale(): JotLocale {
+      const registered = useSyncExternalStore(hostLocale.subscribe, hostLocale.getSnapshot, hostLocale.getSnapshot)
+      const live = useHostI18n?.().locale
+      return typeof live === 'string' ? normalizeLocale(live) : registered
+    }
     const controls = createControllers(() => host.navigate('/jot'))
     const changed = () => controls.retainOwner(ownerNow())
     const stopProfile = host.state.profile.subscribe(changed)
@@ -77,9 +87,11 @@ export default {
       const controller = controls.forOwner(owner)
       const { bus, recipient, handoff } = controller
       const selectionId = useMemo(() => crypto.randomUUID(), [])
-      const locale = useSyncExternalStore(language.subscribe, language.getSnapshot)
+      const locale = useJotLocale()
+      const currentLocale = useRef(locale)
+      currentLocale.current = locale
       const api = useMemo(() => {
-        const value = createHermesApi(ctx, () => ownerNow() === owner, captureGatewayFileDownload)
+        const value = createHermesApi(ctx, () => ownerNow() === owner, captureGatewayFileDownload, () => currentLocale.current)
         apis.add(value)
         return value
       }, [owner])
@@ -90,7 +102,7 @@ export default {
       useEffect(() => () => { api.dispose(); apis.delete(api) }, [api])
       const command = useSyncExternalStore(bus.subscribe, () => bus.snapshotFor(mode, mode === 'compact' ? recipient : undefined))
       const request = useSyncExternalStore(handoff.subscribe, handoff.getSnapshot)
-      return <div className="jot-host"><style>{theme}</style><JotApp mode={mode} locale={locale} onLocaleChange={language.set}
+      return <div className="jot-host"><style>{theme}</style><JotApp mode={mode} locale={locale}
         api={api} persistence={persistence} changeSignal={changeSignal}
         onAskAgent={note => ownerNow() === owner ? askAgent(note) : Promise.resolve('failed' as const)} onExpand={(...args) => { if (ownerNow() === owner) handoff.open(...args) }}
         readSelectedText={() => ownerNow() === owner ? readSelection(owner) : ''}
@@ -115,17 +127,41 @@ export default {
       return visible ? <Surface mode="compact" /> : null
     }
     function ComposerButton() {
-      const locale = useSyncExternalStore(language.subscribe, language.getSnapshot)
-      return <button type="button" title={locale.startsWith('zh') ? '打开随记' : 'Open Jot'}
-        aria-label={locale.startsWith('zh') ? '打开随记' : 'Open Jot'}
+      const label = hostLabels(useJotLocale()).open
+      return <button type="button" title={label} aria-label={label}
         style={{ border: 0, background: 'transparent', padding: 5, borderRadius: 6, cursor: 'pointer' }}
         onClick={() => open('open', undefined, 'compact')}><JotIcon size={19} /></button>
     }
+    function PaneTitle() {
+      return <>{hostLabels(useJotLocale()).name}</>
+    }
+    const renderPage = () => <Surface mode="wide" />
+    const commands = JOT_COMMANDS.map(item => ({ item, run: () => open(item.action, item.action === 'capture' ? readSelection() : undefined) }))
+    // Hermes samples these labels at registration, so they are registered again when the
+    // language changes. The same ids replace the entries in place (nothing is removed
+    // first), and the page keeps its render function, so an open page stays mounted.
+    const registerLabels = (locale: JotLocale) => {
+      const labels = hostLabels(locale)
+      ctx.registerMany([
+        { id: 'page', area: 'routes', title: labels.name, data: { path: '/jot' }, render: renderPage },
+        { id: 'nav', area: 'sidebar.nav', order: 40, data: { path: '/jot', label: labels.name, codicon: 'notebook' } },
+        ...commands.flatMap(({ item, run }) => [
+          { id: `palette-${item.action}`, area: 'palette', data: {
+            id: item.id, action: item.id, label: labels.commands[item.id], keywords: labels.keywords, run,
+          } },
+          { id: `key-${item.action}`, area: 'keybinds', data: {
+            id: item.id, label: labels.commands[item.id], category: 'view', defaults: [], run,
+          } satisfies KeybindContribution },
+        ]),
+      ])
+    }
+    registerLabels(hostLocale.getSnapshot())
+    const stopLabels = hostLocale.subscribe(() => registerLabels(hostLocale.getSnapshot()))
+    // The pane stays registered once: hosts with data.tabTitle render its tab in the live language.
     ctx.registerMany([
-      { id: 'page', area: 'routes', title: 'Jot', data: { path: '/jot' }, render: () => <Surface mode="wide" /> },
-      { id: 'nav', area: 'sidebar.nav', order: 40, data: { path: '/jot', label: 'Jot', codicon: 'notebook' } },
-      { id: 'notes', area: 'panes', title: 'Jot', data: { placement: 'right', width: '420px',
-        hideOnly: true, tabLead: () => <JotIcon size={15} /> }, render: () => <SidePanel /> },
+      { id: 'notes', area: 'panes', title: hostLabels(hostLocale.getSnapshot()).name, data: { placement: 'right', width: '420px',
+        hideOnly: true, tabLead: () => <JotIcon size={15} />, tabTitle: () => <PaneTitle />,
+        tabTitleText: () => hostLabels(hostLocale.getSnapshot()).name }, render: () => <SidePanel /> },
       { id: 'composer', area: 'composer.actions', order: 30, render: () => <ComposerButton /> },
       { id: 'slash', area: 'composer.middleware', data: { handler: async (draft: { text: string; attachments?: unknown[] }) => {
         const text = draft.text.trim()
@@ -134,7 +170,7 @@ export default {
         try {
           if (!(await ctx.rest<{ ready: boolean }>('/health')).ready) throw new Error('Jot needs a complete local build.')
         } catch {
-          host.notifyError('Enable the Jot backend in Hermes Plugins, then try again.')
+          host.notifyError(hostLabels(hostLocale.getSnapshot()).backendOff)
           return null
         }
         if (ownerNow() !== owner) return null
@@ -144,15 +180,6 @@ export default {
         return draft.attachments?.length ? null : draft
       } } },
     ])
-    for (const item of JOT_COMMANDS) {
-      const run = () => open(item.action, item.action === 'capture' ? readSelection() : undefined)
-      ctx.register({ id: `palette-${item.action}`, area: 'palette', data: {
-        id: item.id, action: item.id, label: item.en, keywords: ['jot', '随记', 'notes', '笔记'], run,
-      } })
-      ctx.register({ id: `key-${item.action}`, area: 'keybinds', data: {
-        id: item.id, label: item.en, category: 'view', defaults: [], run,
-      } satisfies KeybindContribution })
-    }
-    ctx.onDispose(() => { stopEvents?.(); stopProfile(); stopConnection(); controls.dispose(); for (const api of apis) api.dispose(); apis.clear() })
+    ctx.onDispose(() => { stopLabels(); hostLocale.dispose(); stopEvents?.(); stopProfile(); stopConnection(); controls.dispose(); for (const api of apis) api.dispose(); apis.clear() })
   },
 } satisfies HermesPlugin

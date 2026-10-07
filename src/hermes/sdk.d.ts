@@ -15,7 +15,13 @@ declare module '@hermes/plugin-sdk' {
     rest<T>(path: string, options?: { method?: string; body?: unknown; upload?: { filename: string; contentType?: string; bytes: ArrayBuffer }; timeoutMs?: number }): Promise<T>
     storage: { get<T>(key: string, fallback: T): T; set(key: string, value: unknown): void; remove(key: string): void }
     os: { writeClipboard(text: string): Promise<boolean>; openExternal(url: string): Promise<boolean> }
-    i18n: { register(bundles: unknown): () => void }
+    /** Plugin-scoped strings resolved in the Hermes language. Absent on older hosts, and `t` and
+     *  `onLocaleChange` arrived after `register`. `onLocaleChange` fires on a switch, not at start. */
+    i18n?: {
+      register?(bundles: Record<string, Record<string, string>>): () => void
+      t?(key: string, ...args: unknown[]): string
+      onLocaleChange?(listener: () => void): () => void
+    }
   }
   export interface HermesPlugin { id: string; name: string; description?: string; defaultEnabled?: boolean; register(ctx: PluginContext): void }
   export interface KeybindContribution { id: string; label: string; category?: 'composer' | 'profiles' | 'session' | 'navigation' | 'view'; defaults?: readonly string[]; run(): void }
@@ -34,7 +40,8 @@ declare module '@hermes/plugin-sdk' {
     }
   }
   export function useValue<T>(atom: Atom<T>): T
-  export function useI18n(): { locale: string }
+  /** The Hermes interface language (a Hermes locale id such as `zh-hant`). Absent on older hosts. */
+  export const useI18n: undefined | (() => { locale: string })
   export function captureGatewayFileDownload(): (path: string, suggestedName: string) => Promise<void>
   export const MessageTextContent: ComponentType<{ text: string; media?: boolean }>
   export const SandboxedFrame: ComponentType<{ src: string; title: string; style?: import('react').CSSProperties;

@@ -129,7 +129,7 @@ test('importing uploads to the import route with the folder and a long timeout',
   const api = createHermesApi({ rest: async (path: string, options: unknown) => { calls.push({ path, options }); return { status: 200, data: imported } } } as unknown as PluginContext, () => true, save)
   const bytes = new TextEncoder().encode('# Hello').buffer
   const file = { name: 'Notes & ideas.md', type: 'text/markdown', arrayBuffer: async () => bytes } as File
-  assert.equal(await api.importNotes!(file, { folderId: 'f/1 2' }), imported)
+  assert.deepEqual(await api.importNotes!(file, { folderId: 'f/1 2' }), imported)
   await api.importNotes!(file, { folderId: null })
   assert.equal(calls[0].path, '/import?folderId=f%2F1%202')
   assert.equal(calls[1].path, '/import?folderId=')
@@ -182,4 +182,54 @@ test('an HTTP error from the host keeps the backend error code', async () => {
   const plain = new Error('504: Gateway Timeout')
   assert.equal(hostRestError(plain), plain)
   assert.equal(describeError(hostRestError(new Error('504: {"error":{"code":"REQUEST_TIMEOUT","message":"Jot took too long."}}')), 'zh'), '随记处理超时，请检查当前内容后再试。')
+})
+
+test('Hermes adapter errors carry codes the interface describes in its language', async () => {
+  const { describeError } = await import('../src/client/errors.js')
+  let owner = true
+  const api = createHermesApi({ rest: async () => ({ status: 200 }), os: { openExternal: async () => false } } as unknown as PluginContext, () => owner, save)
+  await assert.rejects(api.openExternal!('file:///etc/passwd'), (error: unknown) => describeError(error, 'de') === 'Jot öffnet nur Web- und E-Mail-Links.')
+  await assert.rejects(api.openExternal!('https://example.com'), (error: unknown) => describeError(error, 'zh') === '没能打开链接。')
+  await assert.rejects(api.exportNote!({ title: 'A', content: docFromText('x') }, 'txt'), (error: unknown) =>
+    describeError(error, 'es') === 'Hermes no devolvió el archivo exportado. Inténtalo de nuevo.')
+  owner = false
+  await assert.rejects(api.getNote('a'), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, 'PROFILE_CHANGED')
+    assert.equal(describeError(error, 'ja'), 'Hermes の使用中のプロファイルが切り替わりました。続けるには元のプロファイルに戻してください。')
+    assert.match(describeError(error, 'en'), /Return to the original profile/u)
+    return true
+  })
+})
+
+test('a failed editor load is described, and reopening tries again', async () => {
+  const { describeError } = await import('../src/client/errors.js')
+  let calls = 0
+  const api = createHermesApi({ rest: async () => { if (++calls === 1) throw new Error('backend off'); return { src: 'blob:editor' } } } as unknown as PluginContext, () => true, save)
+  await assert.rejects(api.loadEditor!(), (error: unknown) => describeError(error, 'fr') === "Impossible de charger l'éditeur de Jot. Réactivez le backend, puis rouvrez cette note.")
+  assert.equal(await api.loadEditor!(), 'blob:editor')
+  assert.equal(await api.loadEditor!(), 'blob:editor')
+  assert.equal(calls, 2, 'a loaded editor is cached')
+  assert.equal(describeError({ code: 'EDITOR_UNAVAILABLE' }, 'en'), 'Could not load the Jot editor. Re-enable the backend and reopen this note.')
+})
+
+test('exports name files in the interface language, and import reasons follow it', async () => {
+  const bodies: any[] = []
+  let language: 'en' | 'ru' = 'ru'
+  const skipped = [{ path: 'a.bin', reason: 'Not a Markdown or text note, and no imported note links to it.' },
+    { path: 'big.md', reason: 'The note is too large or complex for Jot: Document exceeds byte limit.' }, { path: '…', reason: '3 more files were skipped.' }]
+  const api = createHermesApi({ rest: async (path: string, options: any) => {
+    if (path.startsWith('/import')) return { status: 200, data: { notes: 0, attachments: 0, folders: 0, noteIds: [], skipped } }
+    bodies.push(options.body)
+    return { status: 200, file: { path: '/downloads/x', filename: 'x' } }
+  } } as unknown as PluginContext, () => true, save, () => language)
+  await api.exportNote({ title: '', content: docFromText('x') }, 'md')
+  await api.exportLibrary!({ format: 'md', locale: 'ja' })
+  assert.equal(bodies[0].body.locale, 'ru')
+  assert.equal(bodies[1].body.locale, 'ja', 'a library export names its own language')
+  const file = { name: 'a.zip', type: '', arrayBuffer: async () => new ArrayBuffer(1) } as File
+  assert.deepEqual((await api.importNotes!(file, { folderId: null })).skipped.map(item => item.reason), [
+    'Это не Markdown- или текстовая заметка, и ни одна импортированная заметка не ссылается на этот файл.',
+    'Заметка слишком большая или сложная для Jot.', '3 more files were skipped.'])
+  language = 'en'
+  assert.deepEqual((await api.importNotes!(file, { folderId: null })).skipped, skipped, 'English keeps the engine detail')
 })

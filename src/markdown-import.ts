@@ -697,7 +697,7 @@ export async function importNotesFile(store: JotStore, attachments: AttachmentSt
           // The engine and this lazily loaded library are separate bundles: match the error code, not its class.
           const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : undefined
           if (code !== 'ATTACHMENT_TOO_LARGE' && code !== 'INVALID_ATTACHMENT') throw error
-          skip(entry.path, error instanceof Error ? error.message : 'The file could not be attached.')
+          skip(entry.path, code === 'ATTACHMENT_TOO_LARGE' ? 'The file exceeds the attachment size limit.' : 'The file could not be attached.')
         }
       }
     }
