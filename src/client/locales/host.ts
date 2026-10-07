@@ -93,7 +93,7 @@ export default {
     'Jot: Capture selected text': 'Jot: Capturar el texto seleccionado',
     'Open Jot': 'Abrir Jot',
     'Notes': 'Notas',
-    'Enable the Jot backend in Hermes Plugins, then try again.': 'Activa el backend de Jot en los plugins de Hermes y vuelve a intentarlo.',
+    'Enable the Jot backend in Hermes Plugins, then try again.': 'Activa el backend de Jot en la sección Plugins de Hermes e inténtalo de nuevo.',
     'Jot requires a recent Hermes Desktop SDK with SandboxedFrame and gateway file downloads. Update Hermes Desktop, then enable Jot again.': 'Jot necesita un SDK de Hermes Desktop reciente, con SandboxedFrame y descargas de archivos a través del gateway. Actualiza Hermes Desktop y vuelve a activar Jot.',
     'Untitled': 'Sin título',
     'attachments': 'adjuntos',
