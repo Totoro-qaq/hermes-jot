@@ -203,3 +203,38 @@ test('the actual ProseMirror clipboard parser preserves a managed file card inst
   assert.equal(canonical.content[0]!.attrs!.caption, 'Meeting.pdf')
   assert.equal(canonical.content[0]!.marks, undefined)
 })
+
+test('every block command in the editor produces JSON the store accepts, including numbered lists', async t => {
+  const editor = headless()
+  t.after(() => editor.destroy())
+  const directory = await mkdtemp(join(tmpdir(), 'jot-editor-blocks-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const store = new JotStore({ directory })
+  const note = await store.createNote({ title: 'Blocks' })
+  let revision = note.revision
+  const commands: Array<[string, () => boolean]> = [
+    ['numbered list', () => editor.commands.toggleOrderedList()],
+    ['bullet list', () => editor.commands.toggleBulletList()],
+    ['checklist', () => editor.commands.toggleTaskList()],
+    ['quote', () => editor.commands.toggleBlockquote()],
+    ['code block', () => editor.commands.toggleCodeBlock()],
+    ['heading', () => editor.commands.toggleHeading({ level: 2 })],
+  ]
+  for (const [name, run] of commands) {
+    editor.commands.setContent(content)
+    editor.commands.setTextSelection(2)
+    assert.equal(run(), true, name)
+    const json = editor.getJSON()
+    assert.doesNotThrow(() => validateRichDoc(json), name)
+    const saved = await store.updateNote(note.id, revision, { content: json as never })
+    revision = saved.revision
+  }
+  editor.commands.setContent(content)
+  editor.commands.setTextSelection(2)
+  editor.commands.toggleOrderedList()
+  // The editor's numbering type is not stored; the saved list keeps only its start.
+  const ordered = validateRichDoc(editor.getJSON()).content.find(node => node.type === 'orderedList')!
+  assert.deepEqual(ordered.attrs, { start: 1 })
+  assert.throws(() => validateRichDoc({ type: 'doc', content: [{ type: 'orderedList', attrs: { start: 1, type: { x: 1 } },
+    content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] }] }), rejected)
+})

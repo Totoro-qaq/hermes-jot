@@ -34,12 +34,16 @@ export function appendedBlocks(base: RichDoc, remote: RichDoc): RichNode[] | nul
   const after = remote.content ?? []
   if (sameJson(before, after)) return []
   const candidates: RichNode[][] = []
-  const blank = before.length === 1 && before[0]!.type === 'paragraph' && !before[0]!.content?.length
+  const blank = before.length === 1 && emptyParagraph(before[0])
+  // An editor-kept empty paragraph after a final list or table is not content; appendBlocks keeps it last.
+  const trailing = before.length > 1 && emptyParagraph(before.at(-1)) && before.at(-2)!.type !== 'paragraph' && emptyParagraph(after.at(-1))
+  const head = trailing ? before.slice(0, -1) : before
+  const tail = trailing ? after.slice(0, -1) : after
   if (blank) candidates.push(after)
-  else if (before.length && after.length >= before.length && before.slice(0, -1).every((node, index) => sameJson(node, after[index]))) {
-    const last = before.at(-1)!
-    const joined = after[before.length - 1]!
-    const rest = after.slice(before.length)
+  else if (head.length && tail.length >= head.length && head.slice(0, -1).every((node, index) => sameJson(node, tail[index]))) {
+    const last = head.at(-1)!
+    const joined = tail[head.length - 1]!
+    const rest = tail.slice(head.length)
     if (sameJson(last, joined)) candidates.push(rest)
     const items = last.content ?? []
     if (LIST_TYPES.has(last.type) && joined.type === last.type && (joined.content?.length ?? 0) > items.length) {
@@ -49,6 +53,7 @@ export function appendedBlocks(base: RichDoc, remote: RichDoc): RichNode[] | nul
   // Replaying the server's own append rule is the proof; anything it cannot reproduce is not an append.
   return candidates.find(blocks => blocks.length > 0 && sameJson(appendBlocks(before as SavedNode[], blocks as SavedNode[]), after)) ?? null
 }
+const emptyParagraph = (node: RichNode | undefined): boolean => node?.type === 'paragraph' && !node.content?.length
 
 export type RemoteAppendPlan =
   | { action: 'merge'; blocks: RichNode[] }

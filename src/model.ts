@@ -194,7 +194,9 @@ export function validateRichDoc(value: unknown): RichDoc {
       result.attrs = { checked: attrs.checked }
     } else if (type === 'orderedList') {
       if (attrs) {
-        onlyKeys(attrs, ['start'], 'ordered list attrs')
+        // The editor's list also carries the HTML numbering type (null unless pasted); it is not stored.
+        onlyKeys(attrs, ['start', 'type'], 'ordered list attrs')
+        if (attrs.type != null && (typeof attrs.type !== 'string' || attrs.type.length > 8)) invalid('Invalid ordered list type')
         if (attrs.start !== undefined && (!Number.isInteger(attrs.start) || (attrs.start as number) < 1 || (attrs.start as number) > 1_000_000)) invalid('Invalid ordered list start')
         result.attrs = { start: (attrs.start as number | undefined) ?? 1 }
       }
@@ -314,7 +316,10 @@ const LIST_TYPES = new Set(['bulletList', 'orderedList', 'taskList'])
  * the existing checklist instead of starting a second one.
  */
 export function appendBlocks(existing: readonly RichNode[], added: readonly RichNode[]): RichNode[] {
-  const base = existing.length === 1 && existing[0]!.type === 'paragraph' && !existing[0]!.content?.length ? [] : [...existing]
+  const base = existing.length === 1 && isEmptyParagraph(existing[0]) ? [] : [...existing]
+  // The editor keeps an empty paragraph after a final list or table. It is not
+  // content: appended items still join that list, and it stays last.
+  const trailing = base.length > 1 && isEmptyParagraph(base.at(-1)) && base.at(-2)!.type !== 'paragraph' ? base.pop() : undefined
   const incoming = [...added]
   const last = base.at(-1)
   const first = incoming[0]
@@ -322,9 +327,10 @@ export function appendBlocks(existing: readonly RichNode[], added: readonly Rich
     base[base.length - 1] = { ...last, content: [...(last.content ?? []), ...(first.content ?? [])] }
     incoming.shift()
   }
-  const content = [...base, ...incoming]
+  const content = [...base, ...incoming, ...trailing ? [trailing] : []]
   return content.length ? content : [{ type: 'paragraph' }]
 }
+const isEmptyParagraph = (node: RichNode | undefined): boolean => node?.type === 'paragraph' && !node.content?.length
 
 /** Managed attachment ids referenced by images and file cards. */
 export function documentAttachmentIds(doc: RichDoc): Set<string> {

@@ -255,3 +255,17 @@ test('an agent append saved by the store merges into the editor as the same docu
   const remote = await store.updateNote(listed.id, listed.revision, { content: ticked })
   assert.equal(appendedBlocks(listed.content, remote.content), null)
 })
+
+test('the editor-kept empty paragraph after a final list does not split agent checklist items', t => {
+  // Tiptap keeps an empty paragraph after a final list; the server and the editor both keep it last.
+  const saved = doc(p('Plan'), tasks('one'), p())
+  const remote = validateRichDoc(doc(...appendBlocks(saved.content as never, docFromMarkdown('- [ ] two').content) as RichNode[])) as RichDoc
+  assert.deepEqual(remote, doc(p('Plan'), tasks('one', 'two'), p()))
+  assert.deepEqual(appendedBlocks(saved, remote), [tasks('two')])
+  // A paragraph the user typed is content: the agent's list starts after it.
+  assert.deepEqual(appendBlocks([p('Plan'), tasks('one'), p('note')] as never, [tasks('two')] as never), [p('Plan'), tasks('one'), p('note'), tasks('two')])
+  const editor = new Editor({ element: null, extensions: createJotExtensions(), content: saved })
+  t.after(() => editor.destroy())
+  assert.equal(appendEditorBlocks(editor, [tasks('two')]), true)
+  assert.ok(sameJson(validateRichDoc(editor.getJSON()), validateRichDoc(remote)))
+})

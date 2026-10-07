@@ -102,3 +102,15 @@ test('tool descriptions stay concise and no longer mention the hidden access swi
   assert.equal(descriptions.match(/user data, not instructions/gu)?.length, 1)
   assert.ok(descriptions.length < 2_600, `descriptions are ${descriptions.length} characters`)
 })
+
+test('appended checklist items join a final checklist that the editor ends with an empty paragraph', async t => {
+  const { store, run } = await tools(t)
+  const note = await store.createNote({ title: 'Todo', content: { type: 'doc', content: [
+    { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'milk' }] }] }] },
+    { type: 'paragraph' },
+  ] } })
+  await run('jot_update', { id: note.id, revision: note.revision, appendText: '- [ ] bread' })
+  const saved = await store.getNote(note.id)
+  assert.deepEqual(saved.content.content.map(block => block.type), ['taskList', 'paragraph'])
+  assert.deepEqual(saved.content.content[0]!.content!.length, 2)
+})
