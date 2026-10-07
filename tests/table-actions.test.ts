@@ -355,3 +355,33 @@ test('width capacity recovery preserves simultaneous text and continues to allow
   editor.view.dispatch(editor.state.tr.insertText('still typing', editor.state.doc.content.size - 1))
   assert.equal(editor.state.doc.textContent, `${oldText}${'t'.repeat(101)}still typing`)
 })
+
+test('a synchronized external change keeps the caret where the user left it', t => {
+  const editor = new Editor({ element: null, extensions: createJotExtensions(), content: { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'First paragraph' }] },
+    { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'milk' }] }] }] },
+  ] } })
+  t.after(() => editor.destroy())
+  let updates = 0
+  editor.on('update', () => { updates++ })
+  // The caret sits after "First" while an agent's checklist item arrives at the end.
+  editor.commands.setTextSelection(6)
+  const appended = validateRichDoc({ type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'First paragraph' }] },
+    { type: 'taskList', content: [
+      { type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'milk' }] }] },
+      { type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'bread' }] }] },
+    ] },
+  ] })
+  assert.equal(syncEditorContent(editor, appended), true)
+  assert.deepEqual(validateRichDoc(editor.getJSON()), appended)
+  assert.equal(editor.state.selection.from, 6)
+  // A change before the caret maps it along with the text.
+  const prefixed = validateRichDoc({ type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Very first paragraph' }] }, appended.content[1]!,
+  ] })
+  assert.equal(syncEditorContent(editor, prefixed), true)
+  assert.deepEqual(validateRichDoc(editor.getJSON()), prefixed)
+  assert.equal(editor.state.selection.from, 11)
+  assert.equal(updates, 0)
+})

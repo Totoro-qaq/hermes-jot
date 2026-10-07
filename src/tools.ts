@@ -86,7 +86,7 @@ export function createJotTools(store: JotStore) {
     }),
     defineTool({
       name: 'jot_update',
-      description: 'Change a note at the revision from jot_read. Prefer edits: exact visible text inside one block (paragraph, heading, list item, table cell, code), no Markdown markers, matching once. appendText adds to the end. text replaces everything and needs allowFormattingLoss when replaceKeepsFormatting is false.',
+      description: 'Change a note at the revision from jot_read. Prefer edits: exact visible text inside one block (paragraph, heading, list item, table cell, code), no Markdown markers, matching once. appendText adds Markdown to the end; new checklist items join a checklist that ends the note. text replaces everything and needs allowFormattingLoss when replaceKeepsFormatting is false.',
       parameters: {
         id: { type: 'string', required: true },
         revision: { type: 'integer', required: true },
