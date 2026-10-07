@@ -12,9 +12,9 @@ import {
   StoreError, boundedString, MAX_TITLE_LENGTH, validateAttachmentId, validateRichDoc,
   type RichDoc, type RichMark, type RichNode,
 } from './model.js'
+import { EXPORT_FORMATS, LIBRARY_EXPORT_FORMATS, type ExportFormat, type LibraryExportFormat } from './export-formats.js'
 
-export const EXPORT_FORMATS = ['txt', 'md', 'pdf', 'docx'] as const
-export type ExportFormat = typeof EXPORT_FORMATS[number]
+export { EXPORT_FORMATS, LIBRARY_EXPORT_FORMATS, type ExportFormat, type LibraryExportFormat } from './export-formats.js'
 export const MAX_EXPORT_ATTACHMENTS = 100
 export const MAX_EXPORT_BYTES = 50 * 1_024 * 1_024
 export interface ExportAttachment { name: string; mimeType: string; size: number; data: Buffer }
@@ -551,8 +551,6 @@ export async function exportJotNote(input: Input, format: ExportFormat, options:
   return { buffer, filename: `${filename(title)}.${extension}`, contentType }
 }
 
-export const LIBRARY_EXPORT_FORMATS = ['docx', 'pdf', 'md'] as const
-export type LibraryExportFormat = typeof LIBRARY_EXPORT_FORMATS[number]
 /** Larger libraries export folder by folder; this bounds one request's time and memory. */
 export const MAX_LIBRARY_EXPORT_NOTES = 2_000
 /** Each PDF embeds its own font subset (about 40 ms and 90 KiB per note), so PDF archives are smaller. */

@@ -3,8 +3,8 @@ import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { acquireFileLock } from './file-lock.js'
 import {
-  StoreError, appendBlocks, boundedString, docFromText, docToText, documentAttachmentIds, onlyKeys, record,
-  validateActor, validateId, validateRichDoc,
+  StoreError, appendBlocks, boundedString, docFromText, documentAttachmentIds, onlyKeys, record,
+  validateActor, validateId, validateRichDoc, validatedDocText,
   MAX_FOLDER_NAME_LENGTH, MAX_TEXT_LENGTH, MAX_TITLE_LENGTH,
   type Actor, type CreateNoteInput, type Folder, type JotState,
   type Note, type NoteSummary, type RichDoc, type UpdateNotePatch,
@@ -61,12 +61,19 @@ interface AgentUndo { version: 1; noteId: string; revision: number; at: string; 
 /** User-facing snapshot: the notes state plus agent attribution for unchanged agent revisions. */
 export interface JotSnapshot extends JotState { agentEdits: Record<string, AgentEdit> }
 export interface PurgeResult { purged: string[]; attachments: string[] }
+/** Imported notes name a folder created or reused by the same import, or an existing folder id. */
+export interface ImportNoteInput { title: string; content: RichDoc; folderName: string | null; folderId: string | null }
+export interface ImportNotesInput { folders: string[]; notes: ImportNoteInput[] }
+/** `folders` counts the folders this import created. */
+export interface ImportNotesResult { noteIds: string[]; folders: number }
+export const MAX_NOTES = 10_000
+export const MAX_FOLDERS = 1_000
 
 function validateState(input: unknown): JotState {
   const data = record(input, 'state')
   onlyKeys(data, ['version', 'notes', 'folders', 'agentEnabled'], 'state')
   if (data.version !== 1 || !Array.isArray(data.notes) || !Array.isArray(data.folders)) invalid('Unsupported state format')
-  if (data.notes.length > 10_000 || data.folders.length > 1_000) invalid('State contains too many entries')
+  if (data.notes.length > MAX_NOTES || data.folders.length > MAX_FOLDERS) invalid('State contains too many entries')
   const folders: Folder[] = data.folders.map(value => {
     const folder = record(value, 'folder')
     onlyKeys(folder, ['id', 'name', 'createdAt', 'updatedAt'], 'folder')
@@ -81,7 +88,7 @@ function validateState(input: unknown): JotState {
     onlyKeys(note, NOTE_KEYS, 'note')
     const content = validateRichDoc(note.content)
     const text = boundedString(note.text, MAX_TEXT_LENGTH, 'derived text')
-    if (text !== docToText(content)) invalid('Derived text does not match the document')
+    if (text !== validatedDocText(content)) invalid('Derived text does not match the document')
     if (!Number.isSafeInteger(note.revision) || (note.revision as number) < 1) invalid('Invalid revision')
     const folderId = note.folderId === null ? null : validateId(note.folderId)
     if (folderId !== null && !folderIds.has(folderId)) invalid('A note references a missing folder')
@@ -393,11 +400,61 @@ export class JotStore {
       await verify?.(content)
       const now = timestamp()
       const note: Note = { id: randomUUID(), title: data.title === undefined ? '' : boundedString(data.title, MAX_TITLE_LENGTH, 'title'),
-        content, text: docToText(content), folderId: data.folderId === undefined ? null : this.folderId(state, data.folderId),
+        content, text: validatedDocText(content), folderId: data.folderId === undefined ? null : this.folderId(state, data.folderId),
         pinned: data.pinned === undefined ? false : boolean(data.pinned, 'pinned'), revision: 1,
         createdAt: now, updatedAt: now, deletedAt: null }
       state.notes.push(note)
       return note
+    })
+  }
+  /**
+   * Create imported notes, and the named folders they need, in one locked write.
+   * Folder names reuse existing folders case-insensitively. Only the user imports.
+   * Notes keep their import order in the list: earlier notes get later timestamps.
+   */
+  async importNotes(input: ImportNotesInput, verify?: ContentVerifier): Promise<ImportNotesResult> {
+    return this.access('user', true, async state => {
+      const data = record(input, 'import')
+      onlyKeys(data, ['folders', 'notes'], 'import')
+      if (!Array.isArray(data.folders) || data.folders.length > MAX_FOLDERS || !Array.isArray(data.notes) || data.notes.length === 0) {
+        invalid('An import needs notes and a list of folder names')
+      }
+      if (state.notes.length + data.notes.length > MAX_NOTES) {
+        invalid(`Jot holds at most ${MAX_NOTES.toLocaleString('en')} notes, including Trash; the library has ${state.notes.length} and the import has ${data.notes.length}`)
+      }
+      const key = (value: unknown) => boundedString(value, MAX_FOLDER_NAME_LENGTH, 'folder name', false).trim().toLocaleLowerCase()
+      const byName = new Map(state.folders.map(folder => [folder.name.toLocaleLowerCase(), folder.id]))
+      const base = Date.now()
+      let created = 0
+      for (const value of data.folders) {
+        const name = boundedString(value, MAX_FOLDER_NAME_LENGTH, 'folder name', false).trim()
+        if (byName.has(name.toLocaleLowerCase())) continue
+        if (state.folders.length >= MAX_FOLDERS) invalid(`Jot holds at most ${MAX_FOLDERS} folders`)
+        const now = new Date(base).toISOString()
+        const folder: Folder = { id: randomUUID(), name, createdAt: now, updatedAt: now }
+        state.folders.push(folder)
+        byName.set(name.toLocaleLowerCase(), folder.id)
+        created++
+      }
+      const noteIds: string[] = []
+      for (const [index, value] of (data.notes as unknown[]).entries()) {
+        const item = record(value, 'imported note')
+        onlyKeys(item, ['title', 'content', 'folderName', 'folderId'], 'imported note')
+        const title = boundedString(item.title, MAX_TITLE_LENGTH, 'title')
+        const content = validateRichDoc(item.content)
+        await verify?.(content)
+        let folderId: string | null = null
+        if (item.folderName != null) {
+          if (item.folderId != null) invalid('An imported note needs a folder name or a folder id, not both')
+          folderId = byName.get(key(item.folderName)) ?? invalid('An imported note names a folder that is not part of the import')
+        } else if (item.folderId != null) folderId = this.folderId(state, item.folderId)
+        const now = new Date(base - index).toISOString()
+        const note: Note = { id: randomUUID(), title, content, text: validatedDocText(content), folderId, pinned: false,
+          revision: 1, createdAt: now, updatedAt: now, deletedAt: null }
+        state.notes.push(note)
+        noteIds.push(note.id)
+      }
+      return { noteIds, folders: created }
     })
   }
   async updateNote(id: string, revision: number, patch: UpdateNotePatch, actor: Actor = 'user', verify?: ContentVerifier): Promise<Note> {
@@ -425,7 +482,7 @@ export class JotStore {
       if (data.folderId !== undefined) note.folderId = this.folderId(state, data.folderId)
       if (data.pinned !== undefined) note.pinned = boolean(data.pinned, 'pinned')
       await verify?.(note.content)
-      note.text = docToText(note.content)
+      note.text = validatedDocText(note.content)
       note.revision++
       note.updatedAt = timestamp(note.updatedAt)
       return note
@@ -452,7 +509,7 @@ export class JotStore {
       // A folder deleted since the agent moved the note leaves it unfiled.
       note.folderId = undo.before.folderId !== null && state.folders.some(folder => folder.id === undo.before.folderId) ? undo.before.folderId : null
       await verify?.(note.content)
-      note.text = docToText(note.content)
+      note.text = validatedDocText(note.content)
       note.revision++
       note.updatedAt = timestamp(note.updatedAt)
       return note

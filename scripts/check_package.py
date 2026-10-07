@@ -1,13 +1,16 @@
 """Smoke-test the distributable outside the checkout, with no development dependencies."""
 from pathlib import Path
 import argparse
+import base64
 import hashlib
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +20,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--hermes", action="store_true", help="Also require the installed Hermes validator")
     args = parser.parse_args()
-    archive = ROOT / "artifacts/hermes-jot-0.1.0-local.zip"
+    version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+    archive = ROOT / "artifacts" / f"hermes-jot-{version}-local.zip"
     node = shutil.which("node")
     if not node:
         raise SystemExit("Node.js is required.")
@@ -32,6 +36,9 @@ def main():
         package = parent / "jot"
         if not (package / "plugin.yaml").is_file():
             raise SystemExit("Expected a complete jot/ package.")
+        # Export and import code loads lazily from library.cjs; the per-request engine stays small.
+        if not (package / "runtime/library.cjs").is_file() or b"pdfkit" in (package / "runtime/worker.cjs").read_bytes():
+            raise SystemExit("The packaged engine must keep export code in runtime/library.cjs.")
         for document in package.rglob("*.md"):
             for target in re.findall(r"\]\(([^)]+)\)", document.read_text(encoding="utf-8")):
                 if "://" in target or target.startswith("#"):
@@ -83,9 +90,36 @@ def main():
                     if "word/document.xml" not in document.namelist():
                         raise SystemExit("Invalid Word archive.")
             exports[format_name] = len(content)
-        summary.update({"standaloneEngine": True, "documentationLinks": True, "exports": exports, "files": len(names)})
+        imports = parent / "note-data" / "imports"
+        imports.mkdir(mode=0o700, exist_ok=True)
+
+        def import_file(name, data):
+            path = imports / f"{uuid.uuid4()}{Path(name).suffix.lower()}"
+            path.write_bytes(data)
+            try:
+                return request({"kind": "import", "path": str(path), "filename": name, "folderId": None})["data"]
+            finally:
+                path.unlink()
+
+        markdown = import_file("导入.md", "# 导入的笔记\n\n- [x] 完成\n\n| 列 | 值 |\n| --- | --- |\n| 中文 | 1 |\n".encode("utf-8"))
+        png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwS8AAAAASUVORK5CYII=")
+        bundle = io.BytesIO()
+        with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as vault:
+            vault.writestr("项目/计划.md", "# 计划\n\n![草图](img/草图.png)\n".encode("utf-8"))
+            vault.writestr("项目/img/草图.png", png)
+            vault.writestr("根目录.txt", "纯文本".encode("utf-8"))
+        archive_result = import_file("vault.zip", bundle.getvalue())
+        if (markdown["notes"], archive_result["notes"], archive_result["attachments"], archive_result["folders"]) != (1, 2, 1, 1) \
+                or markdown["skipped"] or archive_result["skipped"]:
+            raise SystemExit("Packaged engine import failed: " + json.dumps([markdown, archive_result], ensure_ascii=False))
+        state = request({"kind": "http", "path": "/state", "method": "GET"})["data"]
+        titles = {item["title"]: item for item in state["notes"]}
+        if titles.get("导入的笔记", {}).get("content", {}).get("content", [{}])[0].get("type") != "taskList" \
+                or titles.get("计划", {}).get("content", {}).get("content", [{}])[0].get("type") != "image" or "根目录" not in titles:
+            raise SystemExit("Packaged engine imported unexpected notes.")
+        summary.update({"standaloneEngine": True, "documentationLinks": True, "exports": exports, "imports": True, "files": len(names)})
     (ROOT / "artifacts/final-package-audit.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    print("PASS isolated package: Chinese rich note and TXT/Markdown/PDF/DOCX exports" +
+    print("PASS isolated package: Chinese rich note, TXT/Markdown/PDF/DOCX exports and Markdown/ZIP imports" +
           (", plus Hermes validation." if args.hermes else "."))
 
 

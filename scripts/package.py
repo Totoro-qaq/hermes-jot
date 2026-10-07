@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_DIRS = ["src", "runtime", "desktop", "dashboard", "assets", "LICENSES", "tests", "tests_py", "scripts", "dev"]
 ALLOWED_FILES = ["__init__.py", "backend.py", "native_open.py", "plugin.yaml", "package.json", "package-lock.json", "requirements-test.txt", "tsconfig.json", "LICENSE", "README.md", "README.zh-CN.md", "UPSTREAM.json", "THIRD_PARTY_NOTICES.md"]
 DOCS = ["GUIDE.zh-CN.md", "GUIDE.en.md", "VALIDATION.md", "CATALOG.md", "CATALOG_PR.md", "catalog-entry.yaml.in"]
-REQUIRED = ["runtime/worker.cjs", "runtime/editor.html", "runtime/tools.json", "runtime/build-info.json", "desktop/plugin.js", "THIRD_PARTY_NOTICES.md"]
+REQUIRED = ["runtime/worker.cjs", "runtime/library.cjs", "runtime/editor.html", "runtime/tools.json", "runtime/build-info.json", "desktop/plugin.js", "THIRD_PARTY_NOTICES.md"]
 
 
 def main():

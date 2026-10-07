@@ -279,7 +279,11 @@ export function docFromText(text: string): RichDoc {
 export const plaintextToDoc = docFromText
 
 export function docToText(input: RichDoc): string {
-  const doc = validateRichDoc(input)
+  return validatedDocText(validateRichDoc(input))
+}
+
+/** Plain text of a document that `validateRichDoc` just returned; callers must not pass unvalidated input. */
+export function validatedDocText(doc: RichDoc): string {
   const render = (node: RichNode): string => {
     if (node.type === 'text') return node.text ?? ''
     if (node.type === 'hardBreak') return '\n'
