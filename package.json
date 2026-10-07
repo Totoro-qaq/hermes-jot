@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Notes, checklists and documents beside Hermes that your agent can read and update safely, with revision checks and one-click undo.",
+  "description": "Notes, checklists and documents beside Hermes that your agent can read and update safely, with revision checks and undo for AI edits.",
   "license": "MIT",
   "engines": {
     "node": ">=22.19.0"
