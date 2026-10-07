@@ -13,6 +13,7 @@ import {
   type RichDoc, type RichMark, type RichMarkType, type RichNode,
 } from './model.js'
 import type { ImportNoteInput, JotStore } from './store.js'
+import { JOT_LOCALES, translator } from './client/i18n.js'
 import type { AttachmentInfo, AttachmentStore } from './attachments.js'
 
 export interface ImportResult {
@@ -503,14 +504,16 @@ function folderName(path: string): string | null {
 }
 
 /**
- * Where Jot's exports put attachments: directly in the library export's `附件`
- * or `attachments` directory, or as `assets/<attachment id>-<name>` in a
- * single-note export.
+ * Where Jot's exports put attachments: directly in the library export's
+ * attachments directory, named in the export's language (possibly with a
+ * " (2)" suffix), or as `assets/<attachment id>-<name>` in a single-note export.
  */
+const EXPORT_ATTACHMENT_DIRECTORIES = new Set(JOT_LOCALES.map(locale => translator(locale)('attachments').toLocaleLowerCase()))
 const exportedAttachmentPath = (path: string): boolean => {
   const segments = path.split('/')
-  return segments.length === 2 && (/^(?:attachments|附件)(?: \(\d+\))?$/iu.test(segments[0]!)
-    || segments[0] === 'assets' && /^[0-9a-f]{32}-./iu.test(segments[1]!))
+  if (segments.length !== 2) return false
+  const directory = segments[0]!.replace(/ \(\d+\)$/u, '').toLocaleLowerCase()
+  return EXPORT_ATTACHMENT_DIRECTORIES.has(directory) || segments[0] === 'assets' && /^[0-9a-f]{32}-./iu.test(segments[1]!)
 }
 const directoryOf = (path: string): string => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
 /** A single-note export prefixes each asset with its attachment id; the original name is the rest. */

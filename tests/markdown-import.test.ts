@@ -693,3 +693,23 @@ test('an import that would pass the notes storage limit fails before uploading, 
   await assert.rejects(run(target, zipSync({ 'a.md': strToU8('![p](pic.png)'), 'pic.png': png }), 'zip'), invalid)
   assert.equal((await manifest(target.directory)).attachments.length, 0, 'the uploaded image was rolled back')
 })
+
+test('a library exported in any interface language imports back with its text attachments', async ctx => {
+  for (const locale of ['fr', 'ja', 'ar', 'de', 'zh-hant'] as const) {
+    const source = await stores(ctx)
+    const notes = await source.attachments.upload({ name: 'notes.txt', mimeType: 'text/plain', bytes: strToU8('plain attachment') })
+    await source.store.createNote({ title: 'With file', content: validateRichDoc({ type: 'doc', content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'See the file' }] },
+      { type: 'attachment', attrs: { attachmentId: notes.id, caption: 'notes.txt' } },
+    ] }) })
+    const state = await source.store.readState()
+    const exported = await exportJotLibrary({ notes: state.notes, folders: state.folders }, 'md', { locale,
+      attachmentLoader: async id => {
+        const { attachment, bytes } = await source.attachments.content(id)
+        return { name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, data: bytes }
+      } })
+    const target = await stores(ctx)
+    const result = await run(target, exported.buffer, 'zip', exported.filename)
+    assert.deepEqual({ notes: result.notes, attachments: result.attachments, skipped: result.skipped }, { notes: 1, attachments: 1, skipped: [] }, locale)
+  }
+})
