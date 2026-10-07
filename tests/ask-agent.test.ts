@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { askAgentMessage, askAgentReference, deliverAskAgent } from '../src/client/ask-agent.js'
 
-test('the reference names the note and carries the id the agent reads it by', () => {
+test('the reference names the note and carries the id the agent reads it by, in English for the agent', () => {
   assert.equal(askAgentReference({ id: 'n-123', title: 'Trip plan' }), 'Jot note “Trip plan” (id: n-123)')
   assert.equal(askAgentReference({ id: 'n-1', title: '' }), 'Jot note “Untitled” (id: n-1)')
   assert.equal(askAgentReference({ id: 'n-2', title: '  \n ' }), 'Jot note “Untitled” (id: n-2)')
@@ -32,4 +32,6 @@ test('outcome copy is localized', () => {
   assert.equal(askAgentMessage('copied', 'en'), 'Copied — paste it into a conversation')
   assert.equal(askAgentMessage('copied', 'zh'), '已复制，可粘贴到对话中')
   assert.match(askAgentMessage('failed', 'en'), /Try again/)
+  assert.equal(askAgentMessage('inserted', 'zh-hant'), '已放入輸入框')
+  assert.equal(askAgentMessage('copied', 'de'), 'Kopiert – in eine Konversation einfügen')
 })

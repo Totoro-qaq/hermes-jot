@@ -87,7 +87,10 @@ export function ActionMenu({ triggerLabel, items: entries, position, onClose, tr
       if (!view) return
       const bounds = element.getBoundingClientRect()
       const anchor = trigger.current?.getBoundingClientRect()
-      const x = position?.x ?? (anchor ? anchor.right - bounds.width : 8)
+      // Menus grow toward the inline end: under the trigger's end edge, or from the pointer (leftward in Arabic).
+      const owner = trigger.current ?? previousFocus.current
+      const rtl = owner ? view.getComputedStyle(owner).direction === 'rtl' : false
+      const x = position ? position.x - (rtl ? bounds.width : 0) : anchor ? (rtl ? anchor.left : anchor.right - bounds.width) : 8
       const y = position?.y ?? (anchor ? anchor.bottom + 4 : 8)
       setCoordinates({
         left: Math.min(Math.max(8, x), Math.max(8, view.innerWidth - bounds.width - 8)),

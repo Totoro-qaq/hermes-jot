@@ -1,5 +1,6 @@
 import { docFromText, MAX_TITLE_LENGTH, validateRichDoc } from '../model.js'
 import type { NoteDraft } from './drafts.js'
+import { translator } from './i18n.js'
 import type { JotLocale, Note, NoteInput, RichDoc } from './types.js'
 
 export type NoteSortMode = 'modified' | 'created' | 'title'
@@ -38,9 +39,11 @@ function titleWithin(text: string, max: number): string {
 
 /** Duplicate editable content without sharing nested marks, cells, or attachment attributes. */
 export function duplicateNoteInput(draft: Pick<NoteDraft, 'title' | 'content' | 'folderId'>, locale: JotLocale = 'zh'): NoteInput {
-  const suffix = locale === 'en' ? ' copy' : ' 副本'
-  const title = draft.title.trim() || (locale === 'en' ? 'Untitled' : '无标题')
-  return { title: titleWithin(title, MAX_TITLE_LENGTH - suffix.length).trimEnd() + suffix,
+  const t = translator(locale)
+  const title = draft.title.trim() || t('Untitled')
+  // The wording around the title ("{title} copy", "{title} のコピー") counts against the length limit.
+  const room = MAX_TITLE_LENGTH - t('{title} copy', { title: '' }).length
+  return { title: t('{title} copy', { title: titleWithin(title, room).trimEnd() }),
     content: structuredClone(draft.content), folderId: draft.folderId }
 }
 

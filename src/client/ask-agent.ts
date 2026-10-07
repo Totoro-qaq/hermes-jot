@@ -1,9 +1,10 @@
+import { translator } from './i18n.js'
 import type { JotLocale } from './types.js'
 
 export type AskAgentOutcome = 'inserted' | 'copied' | 'failed'
 export interface AskAgentNote { id: string; title: string }
 
-/** The agent finds the note by id with jot_read; the title only helps the person reading the message. */
+/** The agent finds the note by id with jot_read; the title only helps the person reading the message. Agent-facing, so always English. */
 export function askAgentReference(note: AskAgentNote): string {
   const title = note.title.replace(/\s+/gu, ' ').trim()
   return `Jot note “${title || 'Untitled'}” (id: ${note.id})`
@@ -20,8 +21,8 @@ export async function deliverAskAgent(text: string, channels: {
 }
 
 export function askAgentMessage(outcome: AskAgentOutcome, locale: JotLocale): string {
-  const en = locale === 'en'
-  if (outcome === 'inserted') return en ? 'Added to the message box' : '已放进输入框'
-  if (outcome === 'copied') return en ? 'Copied — paste it into a conversation' : '已复制，可粘贴到对话中'
-  return en ? 'Could not add the note to the message box or copy it. Try again.' : '没能放进输入框，也没能复制，请重试。'
+  const t = translator(locale)
+  if (outcome === 'inserted') return t('Added to the message box')
+  if (outcome === 'copied') return t('Copied — paste it into a conversation')
+  return t('Could not add the note to the message box or copy it. Try again.')
 }

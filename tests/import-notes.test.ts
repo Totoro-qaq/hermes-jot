@@ -29,6 +29,11 @@ test('the toast counts imported and skipped files; details list skipped paths', 
   assert.equal(lines.length, 7)
   assert.equal(lines.at(-1), '…and 2 more')
   assert.equal(summarizeImport(result(0, skipped.slice(0, 1)), 'zh').toast, '已导入 0 条笔记，跳过 1 个')
+  // Plural forms follow each language rather than English singular/plural.
+  assert.equal(summarizeImport(result(5), 'ru').toast, 'Импортировано 5 заметок')
+  assert.equal(summarizeImport(result(22), 'ru').toast, 'Импортировано 22 заметки')
+  assert.equal(summarizeImport(result(1, skipped.slice(0, 1)), 'fr').toast, '1 note importée · 1 ignoré')
+  assert.equal(summarizeImport(result(2, skipped), 'de').details.split('\n').at(-1), '…und 2 weitere')
 })
 
 test('unsupported or oversized files are refused before upload', () => {
@@ -38,6 +43,7 @@ test('unsupported or oversized files are refused before upload', () => {
   assert.equal(importFileProblem({ name: 'd.zip', size: 10 }, 'en'), null)
   assert.match(importFileProblem({ name: 'e.pdf', size: 10 }, 'en')!, /Markdown, text or ZIP/)
   assert.match(importFileProblem({ name: 'f.zip', size: IMPORT_MAX_BYTES + 1 }, 'zh')!, /超过 100 MB/)
+  assert.equal(importFileProblem({ name: 'g.pdf', size: 10 }, 'ja'), 'g.pdf：Markdown、テキスト、ZIP ファイルを選択してください。')
 })
 
 test('server import failures say what to change instead of a generic retry', () => {

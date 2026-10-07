@@ -4,6 +4,7 @@ import { Editor, type JSONContent } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import { createJotExtensions } from '../src/client/editor-extensions.js'
 import { applySlashItem, filterSlashItems, SLASH_ITEMS, slashMatch } from '../src/client/slash-menu.js'
+import { JOT_LOCALES } from '../src/client/i18n.js'
 import { shortcutHelpSections, shortcutLabel, withShortcut } from '../src/client/shortcut-labels.js'
 import { validateRichDoc } from '../src/model.js'
 
@@ -105,12 +106,15 @@ test('shortcut labels follow each platform\'s conventions', () => {
   assert.equal(shortcutLabel('searchLibrary', false), '/')
   assert.equal(withShortcut('待办清单', 'taskList', true), '待办清单 (⇧⌘9)')
   assert.equal(withShortcut('插入表格', undefined, true), '插入表格')
-  for (const locale of ['zh', 'en'] as const) for (const apple of [true, false]) {
+  for (const locale of JOT_LOCALES) for (const apple of [true, false]) {
     const sections = shortcutHelpSections(locale, apple)
     assert.ok(sections.length >= 5)
     for (const section of sections) for (const row of section.rows) {
       assert.ok(row.label && row.keys.length && row.keys.every(Boolean), `${locale}/${apple}: ${row.label}`)
     }
   }
-  assert.ok(shortcutHelpSections('zh', true).some(section => section.rows.some(row => row.keys.includes('、'))))
+  // Only the Simplified Chinese input method types 、 on the slash key.
+  const ideographicComma = (locale: typeof JOT_LOCALES[number]) => shortcutHelpSections(locale, true).some(section => section.rows.some(row => row.keys.includes('、')))
+  assert.deepEqual(JOT_LOCALES.filter(ideographicComma), ['zh'])
+  assert.equal(shortcutHelpSections('fr', true)[0]!.title, 'Bibliothèque')
 })

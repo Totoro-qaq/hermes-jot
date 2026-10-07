@@ -1,3 +1,4 @@
+import { intlLocale, translator } from './i18n.js'
 import type { JotLocale, Note, RichNode } from './types.js'
 
 export type NoteDateGroup = 'pinned' | 'today' | 'yesterday' | 'week' | 'earlier'
@@ -9,10 +10,6 @@ export type NoteDateBasis = 'modified' | 'created' | 'none'
 export interface HighlightSegment { text: string; matched: boolean }
 
 const GROUPS: NoteDateGroup[] = ['pinned', 'today', 'yesterday', 'week', 'earlier']
-const GROUP_LABELS = {
-  zh: { pinned: '置顶', today: '今天', yesterday: '昨天', week: '过去 7 天', earlier: '更早' },
-  en: { pinned: 'Pinned', today: 'Today', yesterday: 'Yesterday', week: 'Previous 7 Days', earlier: 'Earlier' },
-}
 
 /** Calendar dates, rather than elapsed 24-hour periods, keep midnight and DST boundaries correct. */
 function calendarDay(date: Date): number {
@@ -73,6 +70,10 @@ export function buildNoteListRows(notes: readonly Note[], options: { query?: str
   if (query.trim() || dateBasis === 'none') return titleMatchesFirst(notes, query).map((note, index) => ({
     kind: 'note', key: `note:${note.id}`, note, position: index + 1,
   }))
+  const t = translator(locale)
+  const labels: Record<NoteDateGroup, string> = {
+    pinned: t('Pinned'), today: t('Today'), yesterday: t('Yesterday'), week: t('Previous 7 days'), earlier: t('Earlier'),
+  }
   const grouped = new Map<NoteDateGroup, Note[]>(GROUPS.map(group => [group, []]))
   for (const note of notes) grouped.get(noteDateGroup(note, now, dateBasis))!.push(note)
   const rows: NoteListRow[] = []
@@ -80,7 +81,7 @@ export function buildNoteListRows(notes: readonly Note[], options: { query?: str
   for (const group of GROUPS) {
     const members = grouped.get(group)!
     if (!members.length) continue
-    rows.push({ kind: 'header', key: `header:${group}`, group, label: GROUP_LABELS[locale][group], count: members.length })
+    rows.push({ kind: 'header', key: `header:${group}`, group, label: labels[group], count: members.length })
     for (const note of members) rows.push({ kind: 'note', key: `note:${note.id}`, note, position: ++position })
   }
   return rows
@@ -233,7 +234,7 @@ export function formatNoteDate(value: string, locale: JotLocale, now = new Date(
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   const sameDay = calendarDay(date) === calendarDay(now)
-  return new Intl.DateTimeFormat(locale === 'en' ? 'en' : 'zh-CN', sameDay
+  return new Intl.DateTimeFormat(intlLocale(locale), sameDay
     ? { hour: 'numeric', minute: '2-digit' }
     : { month: 'short', day: 'numeric', ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' as const }) }).format(date)
 }

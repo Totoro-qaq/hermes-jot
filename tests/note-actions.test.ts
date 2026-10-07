@@ -55,6 +55,11 @@ test('duplicate titles stay within 240 UTF-16 units without dividing a grapheme'
   assert.ok(boundaries.has(prefix.length))
   assert.equal(copied.folderId, 'folder')
   assert.equal(duplicateNoteInput({ ...source, title: '' }, 'en').title, 'Untitled copy')
+  assert.equal(duplicateNoteInput({ ...source, title: 'Plan' }, 'ja').title, 'Plan のコピー')
+  assert.equal(duplicateNoteInput({ ...source, title: '' }, 'es').title, 'Sin título copia')
+  // Wording before the title counts against the limit too.
+  const arabic = duplicateNoteInput({ ...source, title: 'a'.repeat(400) }, 'ar').title!
+  assert.ok(arabic.length <= 240 && arabic.startsWith('نسخة من '))
 })
 
 test('duplicating tables, marks, and managed attachment attributes creates detached editable content', () => {
