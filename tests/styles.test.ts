@@ -39,12 +39,25 @@ test('dividers, footer row and surfaces follow the Hermes chrome', async () => {
   const agent = rule('.jot-agent-line')
   assert.match(agent, /(?:^|;)height:28px/u)
   assert.doesNotMatch(agent, /(?:^|;)border[-:]/u)
+  // The fixed row cannot grow, so a long translated label stays on one line and ends in an ellipsis.
+  const label = rule('.jot-agent-label')
+  for (const declaration of ['display:block', 'min-width:0', 'overflow:hidden', 'white-space:nowrap', 'text-overflow:ellipsis']) assert.ok(label.split(';').includes(declaration), declaration)
+  assert.match(rule('.jot-agent-label>svg'), /display:inline-block!important/u)
   assert.match(rule('.jot-app'), /background:var\(--jot-surface,var\(--jot-bg\)\)/u)
   assert.equal(HOST_THEME_PROPERTIES['--jot-surface'], 'var(--ui-editor-surface-background,var(--ui-bg-editor))')
   assert.equal(HOST_THEME_PROPERTIES['--dsw-alias-bg-layer-1'], 'var(--ui-bg-editor)', 'popovers and modals stay elevated')
   const entry = await readFile(new URL('../src/hermes/entry.tsx', import.meta.url), 'utf8')
   assert.match(entry, /\.jot-host>\.jot-app\{[^}]*background:var\(--ui-editor-surface-background,var\(--ui-bg-editor\)\)/u)
 })
+
+/** Table controls placed in the same physical space as positions measured by script; they must not mirror. */
+const PHYSICAL_TABLE_CHROME: Record<string, string> = {
+  '.jot-table-row-menu': 'left:0',
+  '.jot-table-row-indicator': 'left:calc(var(--jot-table-gutter) - 2px)',
+  '.jot-table-options': 'right:0',
+  '.jot-table-append-column': 'right:0',
+  '.jot-editor-mount .ProseMirror .column-resize-handle': 'right:-3px',
+}
 
 test('styles use logical properties wherever direction matters', () => {
   const physical = [
@@ -54,10 +67,19 @@ test('styles use logical properties wherever direction matters', () => {
     /clear:(?:left|right)\b/gu,
   ].flatMap(pattern => [...jotStyles.matchAll(pattern)].map(match => match[0]))
   assert.deepEqual(physical, [])
-  // Bare left/right insets are allowed only for direction-neutral centering.
+  // Bare left/right insets are allowed only for direction-neutral centering, and for table chrome that
+  // shares a physical coordinate system with script-measured positions (TableControls sets `left` from
+  // getBoundingClientRect, and prosemirror-tables hit-tests the right cell edge in both directions).
   for (const match of jotStyles.matchAll(/[{;](left|right):([^;}]*)/gu)) {
-    assert.equal(`${match[1]}:${match[2]}`, 'left:50%', `physical inset ${match[0]}`)
+    const selector = jotStyles.slice(Math.max(jotStyles.lastIndexOf('}', match.index), jotStyles.lastIndexOf('\n', match.index)) + 1, jotStyles.indexOf('{', jotStyles.lastIndexOf('}', match.index) + 1))
+    if (Object.hasOwn(PHYSICAL_TABLE_CHROME, selector)) continue
+    assert.equal(`${match[1]}:${match[2]}`, 'left:50%', `physical inset ${match[0]} in ${selector}`)
     assert.match(jotStyles.slice(match.index, jotStyles.indexOf('}', match.index)), /translateX\(-50%\)/u)
+  }
+  for (const [selector, inset] of Object.entries(PHYSICAL_TABLE_CHROME)) {
+    const body = rule(selector)
+    assert.ok(body.split(';').includes(inset), `${selector} keeps ${inset}`)
+    assert.doesNotMatch(body, /inset-inline/u, `${selector} must not mirror away from its measured siblings`)
   }
   // A four-value padding or margin with different left and right sides is direction-dependent.
   for (const match of jotStyles.matchAll(/[{;](padding|margin):([^;}]*)/gu)) {
