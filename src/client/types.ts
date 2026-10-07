@@ -93,4 +93,5 @@ export interface JotApi {
   importNotes?(file: File, options: { folderId: string | null }): Promise<ImportResult>
 }
 
-export type JotLocale = 'zh' | 'en'
+import type { JotLocale } from './i18n.js'
+export type { JotLocale }
