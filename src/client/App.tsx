@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { JotApiError } from './api.js'
+import { saveHumanDraft } from './save-draft.js'
 import { draftFromNote, draftFingerprint, emptyDocument, receiveLatestDraft, reconcileDraft, sameDraftGeneration, sharedDraftStorage as defaultDraftStorage } from './drafts.js'
 import type { NoteDraft } from './drafts.js'
 import type { JotPersistence } from '../hermes/persistence.js'
@@ -235,10 +236,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     setStatus(id, { phase: 'saving' })
     const operation = (async () => {
       try {
-        const saved = await apiRef.current.updateNote(id, {
-          revision: submitted.baseRevision, title: submitted.title, content: submitted.content,
-          folderId: submitted.folderId, pinned: submitted.pinned,
-        })
+        const saved = await saveHumanDraft(apiRef.current, submitted)
         const current = drafts.current.get(id) ?? submitted
         const next = savedDraft(current, submitted, saved)
         drafts.current.set(id, next)

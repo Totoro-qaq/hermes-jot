@@ -88,14 +88,14 @@ test('queued capture and expand requests cannot cross a profile switch or replay
 test('a delayed host echo or theme update cannot erase keystrokes already typed in the editor', () => {
   const sync = new EditorSync()
   const initial = docFromText('Start'), first = docFromText('Start A'), second = docFromText('Start AB')
-  sync.fromHost(initial, 0)
+  sync.prepareHostUpdate(initial, 0)()
   const sentFirst = sync.edited(first)
   const sentSecond = sync.edited(second)
-  assert.equal(sync.fromHost(initial, 0), second)
-  assert.equal(sync.fromHost(first, sentFirst.revision), second)
-  assert.equal(sync.fromHost(second, sentSecond.revision), second)
+  assert.equal(sync.prepareHostUpdate(initial, 0)(), second)
+  assert.equal(sync.prepareHostUpdate(first, sentFirst.revision)(), second)
+  assert.equal(sync.prepareHostUpdate(second, sentSecond.revision)(), second)
   const humanUndo = docFromText('Undo applied by user')
-  assert.equal(sync.fromHost(humanUndo, sentSecond.revision), humanUndo)
+  assert.equal(sync.prepareHostUpdate(humanUndo, sentSecond.revision)(), humanUndo)
   assert.equal(sync.edited(second).revision, sentSecond.revision + 1)
 })
 
@@ -109,4 +109,16 @@ test('closing one editor cannot erase the other editor selection, and new focus 
   state.select('compact', '')
   assert.equal(state.selectedText, '')
   controls.dispose()
+})
+
+
+test('a host echo queued before typing is checked when React applies it, not when it arrives', () => {
+  const sync = new EditorSync()
+  const initial = docFromText('Start'), first = docFromText('Start A'), second = docFromText('Start AB')
+  sync.prepareHostUpdate(initial, 0)()
+  const sent = sync.edited(first)
+  const pendingReactEffect = sync.prepareHostUpdate(first, sent.revision)
+  sync.edited(second)
+  assert.equal(pendingReactEffect(), second)
+  assert.equal(pendingReactEffect(), second, 'replayed effects must also retain newer input')
 })

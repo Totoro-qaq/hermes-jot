@@ -1,5 +1,5 @@
 {
-  "title": "A calmer start to the week",
+  "title": "从容安排这一周",
   "content": {
     "type": "doc",
     "content": [
@@ -8,7 +8,7 @@
         "content": [
           {
             "type": "text",
-            "text": "A short plan for the week, with room for ideas along the way."
+            "text": "安排这一周的工作，也给途中出现的新想法留一点空间。"
           }
         ]
       },
@@ -20,7 +20,7 @@
         "content": [
           {
             "type": "text",
-            "text": "Today"
+            "text": "今天"
           }
         ]
       },
@@ -38,7 +38,7 @@
                 "content": [
                   {
                     "type": "text",
-                    "text": "Review the launch checklist"
+                    "text": "检查发布清单"
                   }
                 ]
               }
@@ -55,7 +55,7 @@
                 "content": [
                   {
                     "type": "text",
-                    "text": "Share the updated project brief"
+                    "text": "分享更新后的项目说明"
                   }
                 ]
               }
@@ -72,7 +72,7 @@
                 "content": [
                   {
                     "type": "text",
-                    "text": "Make room for one unexpected idea"
+                    "text": "记下一条新的想法"
                   }
                 ]
               }
@@ -88,7 +88,7 @@
         "content": [
           {
             "type": "text",
-            "text": "Next steps"
+            "text": "下一步"
           }
         ]
       },
@@ -112,7 +112,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Next step"
+                        "text": "事项"
                       }
                     ]
                   }
@@ -132,7 +132,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Owner"
+                        "text": "负责人"
                       }
                     ]
                   }
@@ -152,7 +152,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Status"
+                        "text": "状态"
                       }
                     ]
                   }
@@ -177,7 +177,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Review the brief"
+                        "text": "评审项目说明"
                       }
                     ]
                   }
@@ -197,7 +197,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Design"
+                        "text": "设计"
                       }
                     ]
                   }
@@ -217,7 +217,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "In progress"
+                        "text": "进行中"
                       }
                     ]
                   }
@@ -242,7 +242,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Test the first run"
+                        "text": "测试首次使用流程"
                       }
                     ]
                   }
@@ -262,7 +262,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Engineering"
+                        "text": "开发"
                       }
                     ]
                   }
@@ -282,7 +282,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Next"
+                        "text": "待开始"
                       }
                     ]
                   }

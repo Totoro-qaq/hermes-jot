@@ -5,12 +5,15 @@ export class EditorSync {
   private value: RichDoc | null = null
   private revision = 0
 
-  fromHost(value: RichDoc, acknowledged: number): RichDoc {
-    if (this.value === null || acknowledged >= this.revision) {
-      this.value = value
-      this.revision = Math.max(this.revision, acknowledged)
+  /** React may commit after another input event. Check at application time. */
+  prepareHostUpdate(value: RichDoc, acknowledged: number): () => RichDoc {
+    return () => {
+      if (this.value === null || acknowledged >= this.revision) {
+        this.value = value
+        this.revision = Math.max(this.revision, acknowledged)
+      }
+      return this.value
     }
-    return this.value
   }
 
   edited(value: RichDoc): { content: RichDoc; revision: number } {

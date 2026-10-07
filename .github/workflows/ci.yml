@@ -27,3 +27,4 @@ jobs:
       - run: python -m pip install -r requirements-test.txt
       - run: python -m unittest discover -s tests_py -v
       - run: python scripts/package.py
+      - run: python scripts/check_package.py

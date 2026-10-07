@@ -19,7 +19,7 @@ const image = (attachmentId: string) => new Promise<string>(resolve => {
 })
 
 function Editor() {
-  const [props, setProps] = useState<{ value: RichDoc; locale: 'zh' | 'en'; readOnly: boolean } | null>(null)
+  const [props, setProps] = useState<{ value: RichDoc; resolveExternalValue: () => RichDoc; locale: 'zh' | 'en'; readOnly: boolean } | null>(null)
   const actions = useRef<RichEditorActions | null>(null)
   const synchronized = useRef(new EditorSync())
   const root = useRef<HTMLDivElement>(null)
@@ -36,7 +36,7 @@ function Editor() {
         for (const [key, value] of Object.entries(data.theme ?? {})) {
           if (Object.hasOwn(HOST_THEME_PROPERTIES, key) && typeof value === 'string') document.documentElement.style.setProperty(key, value)
         }
-        setProps({ ...data, value: synchronized.current.fromHost(data.value, data.acknowledgedRevision ?? 0) })
+        setProps({ ...data, resolveExternalValue: synchronized.current.prepareHostUpdate(data.value, data.acknowledgedRevision ?? 0) })
       } else if (event.data.token === token) {
         if (kind === 'focus') actions.current?.focus()
         if (kind === 'insert-image' || kind === 'insert-attachment') {
@@ -130,7 +130,7 @@ function Editor() {
   }, [Boolean(props)])
   return props && <div ref={root} lang={props.locale} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
     <style>{jotStyles}</style>
-    <RichEditor value={props.value} locale={props.locale} readOnly={props.readOnly}
+    <RichEditor value={props.value} resolveExternalValue={props.resolveExternalValue} locale={props.locale} readOnly={props.readOnly}
       resolveAttachmentUrl={image} onChange={value => send('change', synchronized.current.edited(value))} onBlur={() => send('blur')}
       onReady={value => { actions.current = value; send('ready') }} onRequestAttachment={() => send('upload')} />
   </div>

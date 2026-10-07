@@ -6,9 +6,11 @@ Open Jot through its Hermes navigation entry, side panel, composer icon or comma
 
 Recent shows pinned notes and a few recently edited notes; All scrolls continuously. Search covers titles and body text. Sort order, list width and layout preferences are local and separated by connection/profile.
 
+To put the panel away, right-click its toolbar and choose the host’s **Minimize** action. The composer Jot button restores it. Hermes keeps the last tab in a zone visible, so its **Hide Jot** menu action may be refused when Jot is that zone’s only tab.
+
 ## Saving
 
-Jot autosaves and supports ⌘S / Ctrl+S. Revision conflicts keep human drafts rather than overwrite newer server content. Expanding the side panel should carry its current draft; native-host acceptance for this remains tracked in VALIDATION.md.
+Jot autosaves and supports ⌘S / Ctrl+S. Revision conflicts keep human drafts rather than overwrite newer server content. Expanding the side panel carries its current draft into the full workspace. Identical saves from those two views acknowledge the same committed value; genuinely different edits still keep their conflict protection.
 
 This is shared human/agent note storage, not cloud sync or a multi-user live-editing service. Multiple windows still use revision checks.
 

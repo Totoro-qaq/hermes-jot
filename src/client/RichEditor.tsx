@@ -21,6 +21,8 @@ import type { JotLocale, RichDoc } from './types.js'
 
 export interface RichEditorProps {
   value: RichDoc
+  /** Resolve a delayed host update against edits made before this React effect. */
+  resolveExternalValue?: () => RichDoc
   onChange: (content: RichDoc, editorRevision?: number) => void
   onBlur?: () => void
   readOnly?: boolean
@@ -51,7 +53,7 @@ function EditorControlIcon({ name }: { name: 'format' | 'chevron' | 'todo' | 'fi
   return <JotActionIcon name={names[name]} size={16} className={`jot-editor-control-icon jot-editor-control-icon--${name}`} />
 }
 
-export function RichEditor({ value, onChange, onBlur, readOnly = false, locale = 'en', onReady, resolveAttachmentUrl, onRequestAttachment }: RichEditorProps) {
+export function RichEditor({ value, resolveExternalValue, onChange, onBlur, readOnly = false, locale = 'en', onReady, resolveAttachmentUrl, onRequestAttachment }: RichEditorProps) {
   const root = useRef<HTMLDivElement>(null)
   const mount = useRef<HTMLDivElement>(null)
   const instance = useRef<Editor | null>(null)
@@ -199,13 +201,14 @@ export function RichEditor({ value, onChange, onBlur, readOnly = false, locale =
 
   useEffect(() => {
     const editor = instance.current
-    const serialized = JSON.stringify(value)
+    const incoming = resolveExternalValue?.() ?? value
+    const serialized = JSON.stringify(incoming)
     if (editor && serialized !== lastInput.current) {
       lastInput.current = serialized
-      syncEditorContent(editor, value)
+      syncEditorContent(editor, incoming)
       editor.view.dom.setAttribute('data-empty', editor.getText().trim() ? 'false' : 'true')
     }
-  }, [value])
+  }, [value, resolveExternalValue])
 
   useEffect(() => {
     const editor = instance.current

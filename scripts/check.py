@@ -39,6 +39,7 @@ def main():
         print(f"PASS {name}", flush=True)
     if args.package:
         subprocess.run([sys.executable, "scripts/package.py"], cwd=ROOT, check=True)
+        subprocess.run([sys.executable, "scripts/check_package.py", "--hermes"], cwd=ROOT, check=True)
 
 
 if __name__ == "__main__":

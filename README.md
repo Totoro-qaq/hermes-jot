@@ -6,7 +6,7 @@
 
 **Keep notes, checklists and documents beside Hermes. Edit them yourself, and invite your agent when useful.**
 
-> Local adaptation candidate. No public repository or catalog submission yet. Native Desktop interaction checks and screenshots are still pending.
+> Local candidate: native macOS Desktop and agent checks completed. Public repository creation and catalog submission remain a separate decision. See [validation](docs/VALIDATION.md) for scope and platform limits.
 
 ## Features
 
@@ -18,9 +18,21 @@
 - TXT, Markdown, PDF and Word (DOCX) export, including folder-organized archives of multiple notes.
 - Optional agent collaboration: find, read, create, append, check tasks and move notes to Trash. Human editors can undo the latest run of AI changes to an existing note.
 
+## In Hermes
+
+Write in a full workspace:
+
+![Jot workspace in Hermes Desktop](assets/readme/workspace.en.jpg)
+
+Keep a note beside a conversation:
+
+![Jot beside a real model conversation in Hermes Desktop](assets/readme/sidebar.en.jpg)
+
+Captured in the real host with synthetic demo notes and conversations; no personal project data is shown.
+
 ## Human control
 
-AI collaboration starts off. Every Jot tool checks the switch, and the tools cannot enable it. Edits require the current revision. Whole-document text replacement is refused when it would discard tables, images or other rich formatting; appending preserves the existing document.
+AI collaboration starts off. Every Jot tool checks the switch, and the tools cannot enable it. Edits require the current revision. Whole-document text replacement that would discard rich formatting is blocked by default. The tool contract requires user consent and an explicit formatting-loss acknowledgement to proceed; appending preserves the existing document.
 
 Notes are separated by Hermes profile and stored in the host-owned `plugin-data/jot/` directory, outside the plugin installation. Hermes owns model configuration and credentials. Jot needs no extra API key and does not pass keys to its note engine. The tool-access switch does not replace operating-system filesystem permissions.
 

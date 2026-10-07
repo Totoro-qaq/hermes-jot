@@ -17,4 +17,4 @@ def register(ctx):
         if raw_args.strip() in ("", "new", "capture"):
             return None
         return "Jot: /jot, /jot new, /jot capture in Hermes Desktop. Agent access uses the six jot_* tools and requires the human collaboration switch."
-    ctx.register_command("jot", command, description="Open Jot notes / 打开随记", args_hint="[new|capture|help]")
+    ctx.register_command("jot", command, description="Open Jot notes", args_hint="[new|capture|help]")
