@@ -222,7 +222,7 @@ export class JotStore {
     const unlock = await this.lock()
     try {
       const { state, previous } = await this.load(!mutate)
-      if (actor === 'agent' && !state.agentEnabled) throw new StoreError('AGENT_DISABLED', 'Agent access to notes is disabled')
+      if (actor === 'agent' && !state.agentEnabled) throw new StoreError('AGENT_DISABLED', 'Jot AI collaboration is off. Ask the user to turn on “Allow AI collaboration” at the bottom of the Jot note list, then retry.')
       // Compare the saved human revisions, including operations such as deleting
       // a folder that can change several notes without returning one note.
       const previousRevisions = actor === 'user' && mutate ? new Map(state.notes.map(note => [note.id, note.revision])) : undefined

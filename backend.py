@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import importlib
 import json
 import os
 from pathlib import Path
@@ -27,8 +26,6 @@ MAX_IMPORT_BYTES = 100 * 1024 * 1024
 IMPORT_TIMEOUT = 300
 _IMPORT_NAME = re.compile(r"[0-9a-f-]{36}\.(?:md|markdown|txt|zip)")
 _ID = re.compile(r"[a-zA-Z0-9_-]{1,100}")
-# The engine writes JSON.stringify(state) + "\n" with agentEnabled as the last top-level key.
-_AGENT_TAIL = re.compile(rb'"agentEnabled":(true|false)\}\s*$')
 # O_NONBLOCK keeps a FIFO planted at a data path from stalling the caller.
 _READ_FLAGS = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
 
@@ -128,68 +125,6 @@ def _read_limited(path: Path, limit: int) -> bytes | None:
             return None
         source = handle.read(limit + 1)
     return None if len(source) > limit else source
-
-
-def agent_access_enabled(directory: Path | None = None) -> bool:
-    """Whether the human enabled agent collaboration. Runs every agent turn: cheap and never raises."""
-    try:
-        path = Path(directory if directory is not None else data_directory()) / STATE_FILENAME
-        handle, info = _open_regular(path)
-        if handle is None:
-            return False
-        with handle:
-            # The engine refuses larger state, so the tools could not work either.
-            if info.st_size > MAX_STATE_BYTES:
-                return False
-            handle.seek(max(0, info.st_size - 64))
-            tail = _AGENT_TAIL.search(handle.read(64))
-            if tail is not None:
-                return tail.group(1) == b"true"
-            handle.seek(0)
-            source = handle.read(MAX_STATE_BYTES + 1)
-        if len(source) > MAX_STATE_BYTES:
-            return False
-        state = json.loads(source.decode("utf-8"))
-        return isinstance(state, dict) and state.get("agentEnabled") is True
-    except Exception:
-        return False
-
-
-def refresh_tool_availability() -> None:
-    """Drop Hermes' cached tool lists so the next agent built follows the switch. Never raises.
-
-    Hermes memoizes tool definitions per process without check_fn verdicts in the key, so a flip
-    would otherwise stay invisible until a restart. A live chat keeps the tools[] it was built with.
-    """
-    try:
-        from tools.mcp_tool_agent import reprobe_tool_availability
-        reprobe_tool_availability()
-        return
-    except Exception:
-        pass
-    # Older hosts: the two caches reprobe_tool_availability clears.
-    for module, name in (("tools.registry", "invalidate_check_fn_cache"), ("model_tools", "_clear_tool_defs_cache")):
-        try:
-            getattr(importlib.import_module(module), name)()
-        except Exception:
-            pass
-
-
-_seen_access: dict[str, bool] = {}
-
-
-def observe_agent_access(directory: Path | None = None) -> bool:
-    """The switch, refreshing Hermes' tool caches when it differs from what this process last saw."""
-    try:
-        root = Path(directory if directory is not None else data_directory())
-    except Exception:
-        return False
-    enabled = agent_access_enabled(root)
-    previous = _seen_access.get(str(root))
-    _seen_access[str(root)] = enabled
-    if previous is not None and previous != enabled:
-        refresh_tool_availability()
-    return enabled
 
 
 def content_tag(source: bytes) -> str:

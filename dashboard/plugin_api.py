@@ -92,9 +92,6 @@ async def rpc(request: Request):
                               "body": body.get("body"), "headers": {"if-none-match": etag}})
     if method not in ("GET", "HEAD") and isinstance(path, str) and _route(path) not in _READ_ONLY_POSTS \
             and _backend.succeeded(result):
-        if method == "PATCH" and _route(path) == "/settings":
-            # Hermes memoizes tool lists per process; the next agent built must see the new switch.
-            _backend.refresh_tool_availability()
         _backend.notify_changed()
     return result
 
