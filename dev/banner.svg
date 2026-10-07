@@ -26,7 +26,7 @@
   </text>
   <text font-family="Noto Sans SC" font-size="21" fill="#5B6B64">
     <tspan x="88" y="500">Rich text · checklists · tables · files</tspan>
-    <tspan x="88" y="532">Revision checks and one-click undo of AI edits</tspan>
+    <tspan x="88" y="532">Revision checks and undo for AI edits</tspan>
   </text>
 
   <g filter="url(#shadow)">
