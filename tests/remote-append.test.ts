@@ -85,7 +85,7 @@ const dirtyDraft = (base: Note, content: RichDoc = doc(p('Intro typed'))): NoteD
 test('planRemoteAppend merges an append into the unsaved open draft', () => {
   const base = note()
   const remote = note({ revision: 4, content: doc(p('Intro'), p('From agent')) })
-  const input = { draft: dirtyDraft(base), base: remoteBase(base), remote, editorReady: true, saving: false, pending: false }
+  const input = { draft: dirtyDraft(base), base: remoteBase(base), remote, editorReady: true, saving: false, pending: false, agentRevision: 4 }
   assert.deepEqual(planRemoteAppend(input), { action: 'merge', blocks: [p('From agent')] })
   assert.deepEqual(planRemoteAppend({ ...input, pending: true }), { action: 'pending' })
   const conflict = { action: 'conflict' }
@@ -111,6 +111,34 @@ test('planRemoteAppend merges an append into the unsaved open draft', () => {
   // The user's own writing at the end of the note is kept beside the agent's append.
   assert.deepEqual(planRemoteAppend({ ...input, draft: dirtyDraft(base, doc(p('Intro'), p('Mine'))) }),
     { action: 'merge', blocks: [p('From agent')] })
+})
+
+test('planRemoteAppend never merges an append-only revision the agent did not write', () => {
+  // The same user saved this draft from another Jot pane, then kept typing in the open one.
+  const base = note({ revision: 1 })
+  const remote = note({ revision: 2, content: doc(p('Intro'), p('Hello world')) })
+  const input = { draft: dirtyDraft(base, doc(p('Intro'), p('Hello'))), base: remoteBase(base), remote,
+    editorReady: true, saving: false, pending: false }
+  const conflict = { action: 'conflict' }
+  assert.deepEqual(planRemoteAppend(input), conflict)
+  assert.deepEqual(planRemoteAppend({ ...input, agentRevision: 1 }), conflict)
+  assert.deepEqual(planRemoteAppend({ ...input, agentRevision: 3 }), conflict)
+  assert.deepEqual(planRemoteAppend({ ...input, agentRevision: 2 }), { action: 'merge', blocks: [p('Hello world')] })
+  // Only the latest revision is attributed; an earlier one in between may be the user's own save.
+  const later = note({ revision: 3, content: doc(p('Intro'), p('Hello world'), p('From agent')) })
+  assert.deepEqual(planRemoteAppend({ ...input, remote: later, agentRevision: 3 }), conflict)
+})
+
+test('planRemoteAppend does not resend a merge the editor never confirmed', () => {
+  const base = note({ revision: 1, content: doc(p('Intro'), p('Body')) })
+  const remote = note({ revision: 2, content: doc(p('Intro'), p('Body'), p('Agent line')) })
+  // The editor applied the append but the draft stayed on the old base (late or lost acknowledgement).
+  const draft = dirtyDraft(base, doc(p('Intro edited'), p('Body'), p('Agent line')))
+  const input = { draft, base: remoteBase(base), remote, editorReady: true, saving: false, pending: false, agentRevision: 2 }
+  assert.deepEqual(planRemoteAppend(input), { action: 'merge', blocks: [p('Agent line')] }, 'content alone cannot tell')
+  assert.deepEqual(planRemoteAppend({ ...input, unconfirmed: { baseRevision: 1, revision: 2 } }), { action: 'conflict' })
+  // A record for an older base does not block a later, unrelated merge.
+  assert.deepEqual(planRemoteAppend({ ...input, unconfirmed: { baseRevision: 0, revision: 1 } }), { action: 'merge', blocks: [p('Agent line')] })
 })
 
 test('acceptRemoteAppend advances only the draft the merge started from', () => {
@@ -207,6 +235,19 @@ test('an agent append saved by the store merges into the editor as the same docu
       assert.deepEqual(withoutTrailing(editor.getJSON() as RichDoc), remote.content, appendText)
     } finally { editor.destroy() }
   }
+  // Only the agent's own revision carries the attribution the merge requires.
+  await store.setAgentEnabled(true)
+  const shared = await store.createNote({ title: 'Shared', content: docFromMarkdown('Intro') })
+  const draft = dirtyDraft(shared, docFromMarkdown('Intro typed'))
+  const byAgent = await store.updateNote(shared.id, shared.revision, { appendContent: docFromMarkdown('From agent') }, 'agent')
+  const agentRevision = (await store.readSnapshot()).snapshot!.agentEdits[shared.id]?.revision
+  const input = { draft, base: remoteBase(shared), remote: byAgent, editorReady: true, saving: false, pending: false, agentRevision }
+  assert.equal(planRemoteAppend(input).action, 'merge')
+  const mine = await store.createNote({ title: 'Mine', content: docFromMarkdown('Intro') })
+  const byUser = await store.updateNote(mine.id, mine.revision, { appendContent: docFromMarkdown('From me') })
+  assert.equal((await store.readSnapshot()).snapshot!.agentEdits[mine.id], undefined)
+  assert.equal(planRemoteAppend({ ...input, draft: dirtyDraft(mine, docFromMarkdown('Intro typed')), base: remoteBase(mine),
+    remote: byUser, agentRevision: undefined }).action, 'conflict')
   // Ticking a checkbox through the store is a different edit and never merges.
   const listed = await store.createNote({ title: 'Tasks', content: docFromMarkdown('- [ ] a\n- [ ] b') })
   const ticked = structuredClone(listed.content)

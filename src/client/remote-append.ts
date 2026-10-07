@@ -67,11 +67,20 @@ export function planRemoteAppend(input: {
   /** A save of this draft is in flight; its own result must never be merged back in. */
   saving: boolean
   pending: boolean
+  /** The revision the library attributes to the agent's latest edit of this note, if any. */
+  agentRevision?: number
+  /** A merge sent to the editor that was never confirmed; the editor may already hold its blocks. */
+  unconfirmed?: { baseRevision: number; revision: number }
 }): RemoteAppendPlan {
   const { draft, base, remote } = input
   if (!draft || draft.noteId !== remote.id || !draft.dirty) return { action: 'conflict' }
   if (input.pending) return { action: 'pending' }
   if (input.saving || remote.deletedAt !== null || remote.revision <= draft.baseRevision) return { action: 'conflict' }
+  // Only a single agent revision on top of the base is known to be the agent's writing; an
+  // append-only change from another Jot pane or a lost save response is the user's own text.
+  if (input.agentRevision !== remote.revision || remote.revision !== draft.baseRevision + 1) return { action: 'conflict' }
+  const { unconfirmed } = input
+  if (unconfirmed && unconfirmed.baseRevision === draft.baseRevision && remote.revision >= unconfirmed.revision) return { action: 'conflict' }
   if (!base || base.revision !== draft.baseRevision || base.title !== remote.title
     || base.folderId !== remote.folderId || base.pinned !== remote.pinned) return { action: 'conflict' }
   const blocks = appendedBlocks(base.content, remote.content)

@@ -121,8 +121,10 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const remoteBases = useRef(new Map<string, RemoteBase>())
   /** At most one remote append per note waits on the editor; it settles to whether the editor took it. */
   const remoteMerges = useRef(new Map<string, Promise<boolean>>())
+  /** Merges the editor never confirmed; it may hold their blocks already, so they are not sent again. */
+  const unconfirmedMerges = useRef(new Map<string, { baseRevision: number; revision: number }>())
   const editorNote = useRef<string | null>(null)
-  const mergeRemote = useRef<(remote: Note, saving?: boolean) => boolean>(() => false)
+  const mergeRemote = useRef<(remote: Note, agentRevision: number | undefined, saving?: boolean) => boolean>(() => false)
   /** Notes this panel created that are still untouched; leaving one removes it instead of keeping clutter. */
   const freshNotes = useRef(new Set<string>())
   const focusTitle = useRef(false)
@@ -216,6 +218,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     const bases = remoteBases.current
     for (const id of bases.keys()) if (id !== note.id && id !== draftRef.current?.noteId && !drafts.current.get(id)?.dirty) bases.delete(id)
     bases.set(note.id, remoteBase(note))
+    for (const [id, merge] of unconfirmedMerges.current) if (drafts.current.get(id)?.baseRevision !== merge.baseRevision) unconfirmedMerges.current.delete(id)
   }, [])
 
   const refresh = useCallback(async () => {
@@ -244,7 +247,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       return
     }
     const result = reconcileDraft(current, remote)
-    if (result.remoteChanged && !inFlight.current.has(current.noteId) && !mergeRemote.current(remote)) setStatus(current.noteId, { phase: 'conflict' })
+    if (result.remoteChanged && !inFlight.current.has(current.noteId) && !mergeRemote.current(remote, next.agentEdits?.[remote.id]?.revision)) setStatus(current.noteId, { phase: 'conflict' })
     if (result.draft !== current && !inFlight.current.has(current.noteId)) { rememberBase(remote); installDraft(result.draft) }
   }, [installDraft, rememberBase, setStatus])
 
@@ -283,8 +286,9 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
           || typeof cause === 'object' && cause !== null && 'status' in cause && cause.status === 409
         if (conflict && mounted.current) {
           // An agent append that raced this save goes into the editor; the next autosave carries both.
-          const latest = await source.getNote(id).catch(() => null)
-          if (latest && mounted.current && source === apiRef.current && mergeRemote.current(latest, false)) {
+          const state = await source.getState().catch(() => null)
+          const latest = state?.notes.find(note => note.id === id)
+          if (latest && mounted.current && source === apiRef.current && mergeRemote.current(latest, state!.agentEdits?.[id]?.revision, false)) {
             setStatus(id, { phase: 'dirty' })
             return false
           }
@@ -304,15 +308,15 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const followRemote = (remote: Note) => {
     const current = draftRef.current
     if (!current || current.noteId !== remote.id || remote.revision < current.baseRevision || inFlight.current.has(remote.id)) return
-    if (reconcileDraft(current, remote).remoteChanged && !mergeRemote.current(remote)) setStatus(remote.id, { phase: 'conflict' })
+    if (reconcileDraft(current, remote).remoteChanged && !mergeRemote.current(remote, snapshotRef.current?.agentEdits?.[remote.id]?.revision)) setStatus(remote.id, { phase: 'conflict' })
   }
 
   // True when the editor is taking (or already taking) the remote change, so no conflict is shown.
-  mergeRemote.current = (remote, saving = inFlight.current.has(remote.id)) => {
+  mergeRemote.current = (remote, agentRevision, saving = inFlight.current.has(remote.id)) => {
     const started = draftRef.current
     const actions = editorActions.current
-    const plan = planRemoteAppend({ draft: started, base: remoteBases.current.get(remote.id), remote, saving,
-      pending: remoteMerges.current.has(remote.id), editorReady: Boolean(actions?.appendBlocks) && editorNote.current === remote.id })
+    const plan = planRemoteAppend({ draft: started, base: remoteBases.current.get(remote.id), remote, saving, agentRevision,
+      unconfirmed: unconfirmedMerges.current.get(remote.id), pending: remoteMerges.current.has(remote.id), editorReady: Boolean(actions?.appendBlocks) && editorNote.current === remote.id })
     if (plan.action === 'pending') return true
     if (plan.action !== 'merge' || !started || !actions?.appendBlocks) return false
     const generation = selectionGeneration.current
@@ -329,6 +333,8 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       // revision; otherwise the next save would silently remove the agent's text.
       const next = appended === true && selectionGeneration.current === generation ? acceptRemoteAppend(draftRef.current, started, remote) : null
       if (!next) {
+        // The blocks may be in the editor (a late or refused acknowledgement); never append them twice.
+        unconfirmedMerges.current.set(remote.id, { baseRevision: started.baseRevision, revision: remote.revision })
         const kept = drafts.current.get(remote.id)
         if (kept?.dirty && kept.baseRevision < remote.revision && !inFlight.current.has(remote.id)) setStatus(remote.id, { phase: 'conflict' })
         return false
