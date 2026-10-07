@@ -14,6 +14,8 @@
 - Open panels refresh through Hermes' plugin event bridge when notes change, instead of polling every 3 seconds; a 30-second check remains as a fallback.
 - Fixed: a note containing a numbered list made in the editor could not be saved.
 - Fixed: checklist items an agent appended to a note ending in a checklist started a second list.
+- Fixed: a saved change arriving in the open note (for example an agent's edit) moved the caret to the end of the note.
+- ZIP imports read file names the way macOS and Windows archive them, including Chinese names without the UTF-8 flag.
 
 ### Engine and packaging
 - The export and import libraries load only for those requests, so ordinary requests start faster. Unchanged-library checks are answered without starting the engine.
