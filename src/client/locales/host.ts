@@ -21,7 +21,7 @@ export default {
     'Jot: Capture selected text': '隨記：擷取選取的文字',
     'Open Jot': '開啟隨記',
     'Notes': '筆記',
-    'Enable the Jot backend in Hermes Plugins, then try again.': '請在 Hermes 的外掛程式中啟用隨記後端，然後重試。',
+    'Enable the Jot backend in Hermes Plugins, then try again.': '請在 Hermes 的「外掛」中啟用隨記後端，然後重試。',
     'Jot requires a recent Hermes Desktop SDK with SandboxedFrame and gateway file downloads. Update Hermes Desktop, then enable Jot again.': '隨記需要較新的 Hermes Desktop SDK（支援 SandboxedFrame 和閘道檔案下載）。請更新 Hermes Desktop，然後重新啟用隨記。',
     'Untitled': '未命名',
     'attachments': '附件',
