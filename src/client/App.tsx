@@ -1062,7 +1062,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       : savePhase === 'conflict' ? t('Draft kept')
         : draft?.dirty ? t('Unsaved') : t('Saved')
   const saveActionable = Boolean(draft && !selectedDeleted && draft.dirty && (savePhase === 'dirty' || savePhase === 'error'))
-  const listLabel = (count: number) => t('{count} notes', { count })
+  const listLabel = (count: number) => t('{count} notes (list total)', { count })
 
   // In a right-to-left layout the list sits on the right, so widening it moves the handle left.
   const inlineDirection = isRtlLocale(locale) ? -1 : 1
@@ -1094,7 +1094,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   })
 
   const listPanel = (
-    <div className="jot-list-panel" role="complementary" aria-label={t('Note list')} style={mode === 'wide' ? { width: listWidth } : undefined}>
+    <div className="jot-list-panel" role="complementary" aria-label={t('Notes (list panel)')} style={mode === 'wide' ? { width: listWidth } : undefined}>
       <div className="jot-list-controls">
         {(mode === 'wide' || searchOpen) && (
           <div className="jot-search">
@@ -1160,7 +1160,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
         <span>{t('{count} selected', { count: selectedIds.size })}</span>
         <button className="jot-text-btn" type="button" onClick={() => setSelectedIds(new Set(visibleNotes.map(note => note.id)))}>{t('Select all')}</button>
         {hasFolders && <button className="jot-text-btn" type="button" disabled={busy || !selectedIds.size} onClick={() => { setMoveFolder(''); setMoveOpen(true) }}>{t('Move')}</button>}
-        <button className="jot-text-btn jot-danger" type="button" disabled={busy || !selectedIds.size} onClick={deleteSelected}>{t('Move to Trash')}</button>
+        <button className="jot-text-btn jot-danger" type="button" disabled={busy || !selectedIds.size} onClick={deleteSelected}>{t('Trash (selection bar)')}</button>
         <button className="jot-text-btn" type="button" onClick={() => { setSelectMode(false); setSelectedIds(new Set()) }}>{t('Done')}</button>
       </div>}
       {query.trim() && visibleNotes.length > 0 && <div className="jot-list-label jot-search-label">{t('Results · title matches first')}</div>}
