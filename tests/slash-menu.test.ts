@@ -6,6 +6,7 @@ import { createJotExtensions, taskCheckboxLabel } from '../src/client/editor-ext
 import { applySlashItem, filterSlashItems, SLASH_ITEMS, slashLabel, slashMatch } from '../src/client/slash-menu.js'
 import { shortcutHelpSections, shortcutLabel, withShortcut } from '../src/client/shortcut-labels.js'
 import { validateRichDoc } from '../src/model.js'
+import type { JotLocale } from '../src/client/i18n.js'
 
 const paragraph = (value?: string) => ({ type: 'paragraph', ...(value ? { content: [{ type: 'text', text: value }] } : {}) })
 function create(content: JSONContent[]) {
@@ -73,6 +74,20 @@ test('labels follow the interface language, and a label in any shipped language 
   assert.equal(ids('جدول')[0], 'table')
   assert.equal(ids('Nummer')[0], 'orderedList')
   assert.equal(ids('archivo', true)[0], 'attachment')
+})
+
+test('labels in the interface language outrank labels in other languages', () => {
+  const top = (query: string, locale?: JotLocale) => filterSlashItems(query, { attachments: true, locale })[0]?.id
+  // Each of these also appears inside another language's label: Überschrift, Checkliste, Bloc de code, Separador.
+  assert.equal(top('hr'), 'horizontalRule')
+  assert.equal(top('c'), 'codeBlock')
+  assert.equal(top('bloc'), 'blockquote')
+  assert.equal(top('s'), 'heading2')
+  assert.equal(top('at'), 'attachment')
+  assert.equal(top('bloc', 'fr'), 'codeBlock', 'the interface language decides')
+  assert.equal(top('c', 'de'), 'taskList')
+  assert.equal(top('db', 'fr'), 'taskList', 'English and pinyin keywords keep working in every language')
+  assert.equal(top('hr', 'de'), 'horizontalRule')
 })
 
 test('to-do checkboxes are named in the interface language', () => {

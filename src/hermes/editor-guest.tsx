@@ -140,7 +140,7 @@ function Editor() {
     observer.observe(root.current)
     return () => observer.disconnect()
   }, [Boolean(props)])
-  return props && <div ref={root} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
+  return props && <div ref={root} lang={intlLocale(props.locale)} dir={isRtlLocale(props.locale) ? 'rtl' : 'ltr'} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
     <style>{jotStyles}</style>
     <RichEditor value={props.value} resolveExternalValue={props.resolveExternalValue} locale={props.locale} readOnly={props.readOnly}
       resolveAttachmentUrl={image} onChange={value => send('change', synchronized.current.edited(value))} onBlur={() => send('blur')}

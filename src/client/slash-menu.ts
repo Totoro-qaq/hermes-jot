@@ -15,7 +15,7 @@ export interface SlashItem {
   /** The toolbar's own icon, where the toolbar has one for this block. */
   icon?: JotActionIconName
   /** English words plus pinyin and its initials, so Chinese labels can be found without switching input method.
-   * Every language's label is searched as well (see slashLabels). */
+   * Every language's label is searched as well (see filterSlashItems). */
   keywords: readonly string[]
   shortcut?: ShortcutId
 }
@@ -44,18 +44,14 @@ function slashLabels(t: Translate): Record<SlashItemId, string> {
 
 /** Case- and accent-insensitive, without spaces: "Liste à puces" is found by "listeapuces" or "puces". */
 const fold = (text: string) => text.normalize('NFD').replace(/\p{M}+/gu, '').toLocaleLowerCase().replace(/\s+/gu, '')
-let searchLabels: Record<SlashItemId, string[]> | undefined
-/** Typing a label in any language Jot ships finds the item, whatever the interface language. */
-function labelsInEveryLanguage(): Record<SlashItemId, string[]> {
-  if (searchLabels) return searchLabels
-  const all = {} as Record<SlashItemId, string[]>
-  for (const locale of JOT_LOCALES) {
-    for (const [id, label] of Object.entries(slashLabels(translator(locale))) as Array<[SlashItemId, string]>) {
-      const folded = fold(label)
-      if (!all[id]?.includes(folded)) (all[id] ??= []).push(folded)
-    }
+const foldedLabels = new Map<JotLocale, Record<SlashItemId, string>>()
+function labelsIn(locale: JotLocale): Record<SlashItemId, string> {
+  let labels = foldedLabels.get(locale)
+  if (!labels) {
+    labels = Object.fromEntries(Object.entries(slashLabels(translator(locale))).map(([id, label]) => [id, fold(label)])) as Record<SlashItemId, string>
+    foldedLabels.set(locale, labels)
   }
-  return searchLabels = all
+  return labels
 }
 
 /** Both the ASCII slash and the Chinese input method's 、 (the same key) open the menu. */
@@ -80,17 +76,26 @@ export function slashMatch(state: EditorState): SlashMatch | null {
   return match ? { from: $from.start(), to: $from.pos, query: match[1]! } : null
 }
 
-/** Label prefixes rank first, then any label or keyword containing the filter; order is otherwise stable. */
-export function filterSlashItems(query: string, options: { attachments?: boolean } = {}): SlashItem[] {
+/**
+ * Labels in the interface language (and in English and Chinese, as before) rank first: their prefixes and exact
+ * keywords, then their substrings or keyword prefixes, then keyword substrings. A label in any other language Jot ships still
+ * finds its item, after those, so "/hr" stays the divider in English although "Überschrift" contains "hr".
+ * Order is otherwise stable.
+ */
+export function filterSlashItems(query: string, options: { attachments?: boolean; locale?: JotLocale } = {}): SlashItem[] {
   const items = SLASH_ITEMS.filter(item => item.id !== 'attachment' || options.attachments)
   const compact = fold(query)
   if (!compact) return [...items]
-  const every = labelsInEveryLanguage()
+  const primary = [...new Set([options.locale ?? 'en', 'en', 'zh'] as const)]
+  const others = JOT_LOCALES.filter(locale => !primary.includes(locale))
   const rank = (item: SlashItem) => {
-    const labels = every[item.id]
-    if (labels.some(label => label.startsWith(compact))) return 0
-    if (labels.some(label => label.includes(compact)) || item.keywords.some(word => word.startsWith(compact))) return 1
-    return item.keywords.some(word => word.includes(compact)) ? 2 : -1
+    const own = primary.map(locale => labelsIn(locale)[item.id])
+    if (own.some(label => label.startsWith(compact)) || item.keywords.includes(compact)) return 0
+    if (own.some(label => label.includes(compact)) || item.keywords.some(word => word.startsWith(compact))) return 1
+    if (item.keywords.some(word => word.includes(compact))) return 2
+    const foreign = others.map(locale => labelsIn(locale)[item.id])
+    if (foreign.some(label => label.startsWith(compact))) return 3
+    return foreign.some(label => label.includes(compact)) ? 4 : -1
   }
   return items.map((item, index) => ({ item, index, score: rank(item) })).filter(entry => entry.score >= 0)
     .sort((a, b) => a.score - b.score || a.index - b.index).map(entry => entry.item)

@@ -27,13 +27,23 @@ export function taskCheckboxLabel(text: string, locale: JotLocale): string {
   return name ? t('To-do: {name}', { name }) : t('Empty to-do')
 }
 
-/** A locale change retains NodeViews, so refresh their labels without editing the document. */
-export function refreshTaskCheckboxLabels(editor: Pick<Editor, 'state' | 'view'>, locale: JotLocale): void {
+/** A locale change retains NodeViews, so refresh their interface text without editing the document. */
+export function refreshLocalizedNodeLabels(editor: Pick<Editor, 'state' | 'view'>, locale: JotLocale): void {
+  const t = translator(locale)
   editor.state.doc.descendants((node, position) => {
-    if (node.type.name !== 'taskItem') return
+    const type = node.type.name
+    if (type !== 'taskItem' && type !== 'attachment' && type !== 'image') return
     const dom = editor.view.nodeDOM(position)
     if (!dom || dom.nodeType !== 1) return
     const element = dom as Element
+    if (type === 'attachment') {
+      if (!node.attrs.caption) element.textContent = t('Attachment')
+      return false
+    }
+    if (type === 'image') {
+      if (element.hasAttribute('data-jot-unavailable')) element.setAttribute('alt', t('Image unavailable'))
+      return false
+    }
     const label = taskCheckboxLabel(node.textContent, locale)
     element.querySelector(':scope > label > input[type="checkbox"]')?.setAttribute('aria-label', label)
     const hiddenLabel = element.querySelector(':scope > label > span')
@@ -125,7 +135,6 @@ function managedNode(name: 'image' | 'attachment', resolve: (id: string) => stri
         let observer: IntersectionObserver | undefined
         let imageUrl = ''
         let loading = false
-        const t = translator(locale())
         dom.setAttribute('data-jot-attachment-id', id)
         if (name === 'image') {
           dom.className = 'jot-managed-image'
@@ -142,7 +151,13 @@ function managedNode(name: 'image' | 'attachment', resolve: (id: string) => stri
               imageUrl = url
               if (alive && url) dom.setAttribute('src', url)
               else if (url.startsWith('blob:')) URL.revokeObjectURL(url)
-            }, () => { if (alive) dom.setAttribute('alt', t('Image unavailable')) })
+            }, () => {
+              if (!alive) return
+              // Marked so a language change can rewrite the fallback, never the note's own alt text.
+              dom.setAttribute('data-jot-unavailable', '')
+              const t = translator(locale())
+              dom.setAttribute('alt', t('Image unavailable'))
+            })
           }
           if (typeof IntersectionObserver === 'function') {
             observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) load() })
@@ -152,6 +167,7 @@ function managedNode(name: 'image' | 'attachment', resolve: (id: string) => stri
           dom.className = 'jot-attachment-card'
           dom.setAttribute('data-type', 'jot-attachment')
           dom.setAttribute('href', '#')
+          const t = translator(locale())
           dom.textContent = String(node.attrs.caption || t('Attachment'))
         }
         return { dom, destroy() { alive = false; observer?.disconnect(); if (imageUrl.startsWith('blob:')) URL.revokeObjectURL(imageUrl) } }

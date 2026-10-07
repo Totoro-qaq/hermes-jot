@@ -8,7 +8,7 @@ import { columnResizingPluginKey } from '@tiptap/pm/tables'
 import { findMatches, replaceAllMatches, replaceMatch } from './document-find.js'
 import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
-import { createJotExtensions, managedAttachmentUrl, refreshTaskCheckboxLabels } from './editor-extensions.js'
+import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
 import { insertManagedAttachment } from './editor-attachments.js'
 import { appendEditorBlocks } from './editor-append.js'
@@ -102,7 +102,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       return
     }
     if (slashDismissed.current === match.from) return
-    const items = filterSlashItems(match.query, { attachments: Boolean(callbacks.current.onRequestAttachment) })
+    const items = filterSlashItems(match.query, { attachments: Boolean(callbacks.current.onRequestAttachment), locale: callbacks.current.locale })
     if (!items.length) { if (slashState.current) setSlash(null); return }
     const previous = slashState.current
     const index = previous?.match.from === match.from && previous.match.query === match.query ? Math.min(previous.index, items.length - 1) : 0
@@ -239,7 +239,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
     if (readOnly) editor.view.dispatch(editor.state.tr.setMeta(columnResizingPluginKey, { setHandle: -1, setDragging: null }))
     editor.view.dom.setAttribute('aria-label', t('Note content'))
     editor.view.dom.setAttribute('data-placeholder', t('Start writing…'))
-    refreshTaskCheckboxLabels(editor, locale)
+    refreshLocalizedNodeLabels(editor, locale)
   }, [readOnly, locale])
 
   const editor = instance.current
@@ -483,7 +483,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
           <input className="jot-find-replacement" aria-label={t('Replacement text')} value={replacement} disabled={readOnly}
             placeholder={t('Replace with (empty deletes)')} style={{ flex: '1 1 130px', minWidth: 0 }}
             onChange={event => setReplacement(event.target.value)} onKeyDown={event => { if (!event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && event.key === 'Enter') { event.preventDefault(); replace(false) } }} />
-          <button type="button" className="jot-text-btn jot-editor-control" disabled={readOnly || !matches.length} onClick={() => replace(false)}><span className="jot-editor-control-label">{t('Replace')}</span></button>
+          <button type="button" className="jot-text-btn jot-editor-control" disabled={readOnly || !matches.length} onClick={() => replace(false)}><span className="jot-editor-control-label">{t('Replace this match')}</span></button>
           <button type="button" className="jot-text-btn jot-editor-control" disabled={readOnly || !matches.length} onClick={() => replace(true)}><span className="jot-editor-control-label">{t('Replace all')}</span></button>
         </div>}
       </div>}
