@@ -3,6 +3,7 @@ import asyncio
 import base64
 import json
 import importlib.util
+import re
 from pathlib import Path
 from fastapi import APIRouter, Request, UploadFile, File
 from fastapi.responses import JSONResponse
@@ -45,6 +46,28 @@ async def operation(payload: dict):
         return JSONResponse({"error": {"code": error.code, "message": str(error)}}, status_code=error.status)
 
 
+# POST routes that only read notes; every other non-GET request may change them.
+_READ_ONLY_POSTS = frozenset({"/export", "/export-library", "/attachments"})
+
+
+def _route(path: str) -> str:
+    return path.split("?", 1)[0].split("#", 1)[0]
+
+
+async def _unchanged_state(etag: str):
+    """The engine's exact 304 result for an unchanged library, computed without starting Node.
+
+    Atomic renames make unlocked reads safe: a racing write yields a different tag and falls through.
+    """
+    try:
+        tag = await asyncio.to_thread(_backend.state_etag)
+    except Exception:
+        return None
+    if tag is None or tag != etag:
+        return None
+    return {"status": 304, "headers": {"etag": tag, "cache-control": "no-store", "x-content-type-options": "nosniff"}}
+
+
 @router.post("/rpc")
 async def rpc(request: Request):
     chunks, size = [], 0
@@ -60,8 +83,17 @@ async def rpc(request: Request):
         return JSONResponse({"error": {"code": "INVALID_INPUT", "message": "Expected JSON."}}, status_code=400)
     if not isinstance(body, dict) or set(body) - {"method", "path", "body", "etag"}:
         return JSONResponse({"error": {"code": "INVALID_INPUT", "message": "Invalid note request."}}, status_code=400)
-    return await operation({"kind": "http", "method": body.get("method", "GET"), "path": body.get("path"),
-                            "body": body.get("body"), "headers": {"if-none-match": body.get("etag", "")}})
+    method, path, etag = body.get("method", "GET"), body.get("path"), body.get("etag", "")
+    if method == "GET" and path == "/state" and body.get("body") is None and isinstance(etag, str) and etag:
+        unchanged = await _unchanged_state(etag)
+        if unchanged is not None:
+            return unchanged
+    result = await operation({"kind": "http", "method": method, "path": path,
+                              "body": body.get("body"), "headers": {"if-none-match": etag}})
+    if method not in ("GET", "HEAD") and isinstance(path, str) and _route(path) not in _READ_ONLY_POSTS \
+            and _backend.succeeded(result):
+        _backend.notify_changed()
+    return result
 
 
 @router.post("/attachments")
@@ -74,6 +106,34 @@ async def upload(file: UploadFile = File(...)):
                             "base64": base64.b64encode(content).decode("ascii"),
                             "headers": {"x-jot-filename": quote(file.filename or "attachment", safe=""),
                                         "x-jot-mime-type": file.content_type or "application/octet-stream"}})
+
+
+@router.post("/import")
+async def import_notes(file: UploadFile = File(...), folderId: str | None = None):
+    filename = re.split(r"[\\/]", file.filename or "")[-1]
+    extension = _backend.import_extension(filename)
+    if extension is None:
+        return JSONResponse({"error": {"code": "INVALID_INPUT", "message": "Import a .md, .markdown, .txt or .zip file."}}, status_code=400)
+    folder = folderId or None
+    if folder is not None and not _backend.valid_id(folder):
+        return JSONResponse({"error": {"code": "INVALID_INPUT", "message": "Invalid folder."}}, status_code=400)
+    staged = None
+    try:
+        # to_thread preserves Hermes' active profile contextvars and keeps the copy off the event loop.
+        staged = await asyncio.to_thread(_backend.stage_import, file.file, extension)
+        result = await asyncio.to_thread(invoke, {"kind": "import", "path": str(staged), "filename": filename, "folderId": folder},
+                                         timeout=_backend.IMPORT_TIMEOUT)
+    except JotError as error:
+        return JSONResponse({"error": {"code": error.code, "message": str(error)}}, status_code=error.status)
+    except OSError:
+        return JSONResponse({"error": {"code": "PERSISTENCE_ERROR", "message": "Could not prepare the import."}}, status_code=500)
+    finally:
+        # Synchronous: a cancelled request must not skip the cleanup at another await.
+        if staged is not None:
+            _backend.remove_quietly(staged)
+    if _backend.succeeded(result):
+        _backend.notify_changed()
+    return result
 
 
 @router.get("/attachments/{attachment_id}/preview")
