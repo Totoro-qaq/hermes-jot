@@ -74,16 +74,71 @@ function decodeEntities(text: string): string {
     return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : '�'
   })
 }
-/** Visible text of an HTML block, one paragraph per line; tags and scripts never survive. */
-function htmlBlockText(html: string): string[] {
-  const text = html
+const BLOCK_TAGS = new Set(['p', 'div', 'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'table', 'thead', 'tbody',
+  'ul', 'ol', 'section', 'article', 'header', 'footer', 'details', 'summary'])
+/** One attribute of a single HTML tag, entities decoded; a quoted value never yields another attribute. */
+function htmlAttribute(tag: string, name: string): string {
+  for (const match of tag.matchAll(/\s([a-z][a-z0-9-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/giu)) {
+    if (match[1]!.toLowerCase() === name) return decodeEntities(match[2] ?? match[3] ?? match[4] ?? '')
+  }
+  return ''
+}
+
+/**
+ * Visible text of an HTML block, one paragraph per line; tags and scripts never
+ * survive. `<img>` and `<a>` that name a file in the import (Jot writes them in
+ * tables with merged cells) become image and file blocks, and other images
+ * keep their alt text. Tags are found by a single forward scan, so unclosed
+ * `<` runs stay linear.
+ */
+function htmlBlockNodes(html: string, context: ConvertContext): RichNode[] {
+  const source = html
     .replace(/<!--[\s\S]*?(?:-->|$)/gu, '')
     .replace(/<(script|style|template)\b[\s\S]*?(?:<\/\1\s*>|$)/giu, '')
-    .replace(/<br\s*\/?>/giu, '\n')
-    .replace(/<\/(?:p|div|li|tr|h[1-6]|blockquote|pre|table|thead|tbody|ul|ol|section|article|header|footer|details|summary)\s*>/giu, '\n')
-    .replace(/<\/t[dh]\s*>/giu, ' ')
-    .replace(/<[^>]*>/gu, '')
-  return decodeEntities(text).split('\n').map(line => line.trim()).filter(Boolean)
+  const blocks: RichNode[] = []
+  let text = ''
+  let link: { href: string; start: number } | null = null
+  const flush = () => {
+    for (const line of text.split('\n').map(value => value.trim()).filter(Boolean)) blocks.push({ type: 'paragraph', content: [{ type: 'text', text: line }] })
+    text = ''
+    if (link) link.start = 0
+  }
+  const describe = (value: string) => truncate(value.replace(/\s+/gu, ' ').trim(), 1_000)
+  let from = 0
+  for (;;) {
+    const open = source.indexOf('<', from)
+    const end = open < 0 ? -1 : source.indexOf('>', open + 1)
+    if (end < 0) { text += decodeEntities(source.slice(from)); break }
+    text += decodeEntities(source.slice(from, open))
+    from = end + 1
+    const tag = source.slice(open, end + 1)
+    const parts = /^<\s*(\/?)\s*([a-z][a-z0-9-]*)/iu.exec(tag)
+    if (!parts) continue
+    const closing = parts[1] === '/'
+    const name = parts[2]!.toLowerCase()
+    if (closing && BLOCK_TAGS.has(name)) text += '\n'
+    else if (closing && (name === 'td' || name === 'th')) text += ' '
+    else if (closing && name === 'a') {
+      const id = link ? context.resolveFile(link.href) : null
+      if (link && id) {
+        const caption = describe(text.slice(link.start))
+        text = text.slice(0, link.start)
+        flush()
+        blocks.push({ type: 'attachment', attrs: { attachmentId: id, caption } })
+      }
+      link = null
+    } else if (closing) continue
+    else if (name === 'br') text += '\n'
+    else if (name === 'a') link = { href: htmlAttribute(tag, 'href'), start: text.length }
+    else if (name === 'img') {
+      const alt = describe(htmlAttribute(tag, 'alt'))
+      const id = context.resolveFile(htmlAttribute(tag, 'src'))
+      if (id) { flush(); blocks.push({ type: 'image', attrs: { attachmentId: id, alt } }) }
+      else text += alt
+    }
+  }
+  flush()
+  return blocks
 }
 
 function sameMarks(a: RichMark[] | undefined, b: RichMark[] | undefined): boolean {
@@ -130,16 +185,27 @@ interface ConvertContext {
   resolveFile(href: string): string | null
 }
 
+/** Deeper inline nesting adds no marks; the bound keeps each step constant on unclosed `<u>`/`<span>` runs. */
+const MAX_INLINE_DEPTH = 128
+
 /** Inline tokens to text and hard breaks; marks nest by a stack, and the innermost color wins. */
 function inlineNodes(tokens: readonly Token[] | null): RichNode[] {
   const nodes: RichNode[] = []
   const stack: Array<{ tag: string; marks: RichMark[] }> = []
+  /** Tags opened beyond MAX_INLINE_DEPTH; they are always the innermost, so their closes match first. */
+  const dropped = new Map<string, number>()
   const marks = (): RichMark[] => {
     const active = new Map<RichMarkType, RichMark>()
     for (const entry of stack) for (const mark of entry.marks) active.set(mark.type, mark)
     return MARK_ORDER.filter(type => active.has(type)).map(type => structuredClone(active.get(type)!))
   }
+  const open = (tag: string, added: RichMark[]) => {
+    if (stack.length < MAX_INLINE_DEPTH) stack.push({ tag, marks: added })
+    else dropped.set(tag, (dropped.get(tag) ?? 0) + 1)
+  }
   const close = (tag: string) => {
+    const extra = dropped.get(tag)
+    if (extra) { dropped.set(tag, extra - 1); return }
     for (let index = stack.length - 1; index >= 0; index--) if (stack[index]!.tag === tag) { stack.splice(index, 1); return }
   }
   for (const token of tokens ?? []) {
@@ -151,15 +217,15 @@ function inlineNodes(tokens: readonly Token[] | null): RichNode[] {
         break
       }
       case 'softbreak': case 'hardbreak': nodes.push({ type: 'hardBreak' }); break
-      case 'strong_open': stack.push({ tag: 'strong', marks: [{ type: 'bold' }] }); break
-      case 'em_open': stack.push({ tag: 'em', marks: [{ type: 'italic' }] }); break
-      case 's_open': stack.push({ tag: 's', marks: [{ type: 'strike' }] }); break
+      case 'strong_open': open('strong', [{ type: 'bold' }]); break
+      case 'em_open': open('em', [{ type: 'italic' }]); break
+      case 's_open': open('s', [{ type: 'strike' }]); break
       case 'strong_close': close('strong'); break
       case 'em_close': close('em'); break
       case 's_close': close('s'); break
       case 'link_open': {
         const href = String(token.attrGet('href') ?? '')
-        stack.push({ tag: 'link', marks: safeHref(href) ? [{ type: 'link', attrs: { href } }] : [] })
+        open('link', safeHref(href) ? [{ type: 'link', attrs: { href } }] : [])
         break
       }
       case 'link_close': close('link'); break
@@ -172,7 +238,7 @@ function inlineNodes(tokens: readonly Token[] | null): RichNode[] {
         if (name === 'br') nodes.push({ type: 'hardBreak' })
         else if (name === 'u' || name === 'span') {
           if (tag[1]) close(name)
-          else if (!selfClosing) stack.push({ tag: name, marks: name === 'u' ? [{ type: 'underline' }] : spanMarks(tag[3]!) })
+          else if (!selfClosing) open(name, name === 'u' ? [{ type: 'underline' }] : spanMarks(tag[3]!))
         }
         break
       }
@@ -291,9 +357,7 @@ function blocksFrom(tokens: readonly Token[], context: ConvertContext): RichNode
           break
         }
         case 'hr': blocks.push({ type: 'horizontalRule' }); break
-        case 'html_block':
-          for (const line of htmlBlockText(token.content)) blocks.push({ type: 'paragraph', content: [{ type: 'text', text: line }] })
-          break
+        case 'html_block': blocks.push(...htmlBlockNodes(token.content, context)); break
         case 'table_open': blocks.push(...table()); break
         default: break
       }
@@ -405,6 +469,50 @@ function folderName(path: string): string | null {
 }
 
 /**
+ * Where Jot's exports put attachments: directly in the library export's `附件`
+ * or `attachments` directory, or as `assets/<attachment id>-<name>` in a
+ * single-note export.
+ */
+const exportedAttachmentPath = (path: string): boolean => {
+  const segments = path.split('/')
+  return segments.length === 2 && (/^(?:attachments|附件)(?: \(\d+\))?$/iu.test(segments[0]!)
+    || segments[0] === 'assets' && /^[0-9a-f]{32}-./iu.test(segments[1]!))
+}
+const directoryOf = (path: string): string => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+/** A single-note export prefixes each asset with its attachment id; the original name is the rest. */
+const archiveFileName = (path: string): string => /^assets\/[0-9a-f]{32}-[^/]+$/iu.test(path) ? basename(path).slice(33) : basename(path)
+
+/**
+ * Markdown and text files that a Jot export attached to notes: they sit where
+ * Jot's exports put attachments and another note links to them as a file card
+ * or image. Anywhere else a linked .md file stays a note of its own, so an
+ * index note listing its chapters keeps them as notes.
+ */
+function attachedNoteFiles(notes: readonly ArchiveEntry[], readable: readonly ArchiveEntry[], data: Map<number, Uint8Array>): Set<string> {
+  const attached = new Set<string>()
+  const possible = new Map<string, ArchiveEntry>()
+  for (const entry of notes) {
+    if (exportedAttachmentPath(entry.path)) possible.set(entry.path.toLowerCase(), entry)
+  }
+  if (!possible.size) return attached
+  for (const entry of readable) {
+    if (possible.has(entry.path.toLowerCase()) || extensionOf(entry.path) === 'txt') continue
+    const text = decodeUtf8(data.get(entry.index)!)
+    if (text === null) continue
+    const directory = directoryOf(entry.path)
+    try {
+      markdownToNote(text, { resolveFile: href => {
+        const target = resolveArchivePath(href, directory)
+        const file = target === null ? undefined : possible.get(target.toLowerCase())
+        if (file) attached.add(file.path)
+        return null
+      } })
+    } catch (error) { if (!(error instanceof StoreError)) throw error }
+  }
+  return attached
+}
+
+/**
  * Import one uploaded Markdown, text or ZIP file. Per-file problems are
  * reported in `skipped`; archive-wide limits fail before anything is saved.
  * Attachments are uploaded first and removed again if the notes cannot be saved.
@@ -475,17 +583,19 @@ export async function importNotesFile(store: JotStore, attachments: AttachmentSt
     archive = { bytes, crcs: centralCrcs(bytes) }
     const notes = entries.filter(entry => NOTE_EXTENSIONS.has(extensionOf(entry.path)))
     if (notes.length > MAX_IMPORT_NOTES) invalid(`A ZIP import holds at most ${MAX_IMPORT_NOTES.toLocaleString('en')} notes; import one folder at a time`)
+    const readable = notes.filter(entry => entry.size <= MAX_IMPORT_NOTE_BYTES)
+    if (readable.reduce((sum, entry) => sum + entry.size, 0) > MAX_IMPORT_BYTES) invalid('The archive expands to more than 100 MiB')
+    const noteData = inflate(archive, readable)
+    const attached = attachedNoteFiles(notes, readable, noteData)
     const wanted = notes.filter(entry => {
+      if (attached.has(entry.path)) return false
       if (entry.size <= MAX_IMPORT_NOTE_BYTES) return true
       skip(entry.path, 'The note is larger than 4 MiB.')
       return false
     })
-    let declared = wanted.reduce((sum, entry) => sum + entry.size, 0)
-    if (declared > MAX_IMPORT_BYTES) invalid('The archive expands to more than 100 MiB')
-    const noteData = inflate(archive, wanted)
     const files = new Map<string, ArchiveEntry>()
     const lowerFiles = new Map<string, ArchiveEntry | null>()
-    for (const entry of entries) if (!NOTE_EXTENSIONS.has(extensionOf(entry.path))) {
+    for (const entry of entries) if (!NOTE_EXTENSIONS.has(extensionOf(entry.path)) || attached.has(entry.path)) {
       files.set(entry.path, entry)
       const lower = entry.path.toLowerCase()
       lowerFiles.set(lower, lowerFiles.has(lower) ? null : entry)
@@ -493,7 +603,7 @@ export async function importNotesFile(store: JotStore, attachments: AttachmentSt
     const byPath = new Map<string, string>()
     const oversized = new Set<string>()
     for (const entry of wanted.sort((a, b) => a.path.localeCompare(b.path, 'en', { numeric: true }))) {
-      const directory = entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : ''
+      const directory = directoryOf(entry.path)
       convert(entry.path, noteData.get(entry.index)!, extensionOf(entry.path) === 'txt', titleStem(entry.path), href => {
         const target = resolveArchivePath(href, directory)
         const file = target === null ? undefined : files.get(target) ?? lowerFiles.get(target.toLowerCase()) ?? undefined
@@ -514,11 +624,11 @@ export async function importNotesFile(store: JotStore, attachments: AttachmentSt
     const referenced = new Set(candidates.flatMap(candidate => [...documentAttachmentIds(candidate.content)]))
     if (referenced.size > MAX_IMPORT_ATTACHMENTS) invalid(`A ZIP import links at most ${MAX_IMPORT_ATTACHMENTS.toLocaleString('en')} attachments`)
     for (const id of placeholders.keys()) if (!referenced.has(id)) placeholders.delete(id)
-    declared += [...placeholders.values()].reduce((sum, entry) => sum + entry.size, 0)
+    const declared = [...wanted, ...placeholders.values()].reduce((sum, entry) => sum + entry.size, 0)
     if (declared > MAX_IMPORT_BYTES) invalid('The archive expands to more than 100 MiB')
     const linked = new Set([...placeholders.values()].map(entry => entry.path))
     for (const entry of entries) {
-      if (!NOTE_EXTENSIONS.has(extensionOf(entry.path)) && !linked.has(entry.path) && !oversized.has(entry.path)) {
+      if (files.has(entry.path) && !linked.has(entry.path) && !oversized.has(entry.path)) {
         skip(entry.path, 'Not a Markdown or text note, and no imported note links to it.')
       }
     }
@@ -531,7 +641,7 @@ export async function importNotesFile(store: JotStore, attachments: AttachmentSt
     if (archive && placeholders.size) {
       const data = inflate(archive, [...placeholders.values()])
       for (const [placeholder, entry] of placeholders) {
-        try { uploaded.set(placeholder, await attachments.upload({ name: attachmentName(basename(entry.path)), bytes: data.get(entry.index)! })) }
+        try { uploaded.set(placeholder, await attachments.upload({ name: attachmentName(archiveFileName(entry.path)), bytes: data.get(entry.index)! })) }
         catch (error) {
           // The engine and this lazily loaded library are separate bundles: match the error code, not its class.
           const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : undefined

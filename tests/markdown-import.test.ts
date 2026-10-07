@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { strToU8, zipSync } from 'fflate'
 import { importNotesFile, markdownToNote, resolveArchivePath, titleStem, type ImportExtension } from '../src/markdown-import.js'
-import { exportJotLibrary } from '../src/exports.js'
+import { exportJotLibrary, exportJotNote } from '../src/exports.js'
 import { AttachmentStore } from '../src/attachments.js'
 import { JotStore, StoreError } from '../src/store.js'
 import { validateRichDoc, type RichDoc, type RichMark, type RichNode } from '../src/model.js'
@@ -164,6 +164,43 @@ test('images and file links become attachments only when they name a file in the
   assert.deepEqual(blocks('| ![cell](img/a.png) |\n| --- |', files)[0]!.content![0]!.content![0]!.content, [{ type: 'image', attrs: { attachmentId: placeholder, alt: 'cell' } }])
 })
 
+test('HTML blocks keep image alt text and turn images and links to imported files into blocks', () => {
+  const files = { 'img/a.png': placeholder, 'docs/r.pdf': 'b'.repeat(32) }
+  assert.deepEqual(blocks('<p>See <img src="img/a.png" alt="A &amp; B"> and <a href="docs/r.pdf">the <b>report</b></a>'
+    + ' or <a href="https://example.com">web</a> <img alt="gone" src="none.png"> <img src=\'img/a.png\' alt="x src=docs/r.pdf"></p>', files), [
+    p(t('See')),
+    { type: 'image', attrs: { attachmentId: placeholder, alt: 'A & B' } },
+    p(t('and')),
+    { type: 'attachment', attrs: { attachmentId: 'b'.repeat(32), caption: 'the report' } },
+    p(t('or web gone')),
+    { type: 'image', attrs: { attachmentId: placeholder, alt: 'x src=docs/r.pdf' } },
+  ])
+  assert.deepEqual(blocks('<div>\n<a href="docs/r.pdf">never closed\n</div>', files), [p(t('never closed'))])
+})
+
+test('unclosed "<" runs in HTML blocks convert in linear time', () => {
+  for (const prefix of ['<?\n', '<![CDATA[\n', '<div>\n', '<!-- x -->\n<p>\n']) {
+    const started = performance.now()
+    const [first, second] = blocks(`${prefix}${'<'.repeat(150_000)}`)
+    const elapsed = performance.now() - started
+    assert.ok(elapsed < 1_500, `${JSON.stringify(prefix)} took ${Math.round(elapsed)} ms`)
+    assert.equal((second ?? first)!.content![0]!.text!.length, 150_000)
+  }
+})
+
+test('deeply nested or unclosed inline tags keep their marks and convert in linear time', () => {
+  assert.deepEqual(blocks(`${'<u>'.repeat(300)}<span style="color:#dc2626">x</span>${'</u>'.repeat(300)} y`), [
+    p(t('x', { type: 'underline' }), t(' y')),
+  ], 'tags past the nesting bound still pair with their own closing tags')
+  for (const source of ['<u>a'.repeat(100_000), `${'<u>'.repeat(50_000)}${'</span>a'.repeat(50_000)}`]) {
+    const started = performance.now()
+    const [first] = blocks(source)
+    const elapsed = performance.now() - started
+    assert.ok(elapsed < 1_500, `took ${Math.round(elapsed)} ms`)
+    assert.deepEqual(first!.content!.map(node => node.marks), [[{ type: 'underline' }]])
+  }
+})
+
 test('archive links resolve relative to the note and never above the archive root', () => {
   assert.equal(resolveArchivePath('../附件/a%20b.png', '工作'), '附件/a b.png')
   assert.equal(resolveArchivePath('./img/x.png?raw=1#frag', 'a/b'), 'a/b/img/x.png')
@@ -195,6 +232,9 @@ test('a Markdown library export imports back with titles, folders, structure and
   const image = await source.attachments.upload({ name: '示意图.png', bytes: png })
   const report = await source.attachments.upload({ name: '季度报告.pdf', bytes: pdf })
   const data = await source.attachments.upload({ name: 'data 1.csv', mimeType: 'text/csv', bytes: Buffer.from('a,b\n1,2\n') })
+  // Attached text and Markdown files stay attachments; they are not imported as notes of their own.
+  const minutes = await source.attachments.upload({ name: 'meeting notes.txt', mimeType: 'text/plain', bytes: Buffer.from('议程\n1. 预算\n') })
+  const readme = await source.attachments.upload({ name: 'readme.md', mimeType: 'text/markdown', bytes: Buffer.from('# Read me\n\n[Chapter](ch1.md)\n') })
   const work = await source.store.createFolder('工作')
   const personal = await source.store.createFolder('个人')
   const header = (text: string) => cell('tableHeader', [p(t(text))])
@@ -221,6 +261,8 @@ test('a Markdown library export imports back with titles, folders, structure and
     { type: 'image', attrs: { attachmentId: image.id, alt: '示意图' } },
     { type: 'attachment', attrs: { attachmentId: report.id, caption: '季度报告' } },
     { type: 'attachment', attrs: { attachmentId: data.id, caption: '数据' } },
+    { type: 'attachment', attrs: { attachmentId: minutes.id, caption: '会议记录' } },
+    { type: 'attachment', attrs: { attachmentId: readme.id, caption: '说明' } },
   ] })
   const plain = validateRichDoc({ type: 'doc', content: [p(t('根目录的笔记')), { type: 'image', attrs: { attachmentId: image.id, alt: '同一张图' } }] })
   const headerless = validateRichDoc({ type: 'doc', content: [{ type: 'table', content: [
@@ -240,7 +282,7 @@ test('a Markdown library export imports back with titles, folders, structure and
   const target = await stores(ctx)
   const existing = await target.store.createFolder('个人')
   const result = await run(target, exported.buffer, 'zip', exported.filename)
-  assert.deepEqual({ ...result, noteIds: result.noteIds.length }, { notes: 3, attachments: 3, folders: 1, noteIds: 3, skipped: [] },
+  assert.deepEqual({ ...result, noteIds: result.noteIds.length }, { notes: 3, attachments: 5, folders: 1, noteIds: 3, skipped: [] },
     'the shared image is uploaded once and the existing folder is reused')
   const imported = await target.store.readState()
   assert.deepEqual(imported.folders.map(folder => folder.name).sort(), ['个人', '工作'])
@@ -254,7 +296,7 @@ test('a Markdown library export imports back with titles, folders, structure and
   assert.equal(imported.notes.find(note => note.title === '没有表头')!.folderId, existing.id)
   const images = imported.notes.flatMap(note => note.content.content.filter(node => node.type === 'image').map(node => node.attrs!.attachmentId))
   assert.equal(new Set(images).size, 1, 'both notes reference one imported image')
-  assert.equal((await manifest(target.directory)).attachments.length, 3)
+  assert.equal((await manifest(target.directory)).attachments.length, 5)
 })
 
 test('a single Jot note export with attachments imports from its ZIP', async ctx => {
@@ -267,6 +309,80 @@ test('a single Jot note export with attachments imports from its ZIP', async ctx
   assert.equal(note!.folderId, null, 'only notes inside a top-level directory are filed')
   assert.equal(note!.content.content[0]!.type, 'image')
   assert.deepEqual((await target.attachments.content(String(note!.content.content[0]!.attrs!.attachmentId))).bytes, png)
+})
+
+test('a single-note export keeps attached text files as attachments with their original names', async ctx => {
+  const source = await stores(ctx)
+  const minutes = await source.attachments.upload({ name: 'meeting notes.txt', mimeType: 'text/plain', bytes: Buffer.from('notes\n') })
+  const readme = await source.attachments.upload({ name: 'readme.md', mimeType: 'text/markdown', bytes: Buffer.from('# Readme\n') })
+  const image = await source.attachments.upload({ name: '图.png', bytes: png })
+  const content = validateRichDoc({ type: 'doc', content: [
+    { type: 'attachment', attrs: { attachmentId: minutes.id, caption: 'notes file' } },
+    { type: 'attachment', attrs: { attachmentId: readme.id, caption: 'readme file' } },
+    { type: 'image', attrs: { attachmentId: image.id, alt: '图' } },
+  ] })
+  const exported = await exportJotNote({ title: 'Has text attachments', content }, 'md', {
+    attachmentLoader: async id => {
+      const { attachment, bytes } = await source.attachments.content(id)
+      return { name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, data: bytes }
+    },
+  })
+  assert.equal(exported.filename, 'Has text attachments.zip')
+  const target = await stores(ctx)
+  const result = await run(target, exported.buffer, 'zip', exported.filename)
+  assert.deepEqual({ ...result, noteIds: result.noteIds.length }, { notes: 1, attachments: 3, folders: 0, noteIds: 1, skipped: [] })
+  const state = await target.store.readState()
+  assert.deepEqual(state.folders, [], 'the assets directory does not become a folder')
+  assert.equal(state.notes[0]!.title, 'Has text attachments')
+  assert.deepEqual(await comparable(state.notes[0]!.content, target.attachments), await comparable(content, source.attachments))
+})
+
+test('outside an export attachment directory, linked Markdown files stay notes', async ctx => {
+  const target = await stores(ctx)
+  const zip = zipSync({
+    'Book/index.md': strToU8('# Index\n\n- [Chapter 1](chapters/ch1.md)\n- [Notes](../assets/notes.md)\n\n[Appendix](attachments/appendix.md)'),
+    'Book/chapters/ch1.md': strToU8('# Chapter 1\n\nText'),
+    'Book/attachments/appendix.md': strToU8('# Appendix'),
+    'assets/notes.md': strToU8('# Asset notes'),
+  })
+  const result = await run(target, zip, 'zip')
+  assert.deepEqual({ notes: result.notes, attachments: result.attachments, skipped: result.skipped }, { notes: 4, attachments: 0, skipped: [] })
+  assert.deepEqual((await target.store.readState()).notes.map(note => note.title).sort(), ['Appendix', 'Asset notes', 'Chapter 1', 'Index'])
+})
+
+test('a merged-cell table exported as HTML keeps its images and files', async ctx => {
+  const source = await stores(ctx)
+  const image = await source.attachments.upload({ name: 'chart.png', bytes: png })
+  const report = await source.attachments.upload({ name: 'report.pdf', bytes: pdf })
+  const span = (type: 'tableCell' | 'tableHeader', colspan: number, content: RichNode[]): RichNode =>
+    ({ type, attrs: { colspan, rowspan: 1, colwidth: null, align: null }, content })
+  const content = validateRichDoc({ type: 'doc', content: [{ type: 'table', content: [
+    { type: 'tableRow', content: [span('tableHeader', 2, [p(t('Quarter summary'))])] },
+    { type: 'tableRow', content: [span('tableCell', 1, [p(t('Q1 & Q2'))]), span('tableCell', 1, [{ type: 'image', attrs: { attachmentId: image.id, alt: 'chart' } }])] },
+    { type: 'tableRow', content: [span('tableCell', 1, [{ type: 'attachment', attrs: { attachmentId: report.id, caption: 'Full <report>' } }]), span('tableCell', 1, [p(t('end'))])] },
+  ] }] })
+  await source.store.createNote({ title: 'Merged', content })
+  const state = await source.store.readState()
+  const exported = await exportJotLibrary({ notes: state.notes, folders: state.folders }, 'md', {
+    attachmentLoader: async id => {
+      const { attachment, bytes } = await source.attachments.content(id)
+      return { name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, data: bytes }
+    },
+  })
+  const target = await stores(ctx)
+  const result = await run(target, exported.buffer, 'zip', exported.filename)
+  assert.deepEqual({ notes: result.notes, attachments: result.attachments, skipped: result.skipped }, { notes: 1, attachments: 2, skipped: [] })
+  const [note] = (await target.store.readState()).notes
+  const imageId = String(note!.content.content[2]!.attrs?.attachmentId)
+  const reportId = String(note!.content.content[3]!.attrs?.attachmentId)
+  assert.deepEqual(note!.content.content, [
+    p(t('Quarter summary')), p(t('Q1 & Q2')),
+    { type: 'image', attrs: { attachmentId: imageId, alt: 'chart' } },
+    { type: 'attachment', attrs: { attachmentId: reportId, caption: 'Full <report>' } },
+    p(t('end')),
+  ])
+  assert.deepEqual((await target.attachments.content(imageId)).bytes, png)
+  assert.deepEqual((await target.attachments.content(reportId)).bytes, pdf)
 })
 
 test('ZIP imports skip unsafe and unsupported entries and flatten deeper directories', async ctx => {
