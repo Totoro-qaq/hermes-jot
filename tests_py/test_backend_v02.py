@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -37,10 +38,13 @@ def doc(text):
 
 class FakeContext:
     def __init__(self):
-        self.tools, self.commands = [], []
+        self.tools, self.commands, self.hooks = [], [], []
 
     def register_tool(self, **kwargs):
         self.tools.append(kwargs)
+
+    def register_hook(self, name, callback):
+        self.hooks.append((name, callback))
 
     def register_command(self, *args, **kwargs):
         self.commands.append((args, kwargs))
@@ -65,6 +69,21 @@ class Events:
             raise self.error
 
 
+class Refreshes:
+    """Stands in for Hermes' tools.mcp_tool_agent.reprobe_tool_availability while a test runs."""
+
+    def __init__(self, test):
+        self.count = 0
+        agent = types.ModuleType("tools.mcp_tool_agent")
+        agent.reprobe_tool_availability = self.reprobe
+        patcher = patch.dict(sys.modules, {"tools.mcp_tool_agent": agent})
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+    def reprobe(self):
+        self.count += 1
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="jot-v02-")
@@ -75,6 +94,7 @@ class Base(unittest.TestCase):
         self.addCleanup(patcher.stop)
         # Never reach a real Hermes gateway from tests.
         self.events = Events(self)
+        self.refreshes = Refreshes(self)
         app = FastAPI()
         app.include_router(api.router, prefix="/api/plugins/jot")
         self.client = TestClient(app)
@@ -151,11 +171,11 @@ class AgentAccess(Base):
 
 
 class Registration(Base):
-    def register(self, registry=None):
+    def register(self, registry=None, ctx=None):
         modules = {"tools": types.ModuleType("tools"), "tools.registry": registry}
         with patch.dict(sys.modules, modules):
             package, package_backend = load_plugin_package()
-            ctx = FakeContext()
+            ctx = ctx or FakeContext()
             package.register(ctx)
         patcher = patch.object(package_backend, "data_directory", lambda: self.directory)
         patcher.start()
@@ -192,6 +212,42 @@ class Registration(Base):
         self.assertFalse(check())
         self.enable_agent()
         self.assertTrue(check())
+
+    def test_a_flip_seen_by_the_check_or_the_turn_hook_drops_hermes_tool_caches(self):
+        ctx = self.register(None)
+        check = ctx.tools[0]["check_fn"]
+        self.assertEqual([name for name, _ in ctx.hooks], ["pre_llm_call"])
+        hook = ctx.hooks[0][1]
+        self.assertFalse(check())
+        self.assertIsNone(hook(session_id="s", user_message="hi", is_first_turn=True))
+        self.assertEqual(self.refreshes.count, 0)
+        # The Desktop API flips the switch (in a test it runs as another module instance, as in another
+        # process): the plugin notices on its next turn.
+        self.enable_agent()
+        self.refreshes.count = 0
+        self.assertIsNone(hook(session_id="s"))
+        self.assertEqual(self.refreshes.count, 1)
+        self.assertTrue(check())
+        self.assertIsNone(hook())
+        self.assertEqual(self.refreshes.count, 1)
+        self.enable_agent(False)
+        self.refreshes.count = 0
+        self.assertFalse(check())
+        self.assertEqual(self.refreshes.count, 1)
+        self.assertIsNone(hook())
+        self.assertEqual(self.refreshes.count, 1)
+
+    def test_hosts_without_hooks_still_register_every_tool(self):
+        class NoHooks(FakeContext):
+            def register_hook(self, name, callback):
+                raise ValueError("unknown hook")
+        ctx = self.register(None, NoHooks())
+        self.assertEqual(len(ctx.tools), 6)
+        self.assertEqual(ctx.commands[0][0][0], "jot")
+        bare = types.SimpleNamespace(tools=[], register_command=lambda *args, **kwargs: None)
+        bare.register_tool = lambda **kwargs: bare.tools.append(kwargs)
+        self.register(None, bare)
+        self.assertEqual(len(bare.tools), 6)
 
     def test_registered_handler_broadcasts_after_a_mutation(self):
         events = self.events
@@ -261,6 +317,186 @@ class ChangeEvents(Base):
         with patch.dict(sys.modules, {"hermes_cli": None, "hermes_cli.plugin_events": None}):
             backend.notify_changed()
             self.assertEqual(self.post_rpc("/notes", "POST", {"title": "u", "content": doc("y")})["status"], 201)
+
+
+class ToolCacheRefresh(Base):
+    def test_only_a_successful_settings_change_refreshes(self):
+        self.post_rpc("/state")
+        created = self.post_rpc("/notes", "POST", {"title": "t", "content": doc("x")})
+        self.post_rpc(f"/notes/{created['data']['id']}", "PATCH", {"revision": 99, "title": "late", "content": doc("y")})
+        self.assertIn("error", self.post_rpc("/settings", "PATCH", {"agentEnabled": "yes"}))
+        self.assertEqual(self.refreshes.count, 0)
+        self.enable_agent()
+        self.assertEqual(self.refreshes.count, 1)
+        self.enable_agent(False)
+        self.assertEqual(self.refreshes.count, 2)
+
+    def test_observe_refreshes_only_when_this_process_saw_a_different_value(self):
+        self.assertFalse(backend.observe_agent_access(self.directory))
+        self.assertFalse(backend.observe_agent_access())
+        self.assertEqual(self.refreshes.count, 0)
+        (self.directory / "jot.json").write_text('{"version":1,"notes":[],"folders":[],"agentEnabled":true}\n')
+        self.assertTrue(backend.observe_agent_access())
+        self.assertTrue(backend.observe_agent_access())
+        self.assertEqual(self.refreshes.count, 1)
+        # Each profile directory is tracked on its own.
+        other = self.directory / "other"
+        other.mkdir()
+        self.assertFalse(backend.observe_agent_access(other))
+        self.assertEqual(self.refreshes.count, 1)
+        with patch.object(backend, "data_directory", side_effect=RuntimeError("no profile")):
+            self.assertFalse(backend.observe_agent_access())
+        self.assertEqual(self.refreshes.count, 1)
+
+    def test_refresh_falls_back_to_both_hermes_caches_and_never_raises(self):
+        calls = []
+        registry = types.ModuleType("tools.registry")
+        registry.invalidate_check_fn_cache = lambda: calls.append("verdicts")
+        model_tools = types.ModuleType("model_tools")
+        model_tools._clear_tool_defs_cache = lambda: calls.append("definitions")
+        # None in sys.modules makes the import raise ImportError.
+        modules = {"tools": types.ModuleType("tools"), "tools.mcp_tool_agent": None,
+                   "tools.registry": registry, "model_tools": model_tools}
+        with patch.dict(sys.modules, modules):
+            backend.refresh_tool_availability()
+        self.assertEqual(calls, ["verdicts", "definitions"])
+        def broken():
+            raise RuntimeError("host bug")
+        registry.invalidate_check_fn_cache = broken
+        with patch.dict(sys.modules, modules):
+            backend.refresh_tool_availability()
+        self.assertEqual(calls, ["verdicts", "definitions", "definitions"])
+        with patch.dict(sys.modules, {"tools.mcp_tool_agent": None, "tools.registry": None, "model_tools": None}):
+            backend.refresh_tool_availability()
+        self.assertEqual(self.refreshes.count, 0)
+
+
+HOST_PROBE = "import fastapi, httpx, model_tools, tools.registry, tools.mcp_tool_agent, plugins.plugin_storage"
+
+
+def hermes_python():
+    """A Python that imports the real Hermes host (JOT_HERMES_PYTHON, else this one), or None."""
+    for candidate in (os.environ.get("JOT_HERMES_PYTHON"), sys.executable):
+        if not candidate:
+            continue
+        with tempfile.TemporaryDirectory(prefix="jot-hermes-probe-") as home:
+            try:
+                probe = subprocess.run([candidate, "-c", HOST_PROBE], env={**os.environ, "HERMES_HOME": home},
+                                       capture_output=True, timeout=120, cwd=home)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+        if probe.returncode == 0:
+            return candidate
+    return None
+
+
+# Runs in a Python that imports the real Hermes host, with a throwaway HERMES_HOME: registers the plugin
+# into Hermes' real tool registry, flips the switch through the real Desktop API and prints, as one JSON
+# line, which jot_* tools the next agent built would receive after each step.
+HOST_SCRIPT = r'''
+import importlib.util
+import json
+import os
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).resolve()
+if not os.environ.get("HERMES_HOME"):
+    sys.exit("HERMES_HOME must point at a throwaway directory")
+
+import model_tools  # noqa: E402
+from tools.registry import registry  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+
+def load(name, path, **options):
+    spec = importlib.util.spec_from_file_location(name, path, **options)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class Context:
+    """The parts of Hermes' PluginContext that Jot uses, forwarding tools to the real registry."""
+
+    def __init__(self):
+        self.hooks = {}
+
+    def register_tool(self, name, toolset, schema, handler, check_fn=None):
+        registry.register(name=name, toolset=toolset, schema=schema, handler=handler, check_fn=check_fn)
+
+    def register_hook(self, name, callback):
+        self.hooks.setdefault(name, []).append(callback)
+
+    def register_command(self, *args, **kwargs):
+        pass
+
+
+plugin = load("jot_real_host_plugin", root / "__init__.py", submodule_search_locations=[str(root)])
+ctx = Context()
+plugin.register(ctx)
+api = load("jot_real_host_api", root / "dashboard/plugin_api.py")
+app = FastAPI()
+app.include_router(api.router, prefix="/api/plugins/jot")
+client = TestClient(app)
+
+
+def visible():
+    definitions = model_tools.get_tool_definitions(quiet_mode=True, skip_tool_search_assembly=True)
+    return sorted(t["function"]["name"] for t in definitions if t["function"]["name"].startswith("jot_"))
+
+
+def desktop_switch(enabled):
+    response = client.post("/api/plugins/jot/rpc", json={"method": "PATCH", "path": "/settings", "body": {"agentEnabled": enabled}})
+    assert response.json().get("data") == {"agentEnabled": enabled}, response.text
+
+
+def other_process_switch(enabled):
+    path = api._backend.data_directory() / "jot.json"
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state["agentEnabled"] = enabled
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(state, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+steps = [["off, first agent", visible()]]
+desktop_switch(True)
+steps.append(["Desktop turns it on", visible()])
+desktop_switch(False)
+steps.append(["Desktop turns it off", visible()])
+other_process_switch(True)
+steps.append(["on from another process, before a turn", visible()])
+for hook in ctx.hooks.get("pre_llm_call", ()):
+    hook(session_id="s", user_message="hi", is_first_turn=True)
+steps.append(["on from another process, after a turn", visible()])
+# Hermes' gateway redirects sys.stdout to stderr once a broadcast imports it.
+os.write(1, (json.dumps(steps) + "\n").encode("utf-8"))
+'''
+
+
+class RealHostToolCache(unittest.TestCase):
+    """The tool gate against Hermes' real registry and memoized tool lists, in a throwaway HERMES_HOME."""
+
+    def test_switch_flips_reach_the_next_agent_built(self):
+        python = hermes_python()
+        if python is None:
+            self.skipTest("Hermes host modules are not importable; set JOT_HERMES_PYTHON to run this check")
+        with tempfile.TemporaryDirectory(prefix="jot-hermes-home-") as home:
+            result = subprocess.run([python, "-c", HOST_SCRIPT, str(ROOT)],
+                                    env={**os.environ, "HERMES_HOME": home}, capture_output=True, timeout=300, cwd=home)
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", "replace")[-4000:])
+        steps = json.loads(result.stdout.decode("utf-8").strip().splitlines()[-1])
+        tools = ["jot_create", "jot_delete", "jot_list", "jot_read", "jot_set_task", "jot_update"]
+        self.assertEqual(steps, [
+            ["off, first agent", []],
+            ["Desktop turns it on", tools],
+            ["Desktop turns it off", []],
+            ["on from another process, before a turn", []],
+            ["on from another process, after a turn", tools],
+        ])
 
 
 class UnchangedPolls(Base):

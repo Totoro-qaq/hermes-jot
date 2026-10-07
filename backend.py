@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path
@@ -152,6 +153,43 @@ def agent_access_enabled(directory: Path | None = None) -> bool:
         return isinstance(state, dict) and state.get("agentEnabled") is True
     except Exception:
         return False
+
+
+def refresh_tool_availability() -> None:
+    """Drop Hermes' cached tool lists so the next agent built follows the switch. Never raises.
+
+    Hermes memoizes tool definitions per process without check_fn verdicts in the key, so a flip
+    would otherwise stay invisible until a restart. A live chat keeps the tools[] it was built with.
+    """
+    try:
+        from tools.mcp_tool_agent import reprobe_tool_availability
+        reprobe_tool_availability()
+        return
+    except Exception:
+        pass
+    # Older hosts: the two caches reprobe_tool_availability clears.
+    for module, name in (("tools.registry", "invalidate_check_fn_cache"), ("model_tools", "_clear_tool_defs_cache")):
+        try:
+            getattr(importlib.import_module(module), name)()
+        except Exception:
+            pass
+
+
+_seen_access: dict[str, bool] = {}
+
+
+def observe_agent_access(directory: Path | None = None) -> bool:
+    """The switch, refreshing Hermes' tool caches when it differs from what this process last saw."""
+    try:
+        root = Path(directory if directory is not None else data_directory())
+    except Exception:
+        return False
+    enabled = agent_access_enabled(root)
+    previous = _seen_access.get(str(root))
+    _seen_access[str(root)] = enabled
+    if previous is not None and previous != enabled:
+        refresh_tool_availability()
+    return enabled
 
 
 def content_tag(source: bytes) -> str:
