@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RichEditor, type RichEditorActions } from '../client/RichEditor.js'
 import type { RichDoc } from '../client/types.js'
+import { intlLocale, isRtlLocale, normalizeLocale, type JotLocale } from '../client/i18n.js'
 import { EditorSync } from './editor-sync.js'
 import { jotStyles } from '../client/styles.js'
 import { HOST_THEME_PROPERTIES } from './theme.js'
@@ -19,7 +20,7 @@ const image = (attachmentId: string) => new Promise<string>(resolve => {
 })
 
 function Editor() {
-  const [props, setProps] = useState<{ value: RichDoc; resolveExternalValue: () => RichDoc; locale: 'zh' | 'en'; readOnly: boolean } | null>(null)
+  const [props, setProps] = useState<{ value: RichDoc; resolveExternalValue: () => RichDoc; locale: JotLocale; readOnly: boolean } | null>(null)
   const actions = useRef<RichEditorActions | null>(null)
   const synchronized = useRef(new EditorSync())
   const root = useRef<HTMLDivElement>(null)
@@ -30,13 +31,17 @@ function Editor() {
       if (kind === 'props') {
         if (token && token !== event.data.token) return
         token = event.data.token
+        const locale = normalizeLocale(data.locale)
+        // The slash menu is portaled to <body>, so the language and direction belong to the whole frame.
+        document.documentElement.lang = intlLocale(locale)
+        document.documentElement.dir = isRtlLocale(locale) ? 'rtl' : 'ltr'
         document.documentElement.classList.toggle('dark', Boolean(data.dark))
         document.documentElement.style.colorScheme = data.dark ? 'dark' : 'light'
         document.body.toggleAttribute('data-ds-dark-theme', Boolean(data.dark))
         for (const [key, value] of Object.entries(data.theme ?? {})) {
           if (Object.hasOwn(HOST_THEME_PROPERTIES, key) && typeof value === 'string') document.documentElement.style.setProperty(key, value)
         }
-        setProps({ ...data, resolveExternalValue: synchronized.current.prepareHostUpdate(data.value, data.acknowledgedRevision ?? 0) })
+        setProps({ ...data, locale, resolveExternalValue: synchronized.current.prepareHostUpdate(data.value, data.acknowledgedRevision ?? 0) })
       } else if (event.data.token === token) {
         if (kind === 'focus') actions.current?.focus()
         if (kind === 'insert-image' || kind === 'insert-attachment') {
@@ -135,7 +140,7 @@ function Editor() {
     observer.observe(root.current)
     return () => observer.disconnect()
   }, [Boolean(props)])
-  return props && <div ref={root} lang={props.locale} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
+  return props && <div ref={root} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
     <style>{jotStyles}</style>
     <RichEditor value={props.value} resolveExternalValue={props.resolveExternalValue} locale={props.locale} readOnly={props.readOnly}
       resolveAttachmentUrl={image} onChange={value => send('change', synchronized.current.edited(value))} onBlur={() => send('blur')}

@@ -6,10 +6,13 @@ import type { Editor } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
 import { ActionMenu, type ActionMenuItem } from './ActionMenu.js'
 import { JotActionIcon } from './icons.js'
+import { translator, type JotLocale } from './i18n.js'
 import { selectedTable, tableActionAllowed, tableActionTransaction, type TableAction, type TableTarget } from './table-actions.js'
 
 interface ChromeGeometry {
-  column: number; row: number; bottom: number; middle: number; right: number
+  /** The table's end edge, where the append-column button and table options sit: left of the table in RTL. */
+  rtl: boolean
+  column: number; row: number; bottom: number; middle: number; end: number
   columnStart: number; columnWidth: number; rowStart: number; rowHeight: number
 }
 interface TableChrome { mount: HTMLElement; geometry: ChromeGeometry }
@@ -23,7 +26,8 @@ export function tableGutter(shell: Element): number {
 const equalGeometry = (a: ChromeGeometry, b: ChromeGeometry) => Object.keys(a).every(key => a[key as keyof ChromeGeometry] === b[key as keyof ChromeGeometry])
 
 /** A React portal into the TableView's non-document controls, not a document node. */
-export function TableControls({ editor, readOnly, en }: { editor: Editor; readOnly: boolean; en: boolean }) {
+export function TableControls({ editor, readOnly, locale }: { editor: Editor; readOnly: boolean; locale: JotLocale }) {
+  const t = translator(locale)
   const target = selectedTable(editor.state)
   const current = useRef<TableTarget | null>(target)
   current.current = target
@@ -34,6 +38,7 @@ export function TableControls({ editor, readOnly, en }: { editor: Editor; readOn
   const [notice, setNotice] = useState('')
 
   useEffect(() => { setNotice('') }, [target?.tablePos, target?.table])
+  // Also measured again when the locale changes: its direction mirrors the table without resizing it.
   useLayoutEffect(() => {
     if (!target || readOnly) { setChrome(null); return }
     const shell = editor.view.nodeDOM(target.tablePos)
@@ -57,12 +62,14 @@ export function TableControls({ editor, readOnly, en }: { editor: Editor; readOn
       const visibleLeft = Math.max(tableBounds.left, area.left)
       const visibleRight = Math.min(tableBounds.right, area.right)
       const clampX = (x: number) => Math.max(gutter, Math.min(bounds.width - gutter - 28, x))
+      const rtl = shell.ownerDocument.defaultView?.getComputedStyle(shell).direction === 'rtl'
       const geometry: ChromeGeometry = {
+        rtl,
         column: clampX(cellBounds.left + cellBounds.width / 2 - bounds.left - 14),
         row: Math.max(gutter, rowBounds.top + rowBounds.height / 2 - bounds.top - 14),
         bottom: tableBounds.bottom - bounds.top,
         middle: visibleLeft - bounds.left + Math.max(0, visibleRight - visibleLeft) / 2 - 14,
-        right: Math.min(bounds.width - gutter, visibleRight - bounds.left),
+        end: rtl ? Math.max(0, visibleLeft - bounds.left - gutter) : Math.min(bounds.width - gutter, visibleRight - bounds.left),
         columnStart: Math.max(gutter, cellBounds.left - bounds.left),
         columnWidth: Math.max(0, Math.min(cellBounds.right, area.right) - Math.max(cellBounds.left, area.left)),
         rowStart: cellBounds.top - bounds.top,
@@ -82,7 +89,7 @@ export function TableControls({ editor, readOnly, en }: { editor: Editor; readOn
       observer?.disconnect(); viewport.removeEventListener('scroll', measure); win?.removeEventListener('resize', measure)
       delete shell.dataset.jotTableActive
     }
-  }, [editor, target?.tablePos, target?.table, target?.top, target?.bottom, target?.left, target?.right, readOnly])
+  }, [editor, target?.tablePos, target?.table, target?.top, target?.bottom, target?.left, target?.right, readOnly, locale])
 
   if (!target || readOnly || !chrome) return null
   const run = (action: TableAction) => {
@@ -90,7 +97,7 @@ export function TableControls({ editor, readOnly, en }: { editor: Editor; readOn
     if (readOnly || !editor.isEditable) return
     const transaction = tableActionTransaction(editor.state, target, action)
     if (!transaction) {
-      if (action !== 'fit') setNotice(en ? 'This change exceeds the note or table limit.' : '已达到表格或笔记容量上限，无法继续添加。')
+      if (action !== 'fit') setNotice(t('This change exceeds the note or table limit.'))
       editor.commands.focus()
       return
     }
@@ -103,42 +110,47 @@ export function TableControls({ editor, readOnly, en }: { editor: Editor; readOn
     icon: danger ? 'trash' : action === 'fit' ? 'table' : 'plus',
   })
   const range = (start: number, end: number) => end === start + 1 ? `${start + 1}` : `${start + 1}–${end}`
-  const columnLabel = en ? `Columns ${range(target.left, target.right)} actions` : `第 ${range(target.left, target.right)} 列操作`
-  const rowLabel = en ? `Rows ${range(target.top, target.bottom)} actions` : `第 ${range(target.top, target.bottom)} 行操作`
+  const columns = { range: range(target.left, target.right) }
+  const rows = { range: range(target.top, target.bottom) }
+  const columnLabel = target.right - target.left === 1 ? t('Column {range} actions', columns) : t('Columns {range} actions', columns)
+  const rowLabel = target.bottom - target.top === 1 ? t('Row {range} actions', rows) : t('Rows {range} actions', rows)
   const canRow = tableActionAllowed(editor.state, target, 'append-row')
   const canColumn = tableActionAllowed(editor.state, target, 'append-column')
-  const disabledTitle = en ? 'Table or note capacity limit reached' : '已达到表格或笔记容量上限'
+  const disabledTitle = t('Table or note capacity limit reached')
   const geometry = chrome.geometry
-  return createPortal(<div className="jot-table-chrome" role="group" aria-label={en ? 'Edit table' : '编辑表格'}>
+  // The stylesheet places the row controls at the physical left; in RTL the table starts at the right.
+  const rowSide = geometry.rtl ? { left: 'auto', right: 0 } : {}
+  return createPortal(<div className="jot-table-chrome" role="group" aria-label={t('Edit table')}>
     <span className="jot-table-column-indicator" aria-hidden="true" style={{ left: geometry.columnStart, width: geometry.columnWidth }} />
-    <span className="jot-table-row-indicator" aria-hidden="true" style={{ top: geometry.rowStart, height: geometry.rowHeight }} />
+    <span className="jot-table-row-indicator" aria-hidden="true" style={{ top: geometry.rowStart, height: geometry.rowHeight,
+      ...geometry.rtl ? { left: 'auto', right: 'calc(var(--jot-table-gutter) - 2px)' } : {} }} />
     <span className="jot-table-column-menu" style={{ left: geometry.column }}>
       <ActionMenu key={`column:${menuKey}`} triggerLabel={columnLabel} items={[
-        item(en ? 'Insert column before' : '在前面添加列', 'column-before'),
-        item(en ? 'Insert column after' : '在后面添加列', 'column-after'),
-        item(en ? `Delete ${target.right - target.left} column(s)` : `删除 ${target.right - target.left} 列`, 'column-delete', true),
+        item(t('Insert column before'), 'column-before'),
+        item(t('Insert column after'), 'column-after'),
+        item(t('Delete {count} columns', { count: target.right - target.left }), 'column-delete', true),
       ]} />
     </span>
-    <span className="jot-table-row-menu" style={{ top: geometry.row }}>
+    <span className="jot-table-row-menu" style={{ top: geometry.row, ...rowSide }}>
       <ActionMenu key={`row:${menuKey}`} triggerLabel={rowLabel} items={[
-        item(en ? 'Insert row above' : '在上方添加行', 'row-before'),
-        item(en ? 'Insert row below' : '在下方添加行', 'row-after'),
-        item(en ? `Delete ${target.bottom - target.top} row(s)` : `删除 ${target.bottom - target.top} 行`, 'row-delete', true),
+        item(t('Insert row above'), 'row-before'),
+        item(t('Insert row below'), 'row-after'),
+        item(t('Delete {count} rows', { count: target.bottom - target.top }), 'row-delete', true),
       ]} />
     </span>
-    <span className="jot-table-options" style={{ left: geometry.right, right: 'auto' }}>
-      <ActionMenu key={`table:${menuKey}`} triggerLabel={en ? 'Table options' : '表格选项'} triggerIcon="table" items={[
-        item(en ? 'Auto fit to available width' : '自动适应宽度', 'fit'),
-        item(en ? 'Delete table' : '删除表格', 'delete', true),
+    <span className="jot-table-options" style={{ left: geometry.end, right: 'auto' }}>
+      <ActionMenu key={`table:${menuKey}`} triggerLabel={t('Table options')} triggerIcon="table" items={[
+        item(t('Auto fit to available width'), 'fit'),
+        item(t('Delete table'), 'delete', true),
       ]} />
     </span>
     <button type="button" className="jot-icon-btn jot-table-append-column" disabled={!canColumn}
-      aria-label={en ? 'Append column at end of table' : '在表格末尾添加列'} title={canColumn ? en ? 'Append column' : '在表格末尾添加列' : disabledTitle}
-      style={{ top: geometry.row, left: geometry.right, right: 'auto' }} onMouseDown={event => event.preventDefault()} onClick={() => run('append-column')}>
+      aria-label={t('Append column at end of table')} title={canColumn ? t('Append column') : disabledTitle}
+      style={{ top: geometry.row, left: geometry.end, right: 'auto' }} onMouseDown={event => event.preventDefault()} onClick={() => run('append-column')}>
       <JotActionIcon name="plus" />
     </button>
     <button type="button" className="jot-icon-btn jot-table-append-row" disabled={!canRow}
-      aria-label={en ? 'Append row at end of table' : '在表格末尾添加行'} title={canRow ? en ? 'Append row' : '在表格末尾添加行' : disabledTitle}
+      aria-label={t('Append row at end of table')} title={canRow ? t('Append row') : disabledTitle}
       style={{ top: geometry.bottom, left: geometry.middle }} onMouseDown={event => event.preventDefault()} onClick={() => run('append-row')}>
       <JotActionIcon name="plus" />
     </button>
