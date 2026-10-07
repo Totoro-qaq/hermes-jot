@@ -472,7 +472,7 @@ export default {
     'Replace with (empty deletes)': 'Remplacer par (vide pour supprimer)',
     'Replace all': 'Tout remplacer',
     Insert: 'Insérer',
-    '↑↓ choose · Enter insert · Esc close': '↑↓ choisir · Enter insérer · Esc fermer',
+    '↑↓ choose · Enter insert · Esc close': '↑↓ choisir · Entrée insérer · Esc fermer',
     Text: 'Texte',
     'Image or file': 'Image ou fichier',
     'To-do: {name}': 'Tâche\u00a0: {name}',
