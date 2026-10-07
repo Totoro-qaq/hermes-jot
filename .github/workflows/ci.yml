@@ -2,13 +2,20 @@ name: Checks
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -28,3 +35,15 @@ jobs:
       - run: python -m unittest discover -s tests_py -v
       - run: python scripts/package.py
       - run: python scripts/check_package.py
+
+  ci:
+    name: CI
+    if: always()
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every platform to pass
+        env:
+          RESULT: ${{ needs.checks.result }}
+        run: test "$RESULT" = success

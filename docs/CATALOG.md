@@ -1,6 +1,6 @@
 # Catalog preparation
 
-Nothing has been submitted or published. The user will decide whether to create a GitHub repository.
+Repository: https://github.com/Totoro-qaq/hermes-jot. Catalog acceptance is separate from repository publication; the entry is submitted to NousResearch/hermes-agent for maintainer review.
 
 The Hermes edition is English-first: `README.md`, catalog copy and primary screenshots use English; `README.zh-CN.md` and a Chinese UI option remain available. Demo note content is English and does not replace existing notes.
 
@@ -12,7 +12,7 @@ Before submitting:
 - Run all domain/integration checks and `hermes plugins validate . --install-deps --json` on the exact packaged tree.
 - Verify no credentials, diagnostics, machine names, personal paths or real conversation content enter tracked files/screenshots.
 - Commit the compiled `desktop/plugin.js`, `runtime/worker.cjs`, `runtime/editor.html`, schemas, font/license assets and Python adapter.
-- After the user authorizes a public repository, push the reviewed commit and substitute its real URL and full 40-character SHA in the catalog entry.
+- Push the reviewed commit and substitute its full 40-character SHA in the catalog entry.
 - The entry must disclose the Node subprocess, profile-owned local notes, explicit default-application file opening and opaque editor frame. No updater, model credentials or runtime core patching.
 - Submit one catalog YAML PR to NousResearch/hermes-agent. A package passing validation is not proof of maintainer acceptance.
 

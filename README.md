@@ -6,7 +6,7 @@
 
 **Keep notes, checklists and documents beside Hermes. Edit them yourself, and invite your agent when useful.**
 
-> Local candidate: native macOS Desktop and agent checks completed. Public repository creation and catalog submission remain a separate decision. See [validation](docs/VALIDATION.md) for scope and platform limits.
+> Catalog submission pending. Native macOS Desktop and agent checks are recorded in [validation](docs/VALIDATION.md), together with platform limits.
 
 ## Features
 
@@ -36,16 +36,17 @@ AI collaboration starts off. Every Jot tool checks the switch, and the tools can
 
 Notes are separated by Hermes profile and stored in the host-owned `plugin-data/jot/` directory, outside the plugin installation. Hermes owns model configuration and credentials. Jot needs no extra API key and does not pass keys to its note engine. The tool-access switch does not replace operating-system filesystem permissions.
 
-## Local installation
+## Installation
 
-This is currently a local development package. The package includes compiled UI and engine files, so end users do not run npm install.
+Install directly from this repository while catalog review is pending. The repository includes compiled UI and engine files, so end users do not run npm install or need an npm package.
 
 Requirements: a recent Hermes Desktop/plugin SDK and Hermes-managed Node.js 22.19+. See [validation](docs/VALIDATION.md) for the tested host.
 
-1. Put the complete package in `plugins/jot/` under the active Hermes data directory.
-2. Run `hermes plugins validate /path/to/jot`.
-3. Run `hermes plugins enable jot --no-allow-tool-override`.
-4. Rescan and enable the Desktop component in Capabilities → Plugins. An already-running backend may need a restart or plugin reload.
+```sh
+hermes plugins install https://github.com/Totoro-qaq/hermes-jot
+```
+
+Follow the installer prompts, then rescan and enable the Desktop component in Capabilities → Plugins. If the backend is disabled, run `hermes plugins enable jot --no-allow-tool-override`. An already-running backend may need a restart or plugin reload.
 
 The Python backend and Desktop component have separate enable switches. Jot's own AI collaboration switch controls its note tools while keeping human editing available.
 

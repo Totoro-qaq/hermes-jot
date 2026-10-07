@@ -6,7 +6,7 @@
 
 **在 Hermes 旁边记下想法、待办和文档。人随时编辑，需要时让 agent 帮忙。**
 
-> 本地候选版：已完成 macOS 真实桌面与 agent 验收。公开仓库和目录提交留待确认；验收范围及平台限制见[验证记录](docs/VALIDATION.md)。
+> 官方目录收录待审核。macOS 真实桌面与 agent 验收结果，以及平台限制见[验证记录](docs/VALIDATION.md)。
 
 ## 可以做什么
 
@@ -38,14 +38,15 @@ AI 协作默认关闭。六个 Jot 工具每次调用都会检查开关；工具
 
 ## 当前安装方式
 
-现在只提供本地开发包。安装包包含已构建的界面和笔记引擎，运行时不需要再次执行 npm install。
+目录审核期间可直接从本仓库安装。仓库包含已构建的界面和笔记引擎，用户不需要执行 npm install，也不依赖 npm 包发布。
 
 要求：近期 Hermes Desktop / 插件 SDK、Hermes 管理的 Node.js 22.19+。当前验证基线见[验证记录](docs/VALIDATION.md)。
 
-1. 将完整插件目录放到当前 Hermes 数据目录的 `plugins/jot/`。
-2. 执行 `hermes plugins validate /path/to/jot`。
-3. 执行 `hermes plugins enable jot --no-allow-tool-override`。
-4. 在 Desktop 的“技能与工具 → 插件”重新扫描并启用 Jot 的桌面部分；已有后端进程可能需要重启或重新加载插件。
+```sh
+hermes plugins install https://github.com/Totoro-qaq/hermes-jot
+```
+
+按安装器提示操作，然后在 Desktop 的“技能与工具 → 插件”重新扫描并启用 Jot 的桌面部分。若后端未启用，执行 `hermes plugins enable jot --no-allow-tool-override`；已有后端进程可能需要重启或重新加载插件。
 
 Python 后端和 Desktop 界面是两个独立开关。Jot 内的“允许 AI 协作”只控制笔记工具，不影响人工编辑。
 

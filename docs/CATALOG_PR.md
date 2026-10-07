@@ -2,7 +2,7 @@
 
 Title: **Add Jot: editable notes for Hermes Desktop**
 
-Replace the owner, repository and exact commit in `catalog-entry.yaml.in` only after the repository has been approved and published. Use that same immutable commit for screenshot URLs. Recheck the catalog name before submission.
+Replace the exact commit in `catalog-entry.yaml.in` after its checks pass on the public repository. Use that same immutable commit for screenshot URLs. Recheck the catalog name before submission.
 
 ---
 
