@@ -1,5 +1,5 @@
 /** Host-neutral tool definition; the Hermes registrar consumes the generated JSON schemas. */
-type Field = { type: string; description?: string; required?: boolean }
+type Field = { type: string; description?: string; required?: boolean; items?: Record<string, unknown> }
 export interface JotToolDefinition {
   name: string
   description: string
@@ -22,7 +22,7 @@ export function validateToolArgs(tool: JotToolDefinition, args: unknown): assert
   for (const [name, value] of Object.entries(args)) {
     const field = tool.parameters[name]
     if (!field) throw new Error(`Unknown argument: ${name}`)
-    if (field.type === 'integer' ? !Number.isSafeInteger(value) : typeof value !== field.type) {
+    if (field.type === 'integer' ? !Number.isSafeInteger(value) : field.type === 'array' ? !Array.isArray(value) : typeof value !== field.type) {
       throw new Error(`Invalid ${name}: expected ${field.type}.`)
     }
   }
