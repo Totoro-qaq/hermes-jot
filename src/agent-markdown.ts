@@ -3,7 +3,7 @@
  * back. Anything the subset cannot express is still written readably, and
  * agentMarkdownRoundTrips decides whether a text rewrite would keep formatting.
  */
-import { docFromMarkdown, validateRichDoc, type RichDoc, type RichMark, type RichNode } from './model.js'
+import { MAX_TEXT_LENGTH, boundedString, docFromMarkdown, docFromText, validateRichDoc, type RichDoc, type RichMark, type RichNode } from './model.js'
 
 // Inner to outer, so a combined mark still reads as nested Markdown. The
 // underscore forms parse the same and keep a run readable next to a literal *.
@@ -142,10 +142,22 @@ export function agentMarkdownRoundTrips(doc: RichDoc): boolean {
   } catch { return false }
 }
 
-/** True when a plain-text rewrite (format "plain") reproduces the note: unformatted paragraphs only. */
+/**
+ * Agent text in format "plain": every line is a literal paragraph. Blank lines
+ * separate paragraphs, as in the Markdown jot_read returns, and are not kept.
+ */
+export function docFromAgentText(text: string): RichDoc {
+  boundedString(text, MAX_TEXT_LENGTH, 'text')
+  return docFromText(text.replace(/\r\n?/gu, '\n').replace(/\n{2,}/gu, '\n'))
+}
+
+/**
+ * True when writing the note back from its agent Markdown with format "plain"
+ * reproduces it, ignoring spacing paragraphs and editor-only defaults: in
+ * practice, unformatted paragraphs without line breaks.
+ */
 export function plainTextRoundTrips(doc: RichDoc): boolean {
   try {
-    return validateRichDoc(doc).content.every(node => node.type === 'paragraph'
-      && (node.content ?? []).every(child => child.type === 'text' && !canonicalMarks(child.marks)))
+    return comparable(docFromAgentText(docToAgentMarkdown(doc))) === comparable(doc)
   } catch { return false }
 }

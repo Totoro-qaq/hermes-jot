@@ -82,6 +82,19 @@ test('format "plain" replacement is guarded against flattening Markdown structur
   assert.equal(updated.revision, plain.revision + 1)
 })
 
+test('format "plain" reads blank lines as jot_read\'s paragraph separators, so writing back what was read changes nothing', async t => {
+  const { store, run } = await tools(t)
+  for (const lines of ['milk\neggs\nbread', '1. not a list\n# not heading\nend']) {
+    const note = await store.createNote({ title: 'L', content: docFromText(lines) })
+    const read = await run('jot_read', { id: note.id })
+    assert.equal(read.markdown, lines.replaceAll('\n', '\n\n'))
+    const updated = await run('jot_update', { id: note.id, revision: note.revision, text: read.markdown, format: 'plain' })
+    assert.deepEqual((await store.getNote(note.id)).content, docFromText(lines), lines)
+    await run('jot_update', { id: note.id, revision: updated.revision, appendText: 'x\n\n\ny', format: 'plain' })
+    assert.deepEqual((await store.getNote(note.id)).content, docFromText(lines + '\nx\ny'), 'blank lines only separate')
+  }
+})
+
 test('tool schemas describe edits as an array and validation checks arrays', async t => {
   const { list } = await tools(t)
   const update = list.find(tool => tool.name === 'jot_update')!

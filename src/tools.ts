@@ -1,7 +1,7 @@
 import { defineTool } from './tool-definition.js'
 import type { JotStore } from './store.js'
-import { StoreError, docFromMarkdown, docFromText, documentTasks, setDocumentTask, type Note, type RichDoc } from './model.js'
-import { agentMarkdownRoundTrips, docToAgentMarkdown, plainTextRoundTrips } from './agent-markdown.js'
+import { StoreError, docFromMarkdown, documentTasks, setDocumentTask, type Note, type RichDoc } from './model.js'
+import { agentMarkdownRoundTrips, docFromAgentText, docToAgentMarkdown, plainTextRoundTrips } from './agent-markdown.js'
 import { MAX_EDITS, applyTextEdits } from './agent-edits.js'
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
@@ -29,9 +29,9 @@ function textFormat(value: unknown): TextFormat {
   if (value === 'plain') return 'plain'
   throw new StoreError('INVALID_INPUT', 'format must be "markdown" or "plain".')
 }
-const toDocument = (text: string, format: TextFormat): RichDoc => format === 'plain' ? docFromText(text) : docFromMarkdown(text)
+const toDocument = (text: string, format: TextFormat): RichDoc => format === 'plain' ? docFromAgentText(text) : docFromMarkdown(text)
 
-const FORMAT_HELP = 'Markdown: # headings, - and 1. lists, - [ ] tasks, > quotes, ``` code, --- rules, | tables |, **bold**, *italic*, `code`, ~~strike~~, [links](https://…). format "plain" keeps lines literal.'
+const FORMAT_HELP = 'Markdown: # headings, - and 1. lists, - [ ] tasks, > quotes, ``` code, --- rules, | tables |, **bold**, *italic*, `code`, ~~strike~~, [links](https://…). format "plain" keeps each line literal as a paragraph; blank lines only separate.'
 const conflict = (expected: number, current: number) =>
   new StoreError('REVISION_CONFLICT', `Note changed; expected revision ${expected}, current revision ${current}`)
 

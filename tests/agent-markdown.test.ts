@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Editor } from '@tiptap/core'
 import { createJotExtensions } from '../src/client/editor-extensions.js'
-import { agentMarkdownRoundTrips, docToAgentMarkdown, plainTextRoundTrips } from '../src/agent-markdown.js'
+import { agentMarkdownRoundTrips, docFromAgentText, docToAgentMarkdown, plainTextRoundTrips } from '../src/agent-markdown.js'
 import { docFromMarkdown, docFromText, validateRichDoc, type RichDoc, type RichMark, type RichNode } from '../src/model.js'
 
 const text = (value: string, ...marks: RichMark[]): RichNode => marks.length ? { type: 'text', text: value, marks } : { type: 'text', text: value }
@@ -125,6 +125,10 @@ test('content the Markdown subset cannot express is readable but never claims a 
 
 test('plain-text replacement keeps formatting only for unformatted paragraphs', () => {
   assert.equal(plainTextRoundTrips(docFromText('a\n\n# literal')), true)
+  const lines = docFromText('milk\neggs\nbread')
+  assert.equal(plainTextRoundTrips(lines), true)
+  assert.deepEqual(docFromAgentText(docToAgentMarkdown(lines)), lines, 'jot_read\'s blank lines only separate paragraphs')
+  assert.deepEqual(docFromAgentText('a\r\n\r\nb\n\n\nc'), docFromText('a\nb\nc'))
   assert.equal(plainTextRoundTrips(docFromMarkdown('# Heading')), false)
   assert.equal(plainTextRoundTrips(doc(p(text('b', { type: 'bold' })))), false)
   assert.equal(plainTextRoundTrips(doc(p(text('a'), { type: 'hardBreak' }, text('b')))), false)
