@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { JotApiError } from '../src/client/api.js'
+import { describeError } from '../src/client/errors.js'
 import { IMPORT_MAX_BYTES, importFileProblem, mergeImportResults, summarizeImport } from '../src/client/import-notes.js'
 import type { ImportResult } from '../src/client/types.js'
 
@@ -36,4 +38,20 @@ test('unsupported or oversized files are refused before upload', () => {
   assert.equal(importFileProblem({ name: 'd.zip', size: 10 }, 'en'), null)
   assert.match(importFileProblem({ name: 'e.pdf', size: 10 }, 'en')!, /Markdown, text or ZIP/)
   assert.match(importFileProblem({ name: 'f.zip', size: IMPORT_MAX_BYTES + 1 }, 'zh')!, /超过 100 MB/)
+})
+
+test('server import failures say what to change instead of a generic retry', () => {
+  const failure = (code: string, message: string, locale: 'en' | 'zh' = 'en') => describeError(new JotApiError(400, code, message), locale)
+  assert.equal(failure('INVALID_INPUT', 'The file is not a readable ZIP archive'), 'This ZIP file is damaged or cannot be read.')
+  assert.equal(failure('INVALID_INPUT', 'The ZIP archive is damaged'), 'This ZIP file is damaged or cannot be read.')
+  assert.equal(failure('INVALID_INPUT', 'A ZIP import holds at most 5,000 notes; import one folder at a time'), 'The ZIP holds too many notes. Import one folder at a time.')
+  assert.equal(failure('INVALID_INPUT', 'A ZIP import links at most 10,000 attachments'), 'The ZIP links too many attachments. Import one folder at a time.')
+  assert.equal(failure('INVALID_INPUT', 'The archive expands to more than 100 MiB'), 'The ZIP expands to more than 100 MB. Import one folder at a time.')
+  assert.equal(failure('INVALID_INPUT', 'The ZIP archive has more than 20,000 entries'), 'The ZIP contains too many files. Import one folder at a time.')
+  assert.equal(failure('INVALID_INPUT', 'Import files are limited to 100 MiB'), 'Import files are limited to 100 MB.')
+  assert.equal(failure('IMPORT_TOO_LARGE', 'Imports are limited to 100 MiB.'), 'Import files are limited to 100 MB.')
+  assert.equal(failure('IMPORT_TOO_LARGE', 'Imports are limited to 100 MiB.', 'zh'), '导入文件不能超过 100 MB。')
+  assert.equal(failure('INVALID_INPUT', 'A ZIP import holds at most 5,000 notes; import one folder at a time', 'zh'), 'ZIP 中的笔记太多，请按文件夹分批导入。')
+  // Note-size messages keep their own wording.
+  assert.equal(failure('INVALID_INPUT', 'Document exceeds the byte limit'), 'This note is over the size limit. Split it into several notes.')
 })

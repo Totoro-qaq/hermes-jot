@@ -276,12 +276,14 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   useEffect(() => {
     mounted.current = true
     // A failed poll shows an error; the next successful poll clears only that error.
+    // Rethrowing tells the live refresh to retry soon instead of waiting for the slow fallback.
     const pollError = { current: '' }
     const poll = () => {
       return refresh().then(() => { if (mounted.current) setError(current => current && current === pollError.current ? '' : current) }, cause => {
         if (!mounted.current) return
         pollError.current = describeError(cause, locale)
         setError(pollError.current)
+        throw cause
       })
     }
     // Hidden panels and background windows do not need a live library.

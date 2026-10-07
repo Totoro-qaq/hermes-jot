@@ -9,6 +9,8 @@ export const LIVE_REFRESH = {
   pollMs: 3000,
   /** Events can be missed (tools run from a messaging gateway reach no Desktop), so they keep a slow poll. */
   signalPollMs: 30_000,
+  /** A failed refresh (backend starting, brief disconnect) retries soon even when events are on. */
+  retryMs: 3000,
   /** One agent turn often writes several times in a row. */
   coalesceMs: 150,
 } as const
@@ -35,6 +37,7 @@ export function createChangeEmitter(): ChangeSignal & { emit(): void } {
 }
 
 export interface LiveRefreshOptions {
+  /** Rejects (or throws) when the refresh failed, so the next attempt comes sooner. */
   refresh: () => unknown
   /** Hidden windows skip polls and change events; becoming visible calls wake(). */
   isVisible: () => boolean
@@ -44,8 +47,9 @@ export interface LiveRefreshOptions {
 
 /**
  * Refreshes once now, then on change events (coalesced), on wake() (window
- * focus, visibility) and on a fallback poll. At most one refresh runs at a
- * time; triggers during it queue a single follow-up.
+ * focus, visibility) and on a fallback poll, which comes after retryMs instead
+ * when the last refresh failed. At most one refresh runs at a time; triggers
+ * during it queue a single follow-up.
  */
 export function startLiveRefresh({ refresh, isVisible, signal, timer = defaultTimer }: LiveRefreshOptions) {
   const pollMs = signal ? LIVE_REFRESH.signalPollMs : LIVE_REFRESH.pollMs
@@ -54,13 +58,13 @@ export function startLiveRefresh({ refresh, isVisible, signal, timer = defaultTi
   let again = false
   let cancelPoll: (() => void) | null = null
   let cancelPending: (() => void) | null = null
-  const schedulePoll = () => {
+  const schedulePoll = (ms: number) => {
     cancelPoll?.()
     cancelPoll = timer(() => {
       cancelPoll = null
       if (isVisible()) run()
-      else schedulePoll()
-    }, pollMs)
+      else schedulePoll(ms)
+    }, ms)
   }
   const run = () => {
     if (disposed) return
@@ -68,14 +72,14 @@ export function startLiveRefresh({ refresh, isVisible, signal, timer = defaultTi
     if (running) { again = true; return }
     running = true
     cancelPoll?.(); cancelPoll = null
-    const done = () => {
+    const done = (failed: boolean) => {
       running = false
       if (disposed) return
       if (again && isVisible()) { again = false; run() }
-      else { again = false; schedulePoll() }
+      else { again = false; schedulePoll(failed ? Math.min(pollMs, LIVE_REFRESH.retryMs) : pollMs) }
     }
-    try { Promise.resolve(refresh()).then(done, done) }
-    catch { done() }
+    try { Promise.resolve(refresh()).then(() => done(false), () => done(true)) }
+    catch { done(true) }
   }
   const request = () => {
     if (disposed || !isVisible()) return

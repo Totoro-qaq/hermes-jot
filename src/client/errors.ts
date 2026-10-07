@@ -27,6 +27,7 @@ const BY_CODE: Record<string, Copy> = {
   ATTACHMENT_OPEN_TIMEOUT: ['应用响应超时，请下载后打开。', 'The app took too long to respond. Download the file instead.'],
   ATTACHMENT_OPEN_CANCELLED: ['已取消打开附件。', 'Opening was cancelled.'],
   ATTACHMENT_PREVIEW_FAILED: ['附件预览没能准备好，请下载后查看。', 'The preview could not be prepared. Download the file instead.'],
+  IMPORT_TOO_LARGE: ['导入文件不能超过 100 MB。', 'Import files are limited to 100 MB.'],
   INVALID_EXPORT_FORMAT: ['请选择 TXT、Markdown、PDF 或 Word。', 'Choose TXT, Markdown, PDF or Word.'],
 }
 
@@ -37,6 +38,14 @@ const BEFORE_CODE: Array<[RegExp, Copy]> = [
 
 /** Some INVALID_INPUT messages carry a limit the user can act on. */
 const BY_MESSAGE: Array<[RegExp, Copy]> = [
+  // Markdown import: retrying the same file cannot help, so say what to change.
+  [/not a readable ZIP|ZIP archive is damaged/iu, ['这个 ZIP 文件已损坏或无法读取。', 'This ZIP file is damaged or cannot be read.']],
+  [/ZIP import holds at most/iu, ['ZIP 中的笔记太多，请按文件夹分批导入。', 'The ZIP holds too many notes. Import one folder at a time.']],
+  [/ZIP import links at most/iu, ['ZIP 中引用的附件太多，请按文件夹分批导入。', 'The ZIP links too many attachments. Import one folder at a time.']],
+  [/archive expands to more than/iu, ['ZIP 解压后超过 100 MB，请按文件夹分批导入。', 'The ZIP expands to more than 100 MB. Import one folder at a time.']],
+  [/ZIP archive has more than [\d,]+ entries/iu, ['ZIP 中的文件太多，请按文件夹分批导入。', 'The ZIP contains too many files. Import one folder at a time.']],
+  [/Import files are limited to/iu, ['导入文件不能超过 100 MB。', 'Import files are limited to 100 MB.']],
+  [/Import Markdown, text or ZIP files/iu, ['请选择 Markdown、文本或 ZIP 文件。', 'Choose Markdown, text or ZIP files.']],
   [/byte limit|too long|too complex|too many entries|size limit/iu, ['笔记内容超过容量上限，请拆分成几条笔记。', 'This note is over the size limit. Split it into several notes.']],
   [/Folder name already exists/iu, ['已经有同名文件夹了。', 'A folder with this name already exists.']],
   [/exceed(?:s)? 200 MiB/iu, ['附件或导出文件超过 200 MiB，请按文件夹分批导出。', 'Attachments or the export exceed 200 MiB. Export one folder at a time.']],

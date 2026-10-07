@@ -106,6 +106,33 @@ test('a failing refresh keeps the schedule alive', async () => {
   live.dispose()
 })
 
+test('with change events a failed refresh retries soon, then the fallback poll slows again', async () => {
+  let failing = true
+  const { clock, calls, live } = setup({ signal: true, refresh: () => failing ? Promise.reject(new Error('starting')) : undefined })
+  await settle()
+  assert.equal(calls(), 1)
+  await clock.advance(LIVE_REFRESH.retryMs - 1)
+  assert.equal(calls(), 1)
+  await clock.advance(1)
+  assert.equal(calls(), 2, 'a failure is not left for the 30-second fallback')
+  failing = false
+  await clock.advance(LIVE_REFRESH.retryMs)
+  assert.equal(calls(), 3)
+  await clock.advance(LIVE_REFRESH.signalPollMs - 1)
+  assert.equal(calls(), 3, 'a success restores the slow fallback')
+  await clock.advance(1)
+  assert.equal(calls(), 4)
+  live.dispose()
+})
+
+test('a synchronous throw counts as a failure too', async () => {
+  const { clock, calls, live } = setup({ signal: true, refresh: () => { throw new Error('offline') } })
+  await settle()
+  await clock.advance(LIVE_REFRESH.retryMs)
+  assert.equal(calls(), 2)
+  live.dispose()
+})
+
 test('dispose unsubscribes and cancels every timer', async () => {
   const { clock, emitter, calls, live } = setup({ signal: true })
   await settle()
