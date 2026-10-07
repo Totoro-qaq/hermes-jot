@@ -6,6 +6,7 @@ import type { NoteDraft } from './drafts.js'
 import type { JotPersistence } from '../hermes/persistence.js'
 import type { ReactNode } from 'react'
 import { editHumanDraft, takeUntouchedFreshNote } from './draft-lifecycle.js'
+import { acceptRemoteAppend, planRemoteAppend, remoteBase, type RemoteBase } from './remote-append.js'
 import { RichEditor, type RichEditorActions } from '../hermes/EmbeddedEditor.js'
 import { appShortcut } from './app-shortcuts.js'
 import { ActionMenu, type ActionMenuEntry } from './ActionMenu.js'
@@ -65,6 +66,7 @@ interface SaveStatus { phase: SavePhase; message?: string }
 type ListView = 'recent' | 'all' | 'trash'
 interface Toast { id: number; text: string; action?: { label: string; run: () => void } }
 
+const REMOTE_APPEND_TIMEOUT_MS = 10_000
 const LIST_WIDTH = { min: 220, max: 480, initial: 280 }
 const defaultPreferences = {
   get(key: string): string | null { try { return localStorage.getItem(key) } catch { return null } },
@@ -115,6 +117,12 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const currentOpenRequest = useRef(openNoteRequest)
   currentOpenRequest.current = openNoteRequest
   const inFlight = useRef(new Map<string, Promise<boolean>>())
+  /** The saved version each open draft started from, so an agent's append can be told apart from an edit. */
+  const remoteBases = useRef(new Map<string, RemoteBase>())
+  /** At most one remote append per note waits on the editor; it settles to whether the editor took it. */
+  const remoteMerges = useRef(new Map<string, Promise<boolean>>())
+  const editorNote = useRef<string | null>(null)
+  const mergeRemote = useRef<(remote: Note, saving?: boolean) => boolean>(() => false)
   /** Notes this panel created that are still untouched; leaving one removes it instead of keeping clutter. */
   const freshNotes = useRef(new Set<string>())
   const focusTitle = useRef(false)
@@ -204,6 +212,12 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     if (mounted.current) setDraft(stored)
   }, [])
 
+  const rememberBase = useCallback((note: Note) => {
+    const bases = remoteBases.current
+    for (const id of bases.keys()) if (id !== note.id && id !== draftRef.current?.noteId && !drafts.current.get(id)?.dirty) bases.delete(id)
+    bases.set(note.id, remoteBase(note))
+  }, [])
+
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current
     const source = apiRef.current
@@ -230,19 +244,24 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       return
     }
     const result = reconcileDraft(current, remote)
-    if (result.remoteChanged && !inFlight.current.has(current.noteId)) setStatus(current.noteId, { phase: 'conflict' })
-    if (result.draft !== current && !inFlight.current.has(current.noteId)) installDraft(result.draft)
-  }, [installDraft, setStatus])
+    if (result.remoteChanged && !inFlight.current.has(current.noteId) && !mergeRemote.current(remote)) setStatus(current.noteId, { phase: 'conflict' })
+    if (result.draft !== current && !inFlight.current.has(current.noteId)) { rememberBase(remote); installDraft(result.draft) }
+  }, [installDraft, rememberBase, setStatus])
 
   const saveDraft = useCallback((id: string): Promise<boolean> => {
     const existing = inFlight.current.get(id)
     if (existing) return existing
+    // The editor is taking an agent's append; save on top of it once it has.
+    const merging = remoteMerges.current.get(id)
+    if (merging) return merging.then(merged => merged ? saveDraft(id) : false)
     const submitted = drafts.current.get(id)
     if (!submitted?.dirty) return Promise.resolve(true)
     setStatus(id, { phase: 'saving' })
+    const source = apiRef.current
     const operation = (async () => {
       try {
-        const saved = await saveHumanDraft(apiRef.current, submitted)
+        const saved = await saveHumanDraft(source, submitted)
+        rememberBase(saved)
         const current = drafts.current.get(id) ?? submitted
         const next = savedDraft(current, submitted, saved)
         drafts.current.set(id, next)
@@ -262,6 +281,14 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       } catch (cause) {
         const conflict = cause instanceof JotApiError && cause.status === 409
           || typeof cause === 'object' && cause !== null && 'status' in cause && cause.status === 409
+        if (conflict && mounted.current) {
+          // An agent append that raced this save goes into the editor; the next autosave carries both.
+          const latest = await source.getNote(id).catch(() => null)
+          if (latest && mounted.current && source === apiRef.current && mergeRemote.current(latest, false)) {
+            setStatus(id, { phase: 'dirty' })
+            return false
+          }
+        }
         setStatus(id, { phase: conflict ? 'conflict' : 'error', message: describeError(cause, locale) })
         return false
       } finally {
@@ -271,7 +298,58 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     })()
     inFlight.current.set(id, operation)
     return operation
-  }, [installDraft, refresh, setStatus, locale])
+  }, [installDraft, rememberBase, refresh, setStatus, locale])
+
+  /** A dirty open draft meets a newer saved version: merge an agent's append, otherwise keep the draft as a conflict. */
+  const followRemote = (remote: Note) => {
+    const current = draftRef.current
+    if (!current || current.noteId !== remote.id || remote.revision < current.baseRevision || inFlight.current.has(remote.id)) return
+    if (reconcileDraft(current, remote).remoteChanged && !mergeRemote.current(remote)) setStatus(remote.id, { phase: 'conflict' })
+  }
+
+  // True when the editor is taking (or already taking) the remote change, so no conflict is shown.
+  mergeRemote.current = (remote, saving = inFlight.current.has(remote.id)) => {
+    const started = draftRef.current
+    const actions = editorActions.current
+    const plan = planRemoteAppend({ draft: started, base: remoteBases.current.get(remote.id), remote, saving,
+      pending: remoteMerges.current.has(remote.id), editorReady: Boolean(actions?.appendBlocks) && editorNote.current === remote.id })
+    if (plan.action === 'pending') return true
+    if (plan.action !== 'merge' || !started || !actions?.appendBlocks) return false
+    const generation = selectionGeneration.current
+    const merge = (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const appended = await Promise.race([
+        Promise.resolve().then(() => actions.appendBlocks!(plan.blocks)).catch(() => false),
+        new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), REMOTE_APPEND_TIMEOUT_MS) }),
+      ]).finally(() => clearTimeout(timer))
+      remoteMerges.current.delete(remote.id)
+      if (!mounted.current) return false
+      // The editor's change message arrives before its acknowledgement, so the draft already
+      // holds the appended blocks. Only that confirmation may move the draft onto the remote
+      // revision; otherwise the next save would silently remove the agent's text.
+      const next = appended === true && selectionGeneration.current === generation ? acceptRemoteAppend(draftRef.current, started, remote) : null
+      if (!next) {
+        const kept = drafts.current.get(remote.id)
+        if (kept?.dirty && kept.baseRevision < remote.revision && !inFlight.current.has(remote.id)) setStatus(remote.id, { phase: 'conflict' })
+        return false
+      }
+      rememberBase(remote)
+      installDraft(next)
+      setStatus(remote.id, { phase: 'dirty' })
+      setSnapshot(previous => {
+        if (!previous) return previous
+        const updated = { ...previous, notes: previous.notes.map(note => note.id === remote.id && note.revision < remote.revision ? remote : note) }
+        snapshotRef.current = updated
+        return updated
+      })
+      // The note may have moved again while the editor applied this append.
+      const latest = snapshotRef.current?.notes.find(note => note.id === remote.id)
+      if (latest && latest.revision > remote.revision) followRemote(latest)
+      return true
+    })()
+    remoteMerges.current.set(remote.id, merge)
+    return true
+  }
 
   useEffect(() => {
     mounted.current = true
@@ -354,12 +432,13 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     if (previous && previous.noteId !== note.id) releaseFreshNote(previous.noteId)
     const stored = handoff ? readHandoffDraft(note, handoff.draftId, sharedDraftStorage) : readDraft(note, drafts.current.get(note.id))
     const result = reconcileDraft(stored, note)
+    if (result.draft.baseRevision === note.revision) rememberBase(note)
     installDraft(result.draft)
     setStatus(note.id, { phase: result.remoteChanged ? 'conflict' : result.draft.dirty ? 'dirty' : 'saved' })
     setCompactEditor(true)
     setSearchOpen(false)
     setError('')
-  }, [installDraft, saveDraft, setStatus, onNoteRequestHandled, releaseFreshNote])
+  }, [installDraft, rememberBase, saveDraft, setStatus, onNoteRequestHandled, releaseFreshNote])
 
   useEffect(() => {
     const note = noteRequests.current.consume(openNoteRequest, snapshot?.notes ?? null,
@@ -451,10 +530,11 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     const result = receiveLatestDraft(requested, draftRef.current, note, sharedDraftStorage)
     const cached = drafts.current.get(requested.noteId)
     if (sameDraftGeneration(cached, requested)) {
+      rememberBase(note)
       drafts.current.set(requested.noteId, draftFromNote(note))
       setStatus(requested.noteId, { phase: 'saved' })
     }
-    if (result.replaced && result.draft) installDraft(result.draft)
+    if (result.replaced && result.draft) { rememberBase(note); installDraft(result.draft) }
     else if (draftRef.current?.noteId === requested.noteId && draftRef.current.dirty) {
       setStatus(requested.noteId, { phase: draftRef.current.baseRevision === note.revision && !note.deletedAt ? 'dirty' : 'conflict' })
     }
@@ -652,6 +732,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
         const saved = await api.updateNote(id, { revision: before.revision, folderId: moveFolder || null })
         const active = draftRef.current
         if (active?.noteId === id && active.baseRevision === before.revision) {
+          rememberBase(saved)
           installDraft({ ...active, baseRevision: saved.revision,
             folderId: active.folderId === before.folderId ? saved.folderId : active.folderId })
         }
@@ -788,6 +869,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     const cached = drafts.current.get(saved.id)
     const result = cached ? reconcileDraft(cached, saved) : { draft: draftFromNote(saved), remoteChanged: false }
     const next = result.draft
+    if (next.baseRevision === saved.revision) rememberBase(saved)
     drafts.current.set(saved.id, next)
     if (draftRef.current?.noteId === saved.id) installDraft(next)
     setStatus(saved.id, { phase: result.remoteChanged ? 'conflict' : next.dirty ? 'dirty' : 'saved' })
@@ -1188,7 +1270,12 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
               onExternalLink={url => void perform(async () => { await api.openExternal?.(url) })}
               resolveAttachmentUrl={api.resolveAttachmentUrl} key={draft.noteId} value={draft.content} locale={locale} readOnly={selectedDeleted}
               onRequestAttachment={selectedDeleted || uploadBusy ? undefined : () => fileInput.current?.click()}
-              onReady={actions => { releaseEditorFocus(); editorActions.current = actions }}
+              onReady={actions => {
+                releaseEditorFocus(); editorActions.current = actions; editorNote.current = actions ? draft.noteId : null
+                // An append that arrived while the editor was loading can merge now.
+                const remote = actions ? snapshotRef.current?.notes.find(note => note.id === draft.noteId) : undefined
+                if (remote) followRemote(remote)
+              }}
               onChange={(content, revision) => {
                 if (revision !== undefined) setEditorRevisions(previous => ({ ...previous, [draft.noteId]: revision }))
                 patchDraft({ content })

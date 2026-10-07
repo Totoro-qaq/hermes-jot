@@ -32,6 +32,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
   const theme = useTheme()
   const post = (kind: string, data?: unknown) => frame.current?.contentWindow?.postMessage({ channel: 'jot-editor', token, kind, data }, '*')
   const insert = (kind: string, data: Record<string, unknown>) => new Promise<boolean>(resolve => {
+    // A removed frame can never acknowledge; the caller keeps its own fallback.
+    if (!frame.current?.contentWindow) { resolve(false); return }
     const id = ++insertSequence.current
     pendingInsert.current.set(id, resolve)
     post(kind, { ...data, id })
@@ -64,6 +66,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
       focus: () => { frame.current?.focus(); post('focus') },
       insertImage: (attachmentId, alt) => insert('insert-image', { attachmentId, alt }),
       insertAttachment: (attachmentId, caption) => insert('insert-attachment', { attachmentId, caption }),
+      appendBlocks: blocks => insert('append-blocks', { blocks }),
       handleShortcut: action => { post('shortcut', action); return true },
     }
     let live = true

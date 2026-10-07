@@ -11,13 +11,14 @@ import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './edit
 import { createJotExtensions, managedAttachmentUrl, refreshTaskCheckboxLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
 import { insertManagedAttachment } from './editor-attachments.js'
+import { appendEditorBlocks } from './editor-append.js'
 import { JotActionIcon, type JotActionIconName } from './icons.js'
 import { TableControls } from './TableControls.js'
 import { HIGHLIGHT_COLORS, TEXT_COLORS } from '../model.js'
 import { applySlashItem, filterSlashItems, slashLabel, slashMatch, type SlashItem, type SlashMatch } from './slash-menu.js'
 import { ariaShortcut, shortcutLabel, SHORTCUTS, withShortcut, type ShortcutId } from './shortcut-labels.js'
 import { jotStyles } from './styles.js'
-import type { JotLocale, RichDoc } from './types.js'
+import type { JotLocale, RichDoc, RichNode } from './types.js'
 
 export interface RichEditorProps {
   value: RichDoc
@@ -40,6 +41,8 @@ export interface RichEditorActions {
   handleShortcut: (action: EditorShortcut, target?: EventTarget | null) => boolean
   insertImage: (attachmentId: string, alt?: string) => boolean | Promise<boolean>
   insertAttachment: (attachmentId: string, caption?: string) => boolean | Promise<boolean>
+  /** Append another author's saved blocks at the end; true only once the document contains them. */
+  appendBlocks?: (blocks: RichNode[]) => boolean | Promise<boolean>
   /** Move the caret into the body, for example after Enter in the title. */
   focus: () => void
 }
@@ -190,9 +193,26 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       // An upload may finish while the user types in a modal; keep that focus.
       return insertManagedAttachment(current, type, id, description)
     }
+    const appendBlocks = (blocks: RichNode[]) => {
+      const target = instance.current
+      if (!target || callbacks.current.readOnly || !Array.isArray(blocks)) return false
+      if (!target.view.composing && !composing.current) return appendEditorBlocks(target, blocks)
+      // Never disturb text inside an input method's composition; apply right after it ends.
+      const deadline = Date.now() + 4000
+      return new Promise<boolean>(resolve => {
+        const wait = () => {
+          if (instance.current !== target || callbacks.current.readOnly) resolve(false)
+          else if (!target.view.composing && !composing.current) resolve(appendEditorBlocks(target, blocks))
+          else if (Date.now() > deadline) resolve(false)
+          else setTimeout(wait, 50)
+        }
+        setTimeout(wait, 50)
+      })
+    }
     callbacks.current.onReady?.({ handleShortcut: (action, target) => shortcutHandler.current(action, target),
       insertImage: (id, alt) => insertAttachment('image', id, alt),
       insertAttachment: (id, caption) => insertAttachment('attachment', id, caption),
+      appendBlocks,
       focus: () => { instance.current?.commands.focus('start') } })
     editor.view.dom.setAttribute('data-empty', editor.getText().trim() ? 'false' : 'true')
     render(version => version + 1)

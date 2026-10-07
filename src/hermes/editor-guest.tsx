@@ -44,6 +44,13 @@ function Editor() {
             : actions.current?.insertAttachment(data.attachmentId, data.caption)
           void Promise.resolve(inserted ?? false).then(value => send('inserted', { id: data.id, inserted: value }))
         }
+        if (kind === 'append-blocks') {
+          // The change message is sent synchronously by the edit, so the host has the
+          // appended document before it reads this acknowledgement.
+          let appended: boolean | Promise<boolean> | undefined = false
+          try { if (Array.isArray(data?.blocks)) appended = actions.current?.appendBlocks?.(data.blocks) } catch { appended = false }
+          void Promise.resolve(appended ?? false).then(value => value === true, () => false).then(value => send('inserted', { id: data.id, inserted: value }))
+        }
         if (kind === 'shortcut') {
           if (data === 'find') actions.current?.focus()
           actions.current?.handleShortcut(data, document.activeElement)
