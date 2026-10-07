@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as sdk from '@hermes/plugin-sdk'
+import { HOST_THEME_PROPERTIES } from './theme.js'
 import type { RichEditorActions, RichEditorProps } from '../client/RichEditor.js'
 
 const { SandboxedFrame, useTheme } = sdk
@@ -14,11 +15,7 @@ export interface EmbeddedEditorProps extends RichEditorProps {
   onSelectionChange?: (text: string | null) => void
 }
 
-const THEME_KEYS = ['--dsw-alias-bg-layer-1', '--dsw-alias-bg-base', '--dsw-alias-label-primary',
-  '--dsw-alias-label-secondary', '--dsw-alias-border-l3', '--dsw-alias-border-l2',
-  '--dsw-alias-interactive-bg-hover', '--dsw-static-blue-450', '--dsw-alias-state-business-primary',
-  '--dsw-font-s-14', '--dsw-font-s-strong-14', '--dsw-font-xs-13', '--dsw-font-xs-12',
-  '--dsw-alias-state-error-primary', '--dsw-font-family-mono']
+const THEME_KEYS = Object.keys(HOST_THEME_PROPERTIES)
 
 /** Only the rich editor runs in the opaque frame; credentials and host APIs never enter it. */
 export function RichEditor(props: EmbeddedEditorProps) {
@@ -44,13 +41,15 @@ export function RichEditor(props: EmbeddedEditorProps) {
     const style = getComputedStyle(root.current)
     const size = Number.parseFloat(style.fontSize)
     const fonts = Number.isFinite(size) ? {
+      '--dsh-content-font-size': `${size}px`,
+      '--dsw-font-markdown-base': `400 ${size}px/1.65 ${style.fontFamily}`,
       '--dsw-font-s-14': `400 ${size}px/1.5 ${style.fontFamily}`,
       '--dsw-font-s-strong-14': `600 ${size}px/1.5 ${style.fontFamily}`,
       '--dsw-font-xs-13': `400 ${size * 12 / 13}px/1.5 ${style.fontFamily}`,
-      '--dsw-font-xs-12': `400 ${size * 11 / 13}px/1.5 ${style.fontFamily}`,
+      '--dsw-font-xxs-12': `400 ${size * 11 / 13}px/1.5 ${style.fontFamily}`,
     } : {}
     post('props', { value: callbacks.current.value, acknowledgedRevision: callbacks.current.acknowledgedRevision ?? 0, locale: callbacks.current.locale,
-      readOnly: callbacks.current.readOnly, dark: theme.resolvedMode === 'dark',
+      readOnly: callbacks.current.readOnly, dark: (theme.renderedMode ?? theme.resolvedMode) === 'dark',
       theme: { ...Object.fromEntries(THEME_KEYS.map(key => [key, style.getPropertyValue(key)])), ...fonts } })
   }
   useEffect(() => {
@@ -101,7 +100,14 @@ export function RichEditor(props: EmbeddedEditorProps) {
       callbacks.current.onSelectionChange?.(null)
     }
   }, [token])
-  useEffect(sync, [props.value, props.acknowledgedRevision, props.locale, props.readOnly, source, theme.resolvedMode, theme.themeName, theme.theme])
+  useEffect(sync, [props.value, props.acknowledgedRevision, props.locale, props.readOnly, source])
+  useEffect(() => {
+    // Hermes paints its CSS variables in the provider's effect. Child effects
+    // run first, so reading immediately can send the previous palette to the
+    // frame. Read after that paint; no host DOM mutation or theme polling.
+    const repaint = requestAnimationFrame(sync)
+    return () => cancelAnimationFrame(repaint)
+  }, [theme.resolvedMode, theme.renderedMode, theme.themeName, theme.theme])
   return <div ref={root} className="jot-embedded-editor" style={{ minWidth: 0, width: '100%' }}>
     {error ? <p role="alert">{error}</p> : source ? <SandboxedFrame ref={frame} src={source}
       title={props.locale === 'zh' ? '随记正文编辑器' : 'Jot document editor'} onLoad={sync}

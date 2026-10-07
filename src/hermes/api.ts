@@ -98,7 +98,8 @@ export function createHermesApi(ctx: PluginContext, ownsProfile: () => boolean,
       assertOwner()
       const response = check(await ctx.rest<Response>(`/attachments/${encodeURIComponent(id)}/preview`))
       const item = response.data.attachment as AttachmentInfo
-      const url = item.kind === 'image' || item.kind === 'pdf' ? await inline(id) : ''
+      // Hermes owns document previews. Only images need bytes for Jot's inline display.
+      const url = item.kind === 'image' ? await inline(id) : ''
       return { ...item, path: response.data.path, url, downloadUrl: url }
     },
     getAttachmentCapabilities: async () => { assertOwner(); return ctx.rest('/attachment-capabilities') },

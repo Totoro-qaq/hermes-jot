@@ -48,6 +48,10 @@ hermes plugins validate . --json
 
 完整本地检查并打包：`python3 scripts/check.py --package`。开发目录同步到宿主使用 `python3 scripts/install_local.py --home /path/to/hermes-home --replace`；已有本地安装会先备份，笔记数据不移动。请复制实际目录，Desktop 的统一包扫描不会跟随开发符号链接。
 
+## 主题
+
+工作台、正文编辑器和弹窗统一跟随 Hermes 当前主题，并支持明暗模式。
+
 ## 语言
 
 Hermes 版默认使用英文。在“Sort and options → Interface language → 简体中文”切换为中文，随记会记住选择，不影响 Hermes 的语言设置。笔记内容保留你书写的语言。首页 README 和演示材料优先使用英文。

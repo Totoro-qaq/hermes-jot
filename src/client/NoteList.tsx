@@ -35,7 +35,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 /** One continuous scroll surface; only the viewport, overscan, and active keyboard row are mounted. */
 const noSelectedNotes: ReadonlySet<string> = new Set()
 
-export function NoteList({ notes, selectedId = null, onSelect, query = '', folders = [], locale = 'zh', view,
+export function NoteList({ notes, selectedId = null, onSelect, query = '', folders = [], locale = 'en', view,
   selectMode = false, selectedNoteIds = noSelectedNotes, onToggleSelection, onContextMenu, dateBasis = 'modified',
   hideFolderName = false, agentEditedIds = noSelectedNotes,
 }: NoteListProps) {

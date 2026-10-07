@@ -4,6 +4,7 @@ import { RichEditor, type RichEditorActions } from '../client/RichEditor.js'
 import type { RichDoc } from '../client/types.js'
 import { EditorSync } from './editor-sync.js'
 import { jotStyles } from '../client/styles.js'
+import { HOST_THEME_PROPERTIES } from './theme.js'
 
 let token = ''
 const imageRequests = new Map<number, (url: string) => void>()
@@ -33,7 +34,7 @@ function Editor() {
         document.documentElement.style.colorScheme = data.dark ? 'dark' : 'light'
         document.body.toggleAttribute('data-ds-dark-theme', Boolean(data.dark))
         for (const [key, value] of Object.entries(data.theme ?? {})) {
-          if (key.startsWith('--dsw-') && typeof value === 'string') document.documentElement.style.setProperty(key, value)
+          if (Object.hasOwn(HOST_THEME_PROPERTIES, key) && typeof value === 'string') document.documentElement.style.setProperty(key, value)
         }
         setProps({ ...data, value: synchronized.current.fromHost(data.value, data.acknowledgedRevision ?? 0) })
       } else if (event.data.token === token) {
@@ -127,7 +128,7 @@ function Editor() {
     observer.observe(root.current)
     return () => observer.disconnect()
   }, [Boolean(props)])
-  return props && <div ref={root} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
+  return props && <div ref={root} lang={props.locale} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
     <style>{jotStyles}</style>
     <RichEditor value={props.value} locale={props.locale} readOnly={props.readOnly}
       resolveAttachmentUrl={image} onChange={value => send('change', synchronized.current.edited(value))} onBlur={() => send('blur')}

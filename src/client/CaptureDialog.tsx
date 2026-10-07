@@ -17,7 +17,7 @@ export interface CaptureDialogProps {
 }
 
 /** Form body only: the application's shared modal owns focus, Escape, and its portal. */
-export function CaptureDialog({ notes, capturedText, source = '', currentNoteId = null, onSubmit, onClose, busy = false, error = '', locale = 'zh' }: CaptureDialogProps) {
+export function CaptureDialog({ notes, capturedText, source = '', currentNoteId = null, onSubmit, onClose, busy = false, error = '', locale = 'en' }: CaptureDialogProps) {
   const id = useId()
   const en = locale === 'en'
   const available = useMemo(() => notes.filter(note => note.deletedAt === null)

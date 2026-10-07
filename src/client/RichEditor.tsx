@@ -10,6 +10,7 @@ import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
 import { createJotExtensions, managedAttachmentUrl, refreshTaskCheckboxLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
+import { insertManagedAttachment } from './editor-attachments.js'
 import { JotActionIcon, type JotActionIconName } from './icons.js'
 import { TableControls } from './TableControls.js'
 import { HIGHLIGHT_COLORS, TEXT_COLORS } from '../model.js'
@@ -50,7 +51,7 @@ function EditorControlIcon({ name }: { name: 'format' | 'chevron' | 'todo' | 'fi
   return <JotActionIcon name={names[name]} size={16} className={`jot-editor-control-icon jot-editor-control-icon--${name}`} />
 }
 
-export function RichEditor({ value, onChange, onBlur, readOnly = false, locale = 'zh', onReady, resolveAttachmentUrl, onRequestAttachment }: RichEditorProps) {
+export function RichEditor({ value, onChange, onBlur, readOnly = false, locale = 'en', onReady, resolveAttachmentUrl, onRequestAttachment }: RichEditorProps) {
   const root = useRef<HTMLDivElement>(null)
   const mount = useRef<HTMLDivElement>(null)
   const instance = useRef<Editor | null>(null)
@@ -185,7 +186,7 @@ export function RichEditor({ value, onChange, onBlur, readOnly = false, locale =
       const current = instance.current
       if (!current || callbacks.current.readOnly || !/^[0-9a-f]{32}$/u.test(id) || description.length > 1_000) return false
       // An upload may finish while the user types in a modal; keep that focus.
-      return current.commands.insertContent({ type, attrs: { attachmentId: id, [type === 'image' ? 'alt' : 'caption']: description } })
+      return insertManagedAttachment(current, type, id, description)
     }
     callbacks.current.onReady?.({ handleShortcut: (action, target) => shortcutHandler.current(action, target),
       insertImage: (id, alt) => insertAttachment('image', id, alt),

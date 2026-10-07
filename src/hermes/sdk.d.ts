@@ -28,5 +28,5 @@ declare module '@hermes/plugin-sdk' {
   export const MessageTextContent: ComponentType<{ text: string; media?: boolean }>
   export const SandboxedFrame: ComponentType<{ src: string; title: string; style?: import('react').CSSProperties;
     onLoad?: () => void; ref?: import('react').Ref<HTMLIFrameElement> }>
-  export function useTheme(): { resolvedMode: string; themeName: string; theme: unknown }
+  export function useTheme(): { resolvedMode: string; renderedMode?: string; themeName: string; theme: unknown }
 }

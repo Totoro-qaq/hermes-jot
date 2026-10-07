@@ -1,0 +1,37 @@
+/** One adapter for the host surface, overlays and the opaque editor frame. */
+export const HOST_THEME_PROPERTIES: Readonly<Record<string, string>> = {
+  '--dsw-alias-bg-layer-1': 'var(--ui-bg-editor)',
+  '--dsw-alias-bg-base': 'var(--ui-bg-editor)',
+  '--dsw-alias-label-primary': 'var(--ui-text-primary)',
+  '--dsw-alias-label-secondary': 'var(--ui-text-secondary)',
+  '--dsw-alias-label-primary-inverted': 'var(--dt-primary-foreground)',
+  '--dsw-alias-border-l3': 'var(--ui-stroke-secondary)',
+  '--dsw-alias-border-l2': 'var(--ui-stroke-primary)',
+  '--dsw-alias-interactive-bg-hover': 'var(--ui-control-hover-background)',
+  '--dsw-alias-interactive-bg-hover-solid': 'var(--ui-control-hover-background)',
+  '--dsw-static-blue-450': 'var(--ui-accent)',
+  '--dsw-alias-state-business-primary': 'var(--ui-accent)',
+  '--dsw-alias-state-error-primary': 'var(--ui-red)',
+  '--dsw-alias-button-primary-fill': 'var(--dt-primary)',
+  '--dsw-alias-button-primary-hover': 'color-mix(in srgb,var(--dt-primary) 90%,transparent)',
+  '--dsw-alias-link': 'var(--ui-accent)',
+  '--dsw-alias-markdown-inline-code': 'var(--ui-inline-code-background)',
+  '--dsw-alias-markdown-code-block': 'var(--ui-bg-secondary)',
+  '--dsw-alias-toast-bg': 'var(--ui-bg-elevated)',
+  '--jot-toast-fg': 'var(--ui-text-primary)',
+  '--jot-toast-muted': 'var(--ui-text-secondary)',
+  '--jot-toast-hover': 'var(--ui-control-hover-background)',
+  '--jot-danger-fill': 'var(--dt-destructive)',
+  '--jot-danger-ink': 'var(--dt-destructive-foreground)',
+  '--dsw-font-family': 'var(--font-sans,system-ui)',
+  '--dsw-font-family-mono': 'var(--font-mono,monospace)',
+  '--dsw-font-s-14': '400 .8125rem/1.5 var(--font-sans,system-ui)',
+  '--dsw-font-s-strong-14': '600 .8125rem/1.5 var(--font-sans,system-ui)',
+  '--dsw-font-xs-13': '400 .75rem/1.5 var(--font-sans,system-ui)',
+  '--dsw-font-xxs-12': '400 .6875rem/1.5 var(--font-sans,system-ui)',
+  '--dsw-font-markdown-base': '400 .8125rem/1.65 var(--font-sans,system-ui)',
+  '--dsh-content-font-size': '.8125rem',
+}
+
+export const hostThemeCss = `.jot-host,.jot-top-layer{${Object.entries(HOST_THEME_PROPERTIES)
+  .map(([key, value]) => `${key}:${value}`).join(';')}}`

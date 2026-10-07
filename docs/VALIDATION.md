@@ -4,7 +4,7 @@ Date: 2026-10-07, Asia/Shanghai. These are separate evidence levels, not a blank
 
 | Layer | Evidence | Status |
 | --- | --- | --- |
-| Shared note/editor domain tests | 185 Node test cases passed at the recorded run | Passed at the recorded run |
+| Shared note/editor domain tests | 186 Node test cases passed at the recorded run | Passed at the recorded run |
 | Backend integration | Real FastAPI → Python → bundled Node engine; nine cases cover edits, revisions, undo, attachments, exports and managed native-open arguments | Passed, including real Hermes profile context; native application launch mocked |
 | Real Hermes model | `mimo-v2.6-pro` observed access denied with collaboration off. A later run against the installed real-directory package exercised all six tools: create, search, read, append, check a task and soft-delete its own synthetic note; existing notes were unchanged | Passed |
 | Rich-content preservation | Persisted pre-AI table matched the final table, including column widths; comparison uses the normalized document | Passed |
@@ -12,8 +12,9 @@ Date: 2026-10-07, Asia/Shanghai. These are separate evidence levels, not a blank
 | Permissions cleanup | Restored AI collaboration to off after acceptance | Passed |
 | Plugin admission validator | Manifest, capability probe, tool declarations, no core override, Desktop surface and security scan passed without warnings | Passed on the recorded source and extracted/installed package builds; recheck after edits |
 | Real Desktop UI | Local package loads in native Hermes; full page, English default, Chinese/English switching, note creation and save observed | Partial — remaining checks below |
-| Shortcuts, theme and tables in real host | macOS select-all/cut/paste, bold/italic/underline, undo/redo and save observed; table insertion, append actions and auto-fit observed; selected-row/column indicators visually verified at the actual table after the portal fix | Partial — binding settings, dark theme, column dragging and input stability still require verification |
-| Native attachment preview/download/open | API and argument handling tested; user gesture/application behavior requires Desktop | Pending |
+| Shortcuts, theme and tables in real host | macOS select-all/cut/paste, bold/italic/underline, undo/redo and save observed; table insertion, append actions and auto-fit observed; selected-row/column indicators visually verified at the actual table after the portal fix | Passed on macOS; three commands were bound and triggered, then restored to their original unbound defaults, title capture appended selected text, find matched body/table text, sequential table-cell input stayed intact, column width changed from auto to 284px and persisted, dark theme inspected |
+| Theme changes | Native Nous light/dark, Solarized light, Catppuccin dark and Cyberpunk dark inspected; editor colors and typography updated, Cyberpunk dialog and filled-button text remained readable | Passed on these representative built-in themes; arbitrary third-party palettes are not individually certified |
+| Native attachment preview/download/open | Native picker uploaded PNG/PDF/DOCX/TXT; sequential inserts retained all four. Hermes rendered the PDF, macOS Preview opened its managed copy, downloaded bytes matched the original | Passed for these types/actions; Hermes does not render Word (DOCX), which offers a binary warning |
 | Screenshot assets | English-first and separate Chinese real-host images, sanitized | Pending |
 | Catalog submission | Template/material preparation only; repository decision belongs to user | Not submitted |
 

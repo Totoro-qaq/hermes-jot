@@ -48,6 +48,10 @@ hermes plugins validate . --json
 
 Run `python3 scripts/check.py --package` for the complete local checks and archive. Developers can install that archive with `python3 scripts/install_local.py --home /path/to/hermes-home --replace`; existing local packages are backed up and note data stays in place. Use a real directory: Desktop unified-package discovery does not follow development symlinks.
 
+## Themes
+
+Jot follows Hermes’ active theme for the workspace, editor and dialogs, including light and dark modes.
+
 ## Language
 
 Jot starts in English. Choose **Sort and options → Interface language → 简体中文** to switch to Chinese; the choice is remembered for Jot without changing Hermes. Notes keep the language you write them in. The main README and demo materials are English-first.

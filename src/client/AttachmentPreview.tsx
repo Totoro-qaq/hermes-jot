@@ -14,7 +14,7 @@ export function attachmentOpenMessage(error: unknown, locale: JotLocale): string
   return en ? 'Could not open the file. Check its default application or download it.' : '打开失败，请检查该文件的默认应用，或下载后打开。'
 }
 
-export function AttachmentPreview({ hostPreview, onDownload, attachment, onClose, locale = 'zh', getCapabilities, onOpenNative }: {
+export function AttachmentPreview({ hostPreview, onDownload, attachment, onClose, locale = 'en', getCapabilities, onOpenNative }: {
   hostPreview?: ReactNode; onDownload?: () => Promise<void>
   attachment: AttachmentInfo; onClose: () => void; locale?: JotLocale
   getCapabilities?: () => Promise<AttachmentCapabilities>
@@ -61,7 +61,8 @@ export function AttachmentPreview({ hostPreview, onDownload, attachment, onClose
     <div className="jot-attachment-preview">
       {hostPreview}
       {attachment.kind === 'image' ? <img className="jot-attachment-preview-image" src={attachment.url} alt={attachment.name} />
-        : attachment.kind === 'pdf' ? <iframe className="jot-attachment-preview-pdf" src={attachment.url} title={attachment.name} />
+        : hostPreview ? null
+          : attachment.kind === 'pdf' ? <iframe className="jot-attachment-preview-pdf" src={attachment.url} title={attachment.name} />
           : <p>{en ? 'Preview is unavailable for this file type. Download it to open.' : '此文件类型暂不提供预览，下载后可以打开。'}</p>}
       <p className="jot-file-details">{attachment.mimeType} · {(attachment.size / 1024).toFixed(1)} KB</p>
       {nativeOpen && <p className="jot-file-details">{en

@@ -8,20 +8,12 @@ import { createControllers } from './controllers.js'
 import { createHermesApi } from './api.js'
 import { createPersistence } from './persistence.js'
 import { createLocalePreference } from './locale.js'
+import { hostThemeCss } from './theme.js'
 
 const { host, useValue, captureGatewayFileDownload, MessageTextContent } = sdk
 
 const theme = `
-.jot-host,.jot-top-layer{
- --dsw-alias-bg-layer-1:var(--ui-bg-editor);--dsw-alias-bg-base:var(--ui-bg-primary);
- --dsw-alias-label-primary:var(--ui-text-primary);--dsw-alias-label-secondary:var(--ui-text-secondary);
- --dsw-alias-border-l3:var(--ui-stroke-secondary);--dsw-alias-border-l2:var(--ui-stroke-primary);
- --dsw-alias-interactive-bg-hover:var(--ui-control-hover-background);
- --dsw-static-blue-450:var(--ui-accent);--dsw-alias-state-business-primary:var(--ui-accent);
- --dsw-font-s-14:400 .8125rem/1.5 var(--font-sans,system-ui);--dsw-font-s-strong-14:600 .8125rem/1.5 var(--font-sans,system-ui);
- --dsw-font-xs-13:400 .75rem/1.5 var(--font-sans,system-ui);--dsw-font-xs-12:400 .6875rem/1.5 var(--font-sans,system-ui);
- --dsw-alias-state-error-primary:var(--ui-red);--dsw-font-family-mono:var(--font-mono,monospace);
-}
+${hostThemeCss}
 .jot-host{height:100%;min-height:0;min-width:0;overflow:hidden;display:flex;flex-direction:column;font:var(--dsw-font-s-14);color:var(--ui-text-primary)}
 .jot-host>.jot-app{flex:1;min-height:0;height:100%;background:var(--ui-bg-editor)}
 .jot-top-layer>.jot-overlay-root{pointer-events:auto}

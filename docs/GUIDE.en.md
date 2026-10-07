@@ -18,7 +18,7 @@ Limits are 20 MiB per file, 20 files per gesture, and 500 MiB / 1,000 files per 
 
 PNG, JPEG, GIF and WebP display inline, with a 10,000-pixel edge / 40-million-pixel limit. Attachment contents are not indexed or OCR-processed.
 
-The attachment panel offers inline display, the Hermes file-preview entry, download and default-application opening. Native opening uses a managed copy on the backend computer; external edits do not sync back into the note. Download instead on a headless host.
+Images display inline. Documents use the Hermes file-preview entry, download and default-application opening; Jot does not embed a second PDF reader. The tested Hermes build renders PDFs but shows a binary-file warning for Word (DOCX), so use Download or Open in default app for Word documents. Native opening uses a managed copy on the backend computer; external edits do not sync back into the note. Download instead on a headless host.
 
 Removing a card does not immediately delete its file. Permanently deleting notes or emptying Trash removes only attachments no other note references.
 
@@ -52,3 +52,7 @@ There is no one-click cross-host migration or backup-restore flow yet. The docum
 The editor runs inside Hermes' official opaque-origin sandbox without host storage, credentials, native bridge or networking. Its SDK parent mediates the permitted editing/file operations and profile scope. It does not inspect or patch Hermes' private UI.
 
 A prebuilt Node engine handles storage and export through request-scoped subprocesses and no listening port. Node.js 22.19+ is required; the official Hermes PM prepares dependencies for a normal installation.
+
+## Themes
+
+Jot follows Hermes’ semantic surface, text, border, accent, button, code and toast tokens. The same mapping is sent to the isolated editor after the host applies a theme, so switching palettes does not require reopening a note. The Jot brand icon retains its colors; user-selected text and highlight colors remain document content, with a dark-mode display treatment. Representative native checks cover Nous, Solarized, Catppuccin and Cyberpunk; third-party themes still determine the quality and contrast of their own tokens.
