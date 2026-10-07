@@ -282,6 +282,17 @@ class UnchangedPolls(Base):
         with patch.object(backend, "state_etag", side_effect=RuntimeError("boom")):
             self.assertEqual(self.post_rpc("/state", etag=tag)["status"], 304)
 
+    def test_windows_hosts_always_ask_the_engine(self):
+        # An unlocked Windows read handle would block the engine's atomic rename of jot.json.
+        self.post_rpc("/notes", "POST", {"title": "t", "content": doc("x")})
+        tag = self.post_rpc("/state")["headers"]["etag"]
+        with patch.object(backend, "UNLOCKED_READS", False):
+            self.assertIsNone(backend.state_etag(self.directory))
+            with patch.object(subprocess, "run", side_effect=AssertionError("engine")) as run:
+                with self.assertRaises(AssertionError):
+                    self.client.post("/api/plugins/jot/rpc", json={"path": "/state", "method": "GET", "etag": tag})
+            self.assertTrue(run.called)
+
 
 class Import(Base):
     def setUp(self):

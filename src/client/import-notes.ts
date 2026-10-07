@@ -15,15 +15,27 @@ export function mergeImportResults(results: readonly ImportResult[]): ImportResu
   }
 }
 
+/** The engine lists at most 1,000 skipped files and then one "N more files were skipped." entry. */
+function skippedFiles(result: ImportResult): { listed: ImportResult['skipped']; total: number } {
+  let omitted = 0
+  const listed = result.skipped.filter(item => {
+    const more = item.path === '…' ? /^(\d+) more files? (?:were|was) skipped/u.exec(item.reason) : null
+    if (more) omitted += Number(more[1])
+    return !more
+  })
+  return { listed, total: listed.length + omitted }
+}
+
 /** A toast line, and the skipped files as "path: reason" lines for the error area. */
 export function summarizeImport(result: ImportResult, locale: JotLocale): { toast: string; details: string } {
   const en = locale === 'en'
   const notes = en ? `Imported ${result.notes} ${result.notes === 1 ? 'note' : 'notes'}` : `已导入 ${result.notes} 条笔记`
-  const count = result.skipped.length
-  const toast = count ? `${notes}${en ? ` · ${count} skipped` : `，跳过 ${count} 个`}` : notes
-  if (!count) return { toast, details: '' }
-  const lines = result.skipped.slice(0, DETAIL_LINES).map(item => `${item.path}: ${item.reason}`)
-  if (count > DETAIL_LINES) lines.push(en ? `…and ${count - DETAIL_LINES} more` : `……还有 ${count - DETAIL_LINES} 个`)
+  const { listed, total } = skippedFiles(result)
+  const toast = total ? `${notes}${en ? ` · ${total} skipped` : `，跳过 ${total} 个`}` : notes
+  if (!total) return { toast, details: '' }
+  const lines = listed.slice(0, DETAIL_LINES).map(item => `${item.path}: ${item.reason}`)
+  const rest = total - Math.min(listed.length, DETAIL_LINES)
+  if (rest > 0) lines.push(en ? `…and ${rest} more` : `……还有 ${rest} 个`)
   return { toast, details: [en ? 'Skipped while importing:' : '导入时跳过：', ...lines].join('\n') }
 }
 

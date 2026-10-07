@@ -57,7 +57,8 @@ def _route(path: str) -> str:
 async def _unchanged_state(etag: str):
     """The engine's exact 304 result for an unchanged library, computed without starting Node.
 
-    Atomic renames make unlocked reads safe: a racing write yields a different tag and falls through.
+    On POSIX, atomic renames make unlocked reads safe: a racing write yields a different tag and falls
+    through. Windows hosts always ask the engine (see backend.UNLOCKED_READS).
     """
     try:
         tag = await asyncio.to_thread(_backend.state_etag)

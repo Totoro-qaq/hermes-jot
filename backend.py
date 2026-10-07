@@ -140,12 +140,19 @@ def _strict_utf8(source: bytes) -> bool:
         return False
 
 
+# Windows opens files without FILE_SHARE_DELETE, so an unlocked read here could make the engine's
+# atomic rename of jot.json fail mid-save. Only POSIX hosts answer unchanged polls without Node.
+UNLOCKED_READS = os.name != "nt"
+
+
 def state_etag(directory: Path | None = None) -> str | None:
     """The ETag the engine's GET /state would return now, or None when only the engine can decide.
 
     Node decodes both files as UTF-8 before hashing, so only strictly valid UTF-8 hashes to the same
     tag here; anything else, and any problem with jot.json, defers to the engine.
     """
+    if not UNLOCKED_READS:
+        return None
     root = Path(directory if directory is not None else data_directory()).resolve()
     try:
         state = _read_limited(root / STATE_FILENAME, MAX_STATE_BYTES)

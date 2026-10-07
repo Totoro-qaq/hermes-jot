@@ -166,3 +166,20 @@ test('a state read that started before an import is retried rather than returned
   assert.equal((await reading).notes.length, 1)
   assert.equal(reads, 2)
 })
+
+test('an HTTP error from the host keeps the backend error code', async () => {
+  const { hostRestError } = await import('../src/hermes/api.js')
+  const { describeError } = await import('../src/client/errors.js')
+  const rejected = new Error('Error invoking remote method: Error: 413: {"error":{"code":"IMPORT_TOO_LARGE","message":"Imports are limited to 100 MiB."}}')
+  const api = createHermesApi({ rest: async () => { throw rejected } } as unknown as PluginContext, () => true, () => async () => {})
+  const file = new File([new Uint8Array(4)], 'notes.zip', { type: 'application/zip' })
+  await assert.rejects(api.importNotes!(file, { folderId: null }), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, 'IMPORT_TOO_LARGE')
+    assert.equal((error as { status?: number }).status, 413)
+    assert.equal(describeError(error, 'en'), 'Import files are limited to 100 MB.')
+    return true
+  })
+  const plain = new Error('504: Gateway Timeout')
+  assert.equal(hostRestError(plain), plain)
+  assert.equal(describeError(hostRestError(new Error('504: {"error":{"code":"REQUEST_TIMEOUT","message":"Jot took too long."}}')), 'zh'), '随记处理超时，请检查当前内容后再试。')
+})

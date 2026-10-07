@@ -28,6 +28,10 @@ const BY_CODE: Record<string, Copy> = {
   ATTACHMENT_OPEN_CANCELLED: ['已取消打开附件。', 'Opening was cancelled.'],
   ATTACHMENT_PREVIEW_FAILED: ['附件预览没能准备好，请下载后查看。', 'The preview could not be prepared. Download the file instead.'],
   IMPORT_TOO_LARGE: ['导入文件不能超过 100 MB。', 'Import files are limited to 100 MB.'],
+  REQUEST_TIMEOUT: ['随记处理超时，请检查当前内容后再试。', 'Jot took too long. Check the current notes before trying again.'],
+  RUNTIME_UNAVAILABLE: ['随记的笔记引擎无法启动，请确认 Hermes 依赖（Node.js 22.19+）已准备好。', 'Jot’s note engine could not start. Check that Hermes dependencies (Node.js 22.19+) are prepared.'],
+  RUNTIME_ERROR: ['随记的笔记引擎返回了无效结果，请重试。', 'Jot’s note engine returned an invalid response. Try again.'],
+  HOST_VERSION_UNSUPPORTED: ['请更新 Hermes 后再使用随记。', 'Update Hermes to use Jot.'],
   INVALID_EXPORT_FORMAT: ['请选择 TXT、Markdown、PDF 或 Word。', 'Choose TXT, Markdown, PDF or Word.'],
 }
 
@@ -44,7 +48,7 @@ const BY_MESSAGE: Array<[RegExp, Copy]> = [
   [/ZIP import links at most/iu, ['ZIP 中引用的附件太多，请按文件夹分批导入。', 'The ZIP links too many attachments. Import one folder at a time.']],
   [/archive expands to more than/iu, ['ZIP 解压后超过 100 MB，请按文件夹分批导入。', 'The ZIP expands to more than 100 MB. Import one folder at a time.']],
   [/ZIP archive has more than [\d,]+ entries/iu, ['ZIP 中的文件太多，请按文件夹分批导入。', 'The ZIP contains too many files. Import one folder at a time.']],
-  [/Import files are limited to/iu, ['导入文件不能超过 100 MB。', 'Import files are limited to 100 MB.']],
+  [/Imports? (?:files )?are limited to/iu, ['导入文件不能超过 100 MB。', 'Import files are limited to 100 MB.']],
   [/Import Markdown, text or ZIP files/iu, ['请选择 Markdown、文本或 ZIP 文件。', 'Choose Markdown, text or ZIP files.']],
   [/byte limit|too long|too complex|too many entries|size limit/iu, ['笔记内容超过容量上限，请拆分成几条笔记。', 'This note is over the size limit. Split it into several notes.']],
   [/Folder name already exists/iu, ['已经有同名文件夹了。', 'A folder with this name already exists.']],

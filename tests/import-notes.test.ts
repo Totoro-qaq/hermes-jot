@@ -55,3 +55,11 @@ test('server import failures say what to change instead of a generic retry', () 
   // Note-size messages keep their own wording.
   assert.equal(failure('INVALID_INPUT', 'Document exceeds the byte limit'), 'This note is over the size limit. Split it into several notes.')
 })
+
+test('the toast counts files the engine left out of its skipped list', () => {
+  const listed = Array.from({ length: 1_000 }, (_, index) => ({ path: `assets/${index}.bin`, reason: 'Not linked.' }))
+  const summary = summarizeImport(result(4, [...listed, { path: '…', reason: '250 more files were skipped.' }]), 'en')
+  assert.equal(summary.toast, 'Imported 4 notes · 1250 skipped')
+  assert.ok(summary.details.endsWith('…and 1245 more'))
+  assert.ok(!summary.details.includes('…: '))
+})
