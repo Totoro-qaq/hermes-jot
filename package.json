@@ -1,6 +1,6 @@
 {
   "name": "hermes-jot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Human-editable notes and documents for Hermes Desktop, with optional agent collaboration.",
@@ -25,7 +25,8 @@
     "@tiptap/pm": "3.31.4",
     "@tiptap/starter-kit": "3.31.4",
     "docx": "9.5.1",
-    "fflate": "0.8.2",
+    "fflate": "0.8.3",
+    "markdown-it": "15.0.2",
     "pdfkit": "0.17.2"
   },
   "devDependencies": {
