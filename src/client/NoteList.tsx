@@ -107,7 +107,7 @@ export function NoteList({ notes, selectedId = null, onSelect, query = '', folde
 
   const count = notes.length
   const label = needle ? t('{count} search results', { count })
-    : view === 'trash' ? t('{count} deleted notes', { count }) : t('{count} notes', { count })
+    : view === 'trash' ? t('{count} deleted notes', { count }) : t('{count} notes in the list', { count })
 
   return <div ref={parent} className={`jot-note-list jot-virtual-note-list${needle ? ' jot-search-results' : ''}`} role="list" aria-label={label}
     tabIndex={ids.length ? -1 : 0} onKeyDown={navigate} style={{ overflowAnchor: 'none' }}>

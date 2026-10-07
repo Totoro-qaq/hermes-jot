@@ -1,10 +1,11 @@
-import { docFromText, MAX_TITLE_LENGTH, validateRichDoc } from '../model.js'
+import { docFromText, MAX_TITLE_LENGTH, validateRichDoc, type RichNode } from '../model.js'
 import type { NoteDraft } from './drafts.js'
 import { translator } from './i18n.js'
 import type { JotLocale, Note, NoteInput, RichDoc } from './types.js'
 
 export type NoteSortMode = 'modified' | 'created' | 'title'
-export interface ExcerptSource { label?: string; url?: string }
+/** A label with a link, or one `typed` field (a link or a short label, as in the string form), and the line's language. */
+export interface ExcerptSource { label?: string; url?: string; typed?: string; locale?: JotLocale }
 
 const titleCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 const segments = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
@@ -55,25 +56,33 @@ function safeSourceUrl(value: string): string | null {
   } catch { return null }
 }
 
-/** Append literal paragraphs and an optional source line, never parse captured text as HTML. */
-export function appendExcerpt(existingDoc: RichDoc, text: string, source?: string | ExcerptSource): RichDoc {
+/**
+ * Append literal paragraphs and an optional source line, never parse captured text as HTML.
+ * The "Source:" words follow `locale`, else the source's own `locale`, else English.
+ */
+export function appendExcerpt(existingDoc: RichDoc, text: string, source?: string | ExcerptSource, locale?: JotLocale): RichDoc {
   const current = validateRichDoc(existingDoc)
   const added = docFromText(text)
-  const label = (typeof source === 'string' ? source : source?.label ?? '').trim()
-  const rawUrl = (typeof source === 'string' ? source : source?.url ?? '').trim()
+  const spec: ExcerptSource = typeof source === 'string' ? { typed: source } : source ?? {}
+  const { typed } = spec
+  const label = (typed ?? spec.label ?? '').trim()
+  const rawUrl = (typed ?? spec.url ?? '').trim()
   const url = safeSourceUrl(rawUrl)
-  const sourceText = typeof source === 'string' ? label : [label, rawUrl].filter(Boolean).join(' ')
+  const sourceText = typed !== undefined ? label : [label, rawUrl].filter(Boolean).join(' ')
   const blank = current.content.length === 1 && current.content[0]?.type === 'paragraph' && !current.content[0].content?.length
   const content = [...(blank ? [] : current.content), ...added.content]
   if (sourceText) {
-    const prefix = '来源：'
+    const t = translator(locale ?? spec.locale ?? 'en')
+    // Without params the placeholder stays, so the words around it can surround a link.
+    const [before = '', after = ''] = t('Source: {source}').split('{source}')
+    const words = (value: string): RichNode[] => value ? [{ type: 'text', text: value }] : []
     if (url) {
-      const visibleUrl = typeof source === 'string' ? label : rawUrl
       content.push({ type: 'paragraph', content: [
-        { type: 'text', text: prefix + (typeof source !== 'string' && label ? `${label} ` : '') },
-        { type: 'text', text: visibleUrl, marks: [{ type: 'link', attrs: { href: url } }] },
+        ...words(before + (typed === undefined && label ? `${label} ` : '')),
+        { type: 'text', text: typed !== undefined ? label : rawUrl, marks: [{ type: 'link', attrs: { href: url } }] },
+        ...words(after),
       ] })
-    } else content.push({ type: 'paragraph', content: [{ type: 'text', text: prefix + sourceText }] })
+    } else content.push({ type: 'paragraph', content: words(before + sourceText + after) })
   }
   return validateRichDoc({ type: 'doc', content })
 }

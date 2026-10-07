@@ -1,9 +1,11 @@
 import { useId, useMemo, useState } from 'react'
 import { translator } from './i18n.js'
+import type { ExcerptSource } from './note-actions.js'
 import { noteDisplay } from './note-list.js'
 import type { JotLocale, Note } from './types.js'
 
-export interface CaptureSubmission { text: string; source?: string; targetNoteId: string | null; title?: string }
+/** `source` carries the interface language, so the saved "Source:" line reads in it. */
+export interface CaptureSubmission { text: string; source?: ExcerptSource; targetNoteId: string | null; title?: string }
 export interface CaptureDialogProps {
   notes: readonly Note[]
   capturedText: string
@@ -35,7 +37,7 @@ export function CaptureDialog({ notes, capturedText, source = '', currentNoteId 
   return <form className="jot-capture-form" onSubmit={event => {
     event.preventDefault()
     if (busy || !text.trim() || !targetAvailable) return
-    void onSubmit({ text, targetNoteId, ...(sourceText.trim() ? { source: sourceText.trim() } : {}),
+    void onSubmit({ text, targetNoteId, ...(sourceText.trim() ? { source: { typed: sourceText.trim(), locale } } : {}),
       ...(targetNoteId === null && title.trim() ? { title: title.trim() } : {}) })
   }}>
     <div className="jot-capture-field">

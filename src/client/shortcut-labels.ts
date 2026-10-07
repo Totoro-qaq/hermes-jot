@@ -71,7 +71,7 @@ export function shortcutHelpSections(locale: JotLocale, apple = isApplePlatform(
       row(t('To-do list'), key('taskList')),
       row(t('Quote / code block'), key('blockquote'), key('codeBlock')),
     ] },
-    { title: t('Text'), rows: [
+    { title: t('Inline styles'), rows: [
       row(t('Strikethrough'), key('strike')),
       row(t('Inline code'), key('code')),
       row(t('Highlight'), key('highlight')),

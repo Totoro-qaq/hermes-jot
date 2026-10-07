@@ -15,9 +15,15 @@ export function attachmentOpenMessage(error: unknown, locale: JotLocale): string
   return t('Could not open the file. Check its default application or download it.')
 }
 
-/** Kilobytes with one decimal, in the reader's digits and unit spelling ("1.5 kB", "1,5 ko"). */
-const fileSize = (bytes: number, locale: JotLocale): string => new Intl.NumberFormat(intlLocale(locale),
-  { style: 'unit', unit: 'kilobyte', unitDisplay: 'short', minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(bytes / 1024)
+/**
+ * Binary kilobytes (1024 bytes) with one decimal: "1.5 KB", "1,5 Ko". Intl's `kilobyte` unit means 1000 bytes,
+ * so only the number goes through Intl and the unit comes from the catalog.
+ */
+export function fileSize(bytes: number, locale: JotLocale): string {
+  const t = translator(locale)
+  const size = new Intl.NumberFormat(intlLocale(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(bytes / 1024)
+  return t('{size} KB', { size })
+}
 
 export function AttachmentPreview({ hostPreview, onDownload, attachment, onClose, locale = 'en', getCapabilities, onOpenNative }: {
   hostPreview?: ReactNode; onDownload?: () => Promise<void>
