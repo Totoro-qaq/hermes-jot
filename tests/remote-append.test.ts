@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { Editor } from '@tiptap/core'
-import { history } from '@tiptap/pm/history'
+import { closeHistory, history, undoDepth } from '@tiptap/pm/history'
+import { Fragment, Slice } from '@tiptap/pm/model'
+import { AllSelection, TextSelection } from '@tiptap/pm/state'
 import { createJotExtensions } from '../src/client/editor-extensions.js'
 import { appendEditorBlocks } from '../src/client/editor-append.js'
 import { acceptRemoteAppend, appendedBlocks, planRemoteAppend, remoteBase, sameJson } from '../src/client/remote-append.js'
@@ -179,10 +181,11 @@ test('the editor joins appended items into its final list in one undo-neutral tr
   assert.deepEqual(updates, [true])
   assert.deepEqual(withoutTrailing(editor.getJSON() as RichDoc),
     validateRichDoc(doc(p('Hi Intro'), tasks(['done', true], 'open', 'new'), p('After'))))
-  // Undo steps back through the user's typing and leaves the other author's text.
-  editor.commands.undo()
+  // The merge is not an undo step, and the history starts again after it.
+  assert.equal(undoDepth(editor.state), 0)
+  assert.equal(editor.commands.undo(), false)
   assert.deepEqual(withoutTrailing(editor.getJSON() as RichDoc),
-    validateRichDoc(doc(p('Intro'), tasks(['done', true], 'open', 'new'), p('After'))))
+    validateRichDoc(doc(p('Hi Intro'), tasks(['done', true], 'open', 'new'), p('After'))))
 })
 
 test('the editor keeps the Tiptap trailing empty paragraph last but appends after a real one', t => {
@@ -268,4 +271,80 @@ test('the editor-kept empty paragraph after a final list does not split agent ch
   t.after(() => editor.destroy())
   assert.equal(appendEditorBlocks(editor, [tasks('two')]), true)
   assert.ok(sameJson(validateRichDoc(editor.getJSON()), validateRichDoc(remote)))
+})
+
+/** A headless editor with undo history, the way StarterKit's UndoRedo runs in the app. */
+const withHistory = (content: RichDoc) => {
+  const editor = headless(content)
+  editor.registerPlugin(history())
+  return editor
+}
+const undoAll = (editor: Editor) => { let steps = 0; while (steps < 50 && editor.commands.undo()) steps++; return steps }
+const redoAll = (editor: Editor) => { let steps = 0; while (steps < 50 && editor.commands.redo()) steps++; return steps }
+const json = (editor: Editor) => withoutTrailing(editor.getJSON() as RichDoc)
+const agentBlocks = (base: RichDoc, agent: RichDoc) =>
+  appendedBlocks(base, validateRichDoc(doc(...appendBlocks(base.content as never, agent.content as never) as RichNode[])) as RichDoc)!
+
+test('undo and redo after a merge into a list the user pasted keep the agent items', t => {
+  const base = doc(p('Intro'))
+  const editor = withHistory(base)
+  t.after(() => editor.destroy())
+  // The user pastes a list at the end of the last paragraph, then adds another list as a separate step.
+  const end = editor.state.doc.content.size - 1
+  editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, end))
+    .replaceSelection(new Slice(Fragment.from(editor.schema.nodeFromJSON(bullets('mine one', 'mine two'))), 0, 0)))
+  editor.view.dispatch(closeHistory(editor.state.tr))
+  editor.view.dispatch(editor.state.tr.insert(editor.state.doc.content.size, editor.schema.nodeFromJSON(bullets('mine three'))))
+  assert.match(JSON.stringify(json(editor)), /mine one.*mine two.*mine three/u)
+  assert.equal(undoDepth(editor.state), 2)
+  // The agent's items join the user's final list.
+  assert.equal(appendEditorBlocks(editor, agentBlocks(base, doc(bullets('AGENT one', 'AGENT two')))), true)
+  const merged = json(editor)
+  assert.match(JSON.stringify(merged.content!.at(-1)), /mine three.*AGENT one.*AGENT two/u)
+  assert.equal(undoAll(editor), 0)
+  assert.equal(redoAll(editor), 0)
+  assert.deepEqual(json(editor), merged)
+})
+
+test('undo and redo after a merge that replaced a blank document keep the agent blocks', t => {
+  const editor = withHistory(doc(p('Mine one'), p('Mine two')))
+  t.after(() => editor.destroy())
+  // The user clears the note, so the agent's text replaces the blank document.
+  editor.view.dispatch(editor.state.tr.setSelection(new AllSelection(editor.state.doc)).deleteSelection())
+  assert.deepEqual(editor.getJSON(), blank())
+  assert.equal(appendEditorBlocks(editor, agentBlocks(blank(), doc(p('AGENT'), tasks('agent task')))), true)
+  const merged = validateRichDoc(doc(p('AGENT'), tasks('agent task')))
+  assert.deepEqual(json(editor), merged)
+  for (let attempt = 0; attempt < 3; attempt++) { editor.commands.undo(); editor.commands.redo() }
+  assert.equal(undoAll(editor), 0)
+  assert.deepEqual(json(editor), merged)
+})
+
+test('the user can undo and redo their own edits made after a merge', t => {
+  const editor = withHistory(doc(p('Intro'), tasks('mine')))
+  t.after(() => editor.destroy())
+  editor.view.dispatch(editor.state.tr.insertText('Hi ', 1))
+  assert.equal(appendEditorBlocks(editor, [tasks('agent'), p('After')]), true)
+  const merged = json(editor)
+  assert.deepEqual(merged, validateRichDoc(doc(p('Hi Intro'), tasks('mine', 'agent'), p('After'))))
+  // Two separate later edits: typing in the agent's paragraph, then a new block.
+  editor.view.dispatch(editor.state.tr.insertText('!', editor.state.doc.content.size - 1))
+  editor.view.dispatch(closeHistory(editor.state.tr))
+  editor.view.dispatch(editor.state.tr.insert(editor.state.doc.content.size, editor.schema.nodeFromJSON(p('Later'))))
+  const typed = validateRichDoc(doc(p('Hi Intro'), tasks('mine', 'agent'), p('After!')))
+  const edited = validateRichDoc(doc(p('Hi Intro'), tasks('mine', 'agent'), p('After!'), p('Later')))
+  assert.deepEqual(json(editor), edited)
+  assert.equal(editor.commands.undo(), true)
+  assert.deepEqual(json(editor), typed)
+  assert.equal(editor.commands.undo(), true)
+  assert.deepEqual(json(editor), merged)
+  // The history stops at the merge, so the user's typing before it stays too.
+  assert.equal(editor.commands.undo(), false)
+  assert.deepEqual(json(editor), merged)
+  assert.equal(editor.commands.redo(), true)
+  assert.deepEqual(json(editor), typed)
+  assert.equal(redoAll(editor), 1)
+  assert.deepEqual(json(editor), edited)
+  assert.equal(undoAll(editor), 2)
+  assert.deepEqual(json(editor), merged)
 })
