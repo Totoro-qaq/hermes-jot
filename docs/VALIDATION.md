@@ -1,6 +1,32 @@
 # Local validation
 
-Date: 2026-10-07, Asia/Shanghai. These are separate evidence levels, not a blanket completion claim.
+These are separate evidence levels, not a blanket completion claim.
+
+## 0.2.0
+
+Date: 2026-10-07, Asia/Shanghai. Same macOS host as 0.1.0 (below).
+
+| Layer | Evidence | Status |
+| --- | --- | --- |
+| Automated checks | 321 Node tests (including a check that every interface string is translated into all eight other languages with matching placeholders), 29 Python/API tests (one real-host case skipped outside Hermes), TypeScript, compiled Desktop module check, rebuilt bundles identical to the committed ones | Passed at the recorded run |
+| Hermes admission validator | Source tree and extracted package: tools/hooks/middleware match, security scan `safe`, no core override, Desktop surface inside the SDK, no warnings | Passed |
+| Packaged engine | Isolated archive: TXT/Markdown/PDF/DOCX exports and Markdown/ZIP imports through `runtime/worker.cjs` and the lazily loaded `runtime/library.cjs` | Passed |
+| Independent review | Six review dimensions over the full 0.2 diff; 15 findings confirmed by at least two of three independent skeptics, all fixed and re-verified. Each non-English catalog was reviewed separately for natural wording and consistent terms | Fixed |
+| Real Desktop: import | Native file picker imported a Markdown file (front matter, bold, link, strikethrough, numbered list, checklist, table) and a ZIP made by macOS `ditto` with UTF-8 names and no UTF-8 flag: Chinese folder, title and image restored | Passed |
+| Real Desktop: numbered lists | A numbered-list edit in the editor saved (it failed with `Unsupported ordered list attrs field: type` in 0.1.0) | Passed |
+| Real Desktop: agent | **Ask Hermes about this note** put the note reference into the conversation's message box. `MiMo V2.6 Pro` found the tools through Hermes tool search, read the note and appended checklist items with `jot_update`; the note showed **AI edited** and kept attribution and undo | Passed |
+| Real Desktop: live updates | Turning collaboration off in the workspace changed the switch in the side panel within about two seconds (change event); an agent edit appeared in the side panel without reopening the note; an edit written outside Hermes appeared through the 30-second fallback check | Passed |
+| Concurrent typing | While text was being typed into the same note, the agent's stale-revision writes were refused and retried; the saved document kept every typed word and both agent items. The append-merge path itself was not reached in this run (the agent's write landed after an autosave), and is covered by automated tests with a real TipTap editor | Partly native |
+| Caret on external change | Found during this run: a saved change arriving in the open note moved the caret to the end. Fixed (only the changed range is replaced); natively, text typed after an outside change stayed at the caret | Fixed and passed |
+| Real Desktop: language | Switching the Hermes interface language (Settings or `display.language`, then reload) switched Jot's page, side panel, menus, dialogs and sidebar label: Simplified and Traditional Chinese, Japanese, Arabic, Russian, French, German and Spanish inspected. Arabic lays Jot out right to left while Chinese and English notes keep their own direction. Found and fixed during this run: German list controls overlapped in a narrow list, and a localized export's attachment folder was not recognized on import | Passed after fixes |
+| Real Desktop: layout | Page header and side-pane header lines sit level with the sidebar's tab-row line; the list/editor divider is present; the bottom row has no rule; checked in the full page and the conversation side pane | Passed |
+| Cleanup | Collaboration switched back off, test notes moved to Trash, test folder removed; the existing notes were not modified | Done |
+
+Not covered natively for 0.2.0: Windows and Linux Desktop, and new screenshots. The README screenshots are from 0.1.0 and the side-panel image shows three `/jot · (no output)` host notices.
+
+## 0.1.0
+
+Date: 2026-10-07, Asia/Shanghai.
 
 | Layer | Evidence | Status |
 | --- | --- | --- |

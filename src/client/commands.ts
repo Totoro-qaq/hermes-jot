@@ -1,7 +1,17 @@
+/** Marks a catalog key without translating it: the host translates `label` when it registers the command. */
+const t = (source: string): string => source
+
+/**
+ * `label` is English and doubles as the catalog key for the palette and keyboard shortcut settings.
+ * `en` repeats it for src/hermes/entry.tsx, which registers `item.en` until it translates `label`.
+ */
+const command = <const Id extends string, const Action extends string>(id: Id, action: Action, label: string) =>
+  ({ id, action, label, en: label })
+
 export const JOT_COMMANDS = [
-  { id: 'jot.open', action: 'open' as const, zh: '随记：打开随记', en: 'Jot: Open Jot' },
-  { id: 'jot.new-note', action: 'new' as const, zh: '随记：新建笔记', en: 'Jot: New note' },
-  { id: 'jot.capture', action: 'capture' as const, zh: '随记：摘录选中的文字', en: 'Jot: Capture selected text' },
+  command('jot.open', 'open', t('Jot: Open Jot')),
+  command('jot.new-note', 'new', t('Jot: New note')),
+  command('jot.capture', 'capture', t('Jot: Capture selected text')),
 ] as const
 
 /** Input selections are separate from the document selection in browsers. */

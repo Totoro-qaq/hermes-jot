@@ -8,16 +8,18 @@ import { columnResizingPluginKey } from '@tiptap/pm/tables'
 import { findMatches, replaceAllMatches, replaceMatch } from './document-find.js'
 import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
-import { createJotExtensions, managedAttachmentUrl, refreshTaskCheckboxLabels } from './editor-extensions.js'
+import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
 import { insertManagedAttachment } from './editor-attachments.js'
+import { appendEditorBlocks } from './editor-append.js'
 import { JotActionIcon, type JotActionIconName } from './icons.js'
 import { TableControls } from './TableControls.js'
 import { HIGHLIGHT_COLORS, TEXT_COLORS } from '../model.js'
 import { applySlashItem, filterSlashItems, slashLabel, slashMatch, type SlashItem, type SlashMatch } from './slash-menu.js'
 import { ariaShortcut, shortcutLabel, SHORTCUTS, withShortcut, type ShortcutId } from './shortcut-labels.js'
 import { jotStyles } from './styles.js'
-import type { JotLocale, RichDoc } from './types.js'
+import { translator } from './i18n.js'
+import type { JotLocale, RichDoc, RichNode } from './types.js'
 
 export interface RichEditorProps {
   value: RichDoc
@@ -40,6 +42,8 @@ export interface RichEditorActions {
   handleShortcut: (action: EditorShortcut, target?: EventTarget | null) => boolean
   insertImage: (attachmentId: string, alt?: string) => boolean | Promise<boolean>
   insertAttachment: (attachmentId: string, caption?: string) => boolean | Promise<boolean>
+  /** Append another author's saved blocks at the end; true only once the document contains them. */
+  appendBlocks?: (blocks: RichNode[]) => boolean | Promise<boolean>
   /** Move the caret into the body, for example after Enter in the title. */
   focus: () => void
 }
@@ -77,7 +81,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   const findState = useRef({ query: '', active: 0 })
   findState.current = { query: findOpen ? query : '', active: activeMatch }
   const findKey = useRef(new PluginKey<DecorationSet>('jot-document-find'))
-  const en = locale === 'en'
+  const t = translator(locale)
   const [slash, setSlash] = useState<SlashMenuState | null>(null)
   const slashState = useRef<SlashMenuState | null>(null)
   slashState.current = slash
@@ -98,7 +102,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       return
     }
     if (slashDismissed.current === match.from) return
-    const items = filterSlashItems(match.query, { attachments: Boolean(callbacks.current.onRequestAttachment) })
+    const items = filterSlashItems(match.query, { attachments: Boolean(callbacks.current.onRequestAttachment), locale: callbacks.current.locale })
     if (!items.length) { if (slashState.current) setSlash(null); return }
     const previous = slashState.current
     const index = previous?.match.from === match.from && previous.match.query === match.query ? Math.min(previous.index, items.length - 1) : 0
@@ -149,8 +153,10 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
         },
         attributes: {
           role: 'textbox', 'aria-multiline': 'true',
-          'aria-label': en ? 'Note content' : '笔记正文',
-          'data-placeholder': en ? 'Start writing…' : '从这里开始记…',
+          // A note takes the direction of its own text, not of the interface language.
+          dir: 'auto',
+          'aria-label': t('Note content'),
+          'data-placeholder': t('Start writing…'),
         },
       },
       onUpdate: ({ editor: current, transaction }) => {
@@ -190,9 +196,26 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       // An upload may finish while the user types in a modal; keep that focus.
       return insertManagedAttachment(current, type, id, description)
     }
+    const appendBlocks = (blocks: RichNode[]) => {
+      const target = instance.current
+      if (!target || callbacks.current.readOnly || !Array.isArray(blocks)) return false
+      if (!target.view.composing && !composing.current) return appendEditorBlocks(target, blocks)
+      // Never disturb text inside an input method's composition; apply right after it ends.
+      const deadline = Date.now() + 4000
+      return new Promise<boolean>(resolve => {
+        const wait = () => {
+          if (instance.current !== target || callbacks.current.readOnly) resolve(false)
+          else if (!target.view.composing && !composing.current) resolve(appendEditorBlocks(target, blocks))
+          else if (Date.now() > deadline) resolve(false)
+          else setTimeout(wait, 50)
+        }
+        setTimeout(wait, 50)
+      })
+    }
     callbacks.current.onReady?.({ handleShortcut: (action, target) => shortcutHandler.current(action, target),
       insertImage: (id, alt) => insertAttachment('image', id, alt),
       insertAttachment: (id, caption) => insertAttachment('attachment', id, caption),
+      appendBlocks,
       focus: () => { instance.current?.commands.focus('start') } })
     editor.view.dom.setAttribute('data-empty', editor.getText().trim() ? 'false' : 'true')
     render(version => version + 1)
@@ -216,10 +239,10 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
     // Switching read-only state changes permissions, not the document.
     editor.setEditable(!readOnly, false)
     if (readOnly) editor.view.dispatch(editor.state.tr.setMeta(columnResizingPluginKey, { setHandle: -1, setDragging: null }))
-    editor.view.dom.setAttribute('aria-label', en ? 'Note content' : '笔记正文')
-    editor.view.dom.setAttribute('data-placeholder', en ? 'Start writing…' : '从这里开始记…')
-    refreshTaskCheckboxLabels(editor, locale)
-  }, [readOnly, en])
+    editor.view.dom.setAttribute('aria-label', t('Note content'))
+    editor.view.dom.setAttribute('data-placeholder', t('Start writing…'))
+    refreshLocalizedNodeLabels(editor, locale)
+  }, [readOnly, locale])
 
   const editor = instance.current
   const document = editor?.state.doc
@@ -332,31 +355,31 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
     }
   }
   const marks = [
-    { id: 'bold', label: en ? 'Bold' : '粗体', text: 'B', active: editor?.isActive('bold'), run: () => editor?.chain().focus().toggleBold().run() },
-    { id: 'italic', label: en ? 'Italic' : '斜体', text: 'I', active: editor?.isActive('italic'), run: () => editor?.chain().focus().toggleItalic().run() },
-    { id: 'underline', label: en ? 'Underline' : '下划线', text: 'U', active: editor?.isActive('underline'), run: () => editor?.chain().focus().toggleUnderline().run() },
+    { id: 'bold', label: t('Bold'), text: 'B', active: editor?.isActive('bold'), run: () => editor?.chain().focus().toggleBold().run() },
+    { id: 'italic', label: t('Italic'), text: 'I', active: editor?.isActive('italic'), run: () => editor?.chain().focus().toggleItalic().run() },
+    { id: 'underline', label: t('Underline'), text: 'U', active: editor?.isActive('underline'), run: () => editor?.chain().focus().toggleUnderline().run() },
   ] as const
   const blocks = [
-    { id: 'paragraph', label: en ? 'Body text' : '正文', text: '¶', active: editor?.isActive('paragraph') && !editor?.isActive('blockquote'), run: () => editor?.chain().focus().setParagraph().run() },
-    { id: 'heading1', label: en ? 'Heading 1' : '标题 1', text: 'H1', active: editor?.isActive('heading', { level: 1 }), run: () => editor?.chain().focus().toggleHeading({ level: 1 }).run() },
-    { id: 'heading2', label: en ? 'Heading 2' : '标题 2', text: 'H2', active: editor?.isActive('heading', { level: 2 }), run: () => editor?.chain().focus().toggleHeading({ level: 2 }).run() },
-    { id: 'heading3', label: en ? 'Heading 3' : '标题 3', text: 'H3', active: editor?.isActive('heading', { level: 3 }), run: () => editor?.chain().focus().toggleHeading({ level: 3 }).run() },
-    { id: 'bulletList', label: en ? 'Bullet list' : '无序列表', text: '•', active: editor?.isActive('bulletList'), run: () => editor?.chain().focus().toggleBulletList().run() },
-    { id: 'orderedList', label: en ? 'Numbered list' : '有序列表', text: '1.', active: editor?.isActive('orderedList'), run: () => editor?.chain().focus().toggleOrderedList().run() },
-    { id: 'blockquote', label: en ? 'Quote' : '引用', text: '❝', active: editor?.isActive('blockquote'), run: () => editor?.chain().focus().toggleBlockquote().run() },
-    { id: 'codeBlock', label: en ? 'Code block' : '代码块', text: '{ }', active: editor?.isActive('codeBlock'), run: () => editor?.chain().focus().toggleCodeBlock().run() },
+    { id: 'paragraph', label: t('Body text'), text: '¶', active: editor?.isActive('paragraph') && !editor?.isActive('blockquote'), run: () => editor?.chain().focus().setParagraph().run() },
+    { id: 'heading1', label: t('Heading 1'), text: 'H1', active: editor?.isActive('heading', { level: 1 }), run: () => editor?.chain().focus().toggleHeading({ level: 1 }).run() },
+    { id: 'heading2', label: t('Heading 2'), text: 'H2', active: editor?.isActive('heading', { level: 2 }), run: () => editor?.chain().focus().toggleHeading({ level: 2 }).run() },
+    { id: 'heading3', label: t('Heading 3'), text: 'H3', active: editor?.isActive('heading', { level: 3 }), run: () => editor?.chain().focus().toggleHeading({ level: 3 }).run() },
+    { id: 'bulletList', label: t('Bullet list'), text: '•', active: editor?.isActive('bulletList'), run: () => editor?.chain().focus().toggleBulletList().run() },
+    { id: 'orderedList', label: t('Numbered list'), text: '1.', active: editor?.isActive('orderedList'), run: () => editor?.chain().focus().toggleOrderedList().run() },
+    { id: 'blockquote', label: t('Quote'), text: '❝', active: editor?.isActive('blockquote'), run: () => editor?.chain().focus().toggleBlockquote().run() },
+    { id: 'codeBlock', label: t('Code block'), text: '{ }', active: editor?.isActive('codeBlock'), run: () => editor?.chain().focus().toggleCodeBlock().run() },
   ]
   const inline = [
-    { id: 'strike', label: en ? 'Strikethrough' : '删除线', text: 'S', active: editor?.isActive('strike'), run: () => editor?.chain().focus().toggleStrike().run() },
-    { id: 'code', label: en ? 'Inline code' : '行内代码', text: '`', active: editor?.isActive('code'), run: () => editor?.chain().focus().toggleCode().run() },
-    { id: 'horizontalRule', label: en ? 'Divider' : '分割线', text: '—', active: false, run: () => editor?.chain().focus().setHorizontalRule().run() },
-    { id: 'clear', label: en ? 'Clear formatting' : '清除格式', text: '⌫', active: false, run: () => editor?.chain().focus().unsetAllMarks().clearNodes().run() },
+    { id: 'strike', label: t('Strikethrough'), text: 'S', active: editor?.isActive('strike'), run: () => editor?.chain().focus().toggleStrike().run() },
+    { id: 'code', label: t('Inline code'), text: '`', active: editor?.isActive('code'), run: () => editor?.chain().focus().toggleCode().run() },
+    { id: 'horizontalRule', label: t('Divider'), text: '—', active: false, run: () => editor?.chain().focus().setHorizontalRule().run() },
+    { id: 'clear', label: t('Clear formatting'), text: '⌫', active: false, run: () => editor?.chain().focus().unsetAllMarks().clearNodes().run() },
   ]
   /** Tool ids that have a key share the shortcut table's names. */
   const toolShortcut = (id: string): ShortcutId | undefined => Object.hasOwn(SHORTCUTS, id) ? id as ShortcutId : undefined
   const shortcutTitle = (label: string, id: string) => withShortcut(label, toolShortcut(id))
-  const colorNames = en ? ['Gray', 'Red', 'Orange', 'Green', 'Blue', 'Purple', 'Pink'] : ['灰色', '红色', '橙色', '绿色', '蓝色', '紫色', '粉色']
-  const highlightNames = en ? ['Yellow', 'Orange', 'Green', 'Blue', 'Purple', 'Pink'] : ['黄色', '橙色', '绿色', '蓝色', '紫色', '粉色']
+  const colorNames = [t('Gray'), t('Red'), t('Orange'), t('Green'), t('Blue'), t('Purple'), t('Pink')]
+  const highlightNames = [t('Yellow'), t('Orange'), t('Green'), t('Blue'), t('Purple'), t('Pink')]
   const formatButton = (tool: { id: string; label: string; text: string; active?: boolean; run: () => unknown }, close = true) => {
     const shortcut = toolShortcut(tool.id)
     return <button key={tool.id} type="button" className={`jot-format jot-format-${tool.id}`}
@@ -378,42 +401,42 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
         if (formatOpen) { setFormatOpen(false); editor?.commands.focus() } else closeFind()
       }
     }}>
-      <div className="jot-format-bar" role="toolbar" aria-label={en ? 'Text formatting' : '文字格式'}>
+      <div className="jot-format-bar" role="toolbar" aria-label={t('Text formatting')}>
         <button ref={formatTrigger} type="button" className="jot-format jot-editor-control jot-format-menu" aria-expanded={formatOpen} aria-haspopup="true" disabled={readOnly || !editor}
-          aria-label={en ? 'Text styles' : '文字样式'} title={en ? 'Headings, lists, quotes, colors' : '标题、列表、引用和颜色'}
+          aria-label={t('Text styles')} title={t('Headings, lists, quotes, colors')}
           onMouseDown={event => event.preventDefault()} onClick={() => { setFormatOpen(open => !open); setPaletteOpen(null) }}>
-          <EditorControlIcon name="format" /><span className="jot-editor-control-label">{en ? 'Style' : '样式'}</span><EditorControlIcon name="chevron" />
+          <EditorControlIcon name="format" /><span className="jot-editor-control-label">{t('Style')}</span><EditorControlIcon name="chevron" />
         </button>
         {marks.map(tool => <button key={tool.id} type="button" className={`jot-format jot-editor-control jot-editor-control-icon-only jot-format-${tool.id}`}
           aria-label={tool.label} title={shortcutTitle(tool.label, tool.id)} aria-pressed={Boolean(tool.active)} disabled={readOnly || !editor}
           aria-keyshortcuts={ariaShortcut(tool.id)} onMouseDown={event => event.preventDefault()} onClick={() => tool.run()}>{tool.text}</button>)}
-        <button type="button" className="jot-format jot-editor-control jot-editor-control-icon-only jot-format-taskList" aria-label={en ? 'To-do list' : '待办清单'}
-          title={withShortcut(en ? 'To-do list' : '待办清单', 'taskList')} aria-keyshortcuts={ariaShortcut('taskList')}
+        <button type="button" className="jot-format jot-editor-control jot-editor-control-icon-only jot-format-taskList" aria-label={t('To-do list')}
+          title={withShortcut(t('To-do list'), 'taskList')} aria-keyshortcuts={ariaShortcut('taskList')}
           aria-pressed={Boolean(editor?.isActive('taskList'))} disabled={readOnly || !editor}
           onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().toggleTaskList().run()}>
           <EditorControlIcon name="todo" />
         </button>
         <span className="jot-format-divider" aria-hidden="true" />
         <button type="button" className="jot-format jot-editor-control jot-find-open" aria-expanded={findOpen} disabled={!editor}
-          aria-label={en ? 'Find in this note' : '在当前笔记中查找'} title={`${en ? 'Find in this note' : '在当前笔记中查找'} (${editorShortcutLabel('find')})`}
-          onClick={openFind}><EditorControlIcon name="find" /><span className="jot-editor-control-label">{en ? 'Find' : '查找'}</span></button>
+          aria-label={t('Find in this note')} title={`${t('Find in this note')} (${editorShortcutLabel('find')})`}
+          onClick={openFind}><EditorControlIcon name="find" /><span className="jot-editor-control-label">{t('Find')}</span></button>
         <button type="button" className="jot-format jot-editor-control jot-table-insert" disabled={readOnly || !editor || editor.isActive('table')}
-          aria-label={en ? 'Insert table' : '插入表格'} title={en ? 'Insert table' : '插入表格'} onMouseDown={event => event.preventDefault()}
+          aria-label={t('Insert table')} title={t('Insert table')} onMouseDown={event => event.preventDefault()}
           onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>
-          <EditorControlIcon name="table" /><span className="jot-editor-control-label">{en ? 'Table' : '表格'}</span>
+          <EditorControlIcon name="table" /><span className="jot-editor-control-label">{t('Table')}</span>
         </button>
-        {formatOpen && <div ref={formatPopover} className="jot-format-popover" role="group" aria-label={en ? 'Text styles' : '文字样式'}>
-          <div className="jot-format-section" role="group" aria-label={en ? 'Paragraph style' : '段落样式'}>{blocks.map(tool => formatButton(tool))}</div>
-          <div className="jot-format-section" role="group" aria-label={en ? 'More formatting' : '更多格式'}>{inline.map(tool => formatButton(tool))}</div>
-          <div className="jot-format-section" role="group" aria-label={en ? 'Color' : '颜色'}>
+        {formatOpen && <div ref={formatPopover} className="jot-format-popover" role="group" aria-label={t('Text styles')}>
+          <div className="jot-format-section" role="group" aria-label={t('Paragraph style')}>{blocks.map(tool => formatButton(tool))}</div>
+          <div className="jot-format-section" role="group" aria-label={t('More formatting')}>{inline.map(tool => formatButton(tool))}</div>
+          <div className="jot-format-section" role="group" aria-label={t('Color')}>
             <button type="button" className="jot-format" disabled={readOnly || !editor} aria-expanded={paletteOpen === 'text'}
               onMouseDown={event => event.preventDefault()} onClick={() => setPaletteOpen(value => value === 'text' ? null : 'text')}>
-              <span className="jot-format-glyph jot-format-color-glyph" aria-hidden="true">A</span><span>{en ? 'Text color' : '文字颜色'}</span></button>
+              <span className="jot-format-glyph jot-format-color-glyph" aria-hidden="true">A</span><span>{t('Text color')}</span></button>
             <button type="button" className="jot-format" disabled={readOnly || !editor} aria-expanded={paletteOpen === 'highlight'}
               onMouseDown={event => event.preventDefault()} onClick={() => setPaletteOpen(value => value === 'highlight' ? null : 'highlight')}>
-              <span className="jot-format-glyph jot-format-highlight-glyph" aria-hidden="true">A</span><span>{en ? 'Highlight' : '高亮'}</span></button>
+              <span className="jot-format-glyph jot-format-highlight-glyph" aria-hidden="true">A</span><span>{t('Highlight')}</span></button>
           </div>
-          {paletteOpen && <div className="jot-color-palette" role="group" aria-label={paletteOpen === 'text' ? en ? 'Text color' : '文字颜色' : en ? 'Highlight' : '高亮'}>
+          {paletteOpen && <div className="jot-color-palette" role="group" aria-label={paletteOpen === 'text' ? t('Text color') : t('Highlight')}>
             {(paletteOpen === 'text' ? TEXT_COLORS : HIGHLIGHT_COLORS).map((color, index) => {
               const label = (paletteOpen === 'text' ? colorNames : highlightNames)[index]!
               const text = paletteOpen === 'text'
@@ -431,16 +454,16 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
               if (paletteOpen === 'text') editor?.chain().focus().unsetColor().run()
               else editor?.chain().focus().unsetHighlight().run()
               setPaletteOpen(null); setFormatOpen(false)
-            }}>{en ? 'Remove color' : '去掉颜色'}</button>
+            }}>{t('Remove color')}</button>
           </div>}
         </div>}
       </div>
-      {findOpen && <div className="jot-document-find" role="search" aria-label={en ? 'Find in this note' : '在当前笔记中查找'}
+      {findOpen && <div className="jot-document-find" role="search" aria-label={t('Find in this note')}
         style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 0', borderBottom: '1px solid var(--jot-line)',
           position: 'sticky', top: 0, zIndex: 2, background: 'var(--jot-bg)' }}>
         <div className="jot-document-find-row" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-          <input ref={findInput} className="jot-find-query" aria-label={en ? 'Find text' : '查找文本'} value={query}
-            placeholder={en ? 'Find in this note' : '在当前笔记中查找'} style={{ flex: '1 1 130px', minWidth: 0 }}
+          <input ref={findInput} className="jot-find-query" aria-label={t('Find text')} value={query}
+            placeholder={t('Find in this note')} style={{ flex: '1 1 130px', minWidth: 0 }}
             onChange={event => {
               const nextQuery = event.target.value
               setQuery(nextQuery); setActiveMatch(0)
@@ -453,24 +476,24 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
             }}
             onKeyDown={event => { if (!event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && event.key === 'Enter') { event.preventDefault(); selectMatch(index + (event.shiftKey ? -1 : 1)) } }} />
           <span className="jot-find-count" role="status" aria-live="polite">{matches.length ? index + 1 : 0} / {matches.length}</span>
-          <button type="button" className="jot-text-btn jot-editor-control jot-editor-control-icon-only" disabled={!matches.length} aria-label={en ? 'Previous match' : '上一个匹配'} onClick={() => selectMatch(index - 1)}><EditorControlIcon name="previous" /></button>
-          <button type="button" className="jot-text-btn jot-editor-control jot-editor-control-icon-only" disabled={!matches.length} aria-label={en ? 'Next match' : '下一个匹配'} onClick={() => selectMatch(index + 1)}><EditorControlIcon name="next" /></button>
-          <button type="button" className="jot-text-btn jot-editor-control" aria-expanded={replaceOpen} disabled={readOnly} onClick={() => setReplaceOpen(open => !open)}><span className="jot-editor-control-label">{en ? 'Replace' : '替换'}</span><EditorControlIcon name="chevron" /></button>
-          <button type="button" className="jot-text-btn jot-editor-control jot-editor-control-icon-only" aria-label={en ? 'Close find' : '关闭查找'} onClick={closeFind}><EditorControlIcon name="close" /></button>
+          <button type="button" className="jot-text-btn jot-editor-control jot-editor-control-icon-only" disabled={!matches.length} aria-label={t('Previous match')} onClick={() => selectMatch(index - 1)}><EditorControlIcon name="previous" /></button>
+          <button type="button" className="jot-text-btn jot-editor-control jot-editor-control-icon-only" disabled={!matches.length} aria-label={t('Next match')} onClick={() => selectMatch(index + 1)}><EditorControlIcon name="next" /></button>
+          <button type="button" className="jot-text-btn jot-editor-control" aria-expanded={replaceOpen} disabled={readOnly} onClick={() => setReplaceOpen(open => !open)}><span className="jot-editor-control-label">{t('Replace')}</span><EditorControlIcon name="chevron" /></button>
+          <button type="button" className="jot-text-btn jot-editor-control jot-editor-control-icon-only" aria-label={t('Close find')} onClick={closeFind}><EditorControlIcon name="close" /></button>
         </div>
         {replaceOpen && <div className="jot-document-replace-row" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <input className="jot-find-replacement" aria-label={en ? 'Replacement text' : '替换为'} value={replacement} disabled={readOnly}
-            placeholder={en ? 'Replace with (empty deletes)' : '替换为（留空即删除）'} style={{ flex: '1 1 130px', minWidth: 0 }}
+          <input className="jot-find-replacement" aria-label={t('Replacement text')} value={replacement} disabled={readOnly}
+            placeholder={t('Replace with (empty deletes)')} style={{ flex: '1 1 130px', minWidth: 0 }}
             onChange={event => setReplacement(event.target.value)} onKeyDown={event => { if (!event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && event.key === 'Enter') { event.preventDefault(); replace(false) } }} />
-          <button type="button" className="jot-text-btn jot-editor-control" disabled={readOnly || !matches.length} onClick={() => replace(false)}><span className="jot-editor-control-label">{en ? 'Replace' : '替换此处'}</span></button>
-          <button type="button" className="jot-text-btn jot-editor-control" disabled={readOnly || !matches.length} onClick={() => replace(true)}><span className="jot-editor-control-label">{en ? 'Replace all' : '全部替换'}</span></button>
+          <button type="button" className="jot-text-btn jot-editor-control" disabled={readOnly || !matches.length} onClick={() => replace(false)}><span className="jot-editor-control-label">{t('Replace this match')}</span></button>
+          <button type="button" className="jot-text-btn jot-editor-control" disabled={readOnly || !matches.length} onClick={() => replace(true)}><span className="jot-editor-control-label">{t('Replace all')}</span></button>
         </div>}
       </div>}
       <div className="jot-editor-mount" ref={mount} />
-      {editor && <TableControls editor={editor} readOnly={readOnly} en={en} />}
+      {editor && <TableControls editor={editor} readOnly={readOnly} locale={locale} />}
       {slash && globalThis.document && createPortal(<div className="jot-overlay-root">
         <style>{jotStyles}</style>
-        <div ref={slashMenu} id={slashId} role="listbox" aria-label={en ? 'Insert' : '插入'} className="jot-slash-menu"
+        <div ref={slashMenu} id={slashId} role="listbox" aria-label={t('Insert')} className="jot-slash-menu"
           style={{ left: slashPlacement?.left ?? 0, top: slashPlacement?.top ?? 0, visibility: slashPlacement ? 'visible' : 'hidden' }}
           onMouseDown={event => event.preventDefault()}>
           {slash.items.map((item, index) => <div key={item.id} id={`${slashId}-${item.id}`} role="option" aria-selected={index === slash.index}
@@ -481,7 +504,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
             <span className="jot-slash-label">{slashLabel(item, locale)}</span>
             {item.shortcut && <kbd className="jot-keys" aria-hidden="true">{shortcutLabel(item.shortcut)}</kbd>}
           </div>)}
-          <div className="jot-slash-hint" aria-hidden="true">{en ? '↑↓ choose · Enter insert · Esc close' : '↑↓ 选择 · 回车插入 · Esc 关闭'}</div>
+          <div className="jot-slash-hint" aria-hidden="true">{t('↑↓ choose · Enter insert · Esc close')}</div>
         </div>
       </div>, globalThis.document.body)}
     </div>

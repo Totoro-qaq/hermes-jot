@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { defaultRangeExtractor, useVirtualizer } from '../hermes/virtualizer.js'
+import { translator } from './i18n.js'
 import { JotActionIcon } from './icons.js'
 import { activateNoteListItem, buildNoteListRows, formatNoteDate, highlightSegments, nextActiveNoteId, noteDateValue, noteDisplay, noteExcerpt, taskProgress } from './note-list.js'
 import type { NavigationKey, NoteDateBasis } from './note-list.js'
@@ -43,7 +44,7 @@ export function NoteList({ notes, selectedId = null, onSelect, query = '', folde
   const buttons = useRef(new Map<string, HTMLButtonElement>())
   const pendingFocus = useRef<number | null>(null)
   const [activeId, setActiveId] = useState<string | null>(selectedId ?? notes[0]?.id ?? null)
-  const en = locale === 'en'
+  const t = translator(locale)
   const needle = query.trim()
   const rows = useMemo(() => buildNoteListRows(notes, { query: needle, locale, dateBasis }), [notes, needle, locale, dateBasis])
   const noteRows = useMemo(() => rows.filter(row => row.kind === 'note'), [rows])
@@ -104,9 +105,9 @@ export function NoteList({ notes, selectedId = null, onSelect, query = '', folde
     })
   }
 
-  const label = needle
-    ? en ? `${notes.length} search results` : `${notes.length} 条搜索结果`
-    : en ? `${notes.length} ${view === 'trash' ? 'deleted notes' : 'notes'}` : `${notes.length} 条${view === 'trash' ? '已删除笔记' : '笔记'}`
+  const count = notes.length
+  const label = needle ? t('{count} search results', { count })
+    : view === 'trash' ? t('{count} deleted notes', { count }) : t('{count} notes in the list', { count })
 
   return <div ref={parent} className={`jot-note-list jot-virtual-note-list${needle ? ' jot-search-results' : ''}`} role="list" aria-label={label}
     tabIndex={ids.length ? -1 : 0} onKeyDown={navigate} style={{ overflowAnchor: 'none' }}>
@@ -122,14 +123,15 @@ export function NoteList({ notes, selectedId = null, onSelect, query = '', folde
         </div>
         const { note } = row
         const display = noteDisplay(note)
-        const title = display.title || (en ? 'Untitled' : '无标题')
-        const excerpt = noteExcerpt(display.body, needle) || (display.derived ? '' : en ? 'No content yet' : '还没有正文')
+        const title = display.title || t('Untitled')
+        const excerpt = noteExcerpt(display.body, needle) || (display.derived ? '' : t('No content yet'))
         const timestamp = noteDateValue(note, dateBasis)
         const date = formatNoteDate(timestamp, locale)
         // Unfiled is the default state, so only a real folder adds information.
         const folder = note.folderId === null ? '' : folderNames.get(note.folderId) ?? ''
         const progress = taskProgress(note.content)
         const agentEdited = agentEditedIds.has(note.id)
+        const progressLabel = t('{done} of {count} to-dos done', { done: progress.done, count: progress.total })
         return <div key={item.key} ref={virtualizer.measureElement} data-index={item.index} data-note-id={note.id} role="listitem"
           aria-posinset={row.position} aria-setsize={notes.length}
           className={selectMode ? 'jot-note-selection-row' : undefined}
@@ -141,7 +143,7 @@ export function NoteList({ notes, selectedId = null, onSelect, query = '', folde
           }}
           style={selectMode ? { ...position, display: 'flex', alignItems: 'center', gap: 6 } : position}>
           {selectMode && <input type="checkbox" tabIndex={-1} checked={selectedNoteIds.has(note.id)}
-            aria-label={en ? `Select ${title}` : `选择${title}`} style={{ flex: '0 0 auto', marginLeft: 12 }}
+            aria-label={t('Select {title}', { title })} style={{ flex: '0 0 auto', marginInlineStart: 12 }}
             onFocus={() => setActiveId(note.id)} onChange={() => { setActiveId(note.id); activate(note) }} />}
           <button type="button" className="jot-note-row" data-note-id={note.id} aria-current={selectedId === note.id ? 'true' : undefined}
             aria-pressed={selectMode ? selectedNoteIds.has(note.id) : undefined}
@@ -150,17 +152,17 @@ export function NoteList({ notes, selectedId = null, onSelect, query = '', folde
             ref={element => { if (element) buttons.current.set(note.id, element); else buttons.current.delete(note.id) }}
             onFocus={() => setActiveId(note.id)} onClick={() => { setActiveId(note.id); activate(note) }}>
             <span className={`jot-note-title${display.title ? '' : ' is-untitled'}`}><span><Highlight text={title} query={needle} /></span>
-              {note.pinned && <span className="jot-note-pin" role="img" aria-label={en ? 'Pinned' : '已置顶'}><JotActionIcon name="pin" size={12} /></span>}
+              {note.pinned && <span className="jot-note-pin" role="img" aria-label={t('Pinned note')}><JotActionIcon name="pin" size={12} /></span>}
             </span>
             {excerpt && <div className="jot-note-excerpt" style={{ whiteSpace: 'normal', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
               <Highlight text={excerpt} query={needle} />
             </div>}
             <div className="jot-note-meta"><time dateTime={timestamp}>{date}</time>
-              {progress.total > 0 && <span className="jot-note-progress" title={en ? `${progress.done} of ${progress.total} to-dos done` : `已完成 ${progress.done} / ${progress.total} 项待办`}
-                aria-label={en ? `${progress.done} of ${progress.total} to-dos done` : `已完成 ${progress.done} / ${progress.total} 项待办`}>
+              {progress.total > 0 && <span className="jot-note-progress" title={progressLabel}
+                aria-label={progressLabel}>
                 <JotActionIcon name="checklist" size={12} />{progress.done}/{progress.total}</span>}
-              {agentEdited && <span className="jot-note-agent" title={en ? 'Last changed by AI' : '最近一次由 AI 修改'}>
-                <JotActionIcon name="sparkle" size={12} />{en ? 'AI edited' : 'AI 修改'}</span>}
+              {agentEdited && <span className="jot-note-agent" title={t('Last changed by AI')}>
+                <JotActionIcon name="sparkle" size={12} />{t('AI edited')}</span>}
               {!hideFolderName && folder && <span className="jot-note-folder">{folder}</span>}</div>
           </button>
         </div>

@@ -9,7 +9,7 @@ import { HIGHLIGHT_COLORS, TEXT_COLORS, normalizePaletteColor } from '../model.j
 import { JotTable, JotTableView, PersistableTableWidths } from './table-view.js'
 import { TABLE_CELL_MIN_WIDTH } from './table-actions.js'
 import { JotHeadingKeys, JotListKeys } from './list-commands.js'
-import type { JotLocale } from './types.js'
+import { translator, type JotLocale } from './i18n.js'
 
 export const managedAttachmentUrl = (id: string) => `/jot/api/attachments/${encodeURIComponent(id)}/content`
 const validId = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{32}$/u.test(value)
@@ -23,17 +23,27 @@ export interface JotExtensionOptions {
 /** Screen readers announce the checked state themselves; the label names the to-do. */
 export function taskCheckboxLabel(text: string, locale: JotLocale): string {
   const name = text.trim()
-  if (locale === 'en') return name ? `To-do: ${name}` : 'Empty to-do'
-  return name ? `待办：${name}` : '空白待办'
+  const t = translator(locale)
+  return name ? t('To-do: {name}', { name }) : t('Empty to-do')
 }
 
-/** A locale change retains NodeViews, so refresh their labels without editing the document. */
-export function refreshTaskCheckboxLabels(editor: Pick<Editor, 'state' | 'view'>, locale: JotLocale): void {
+/** A locale change retains NodeViews, so refresh their interface text without editing the document. */
+export function refreshLocalizedNodeLabels(editor: Pick<Editor, 'state' | 'view'>, locale: JotLocale): void {
+  const t = translator(locale)
   editor.state.doc.descendants((node, position) => {
-    if (node.type.name !== 'taskItem') return
+    const type = node.type.name
+    if (type !== 'taskItem' && type !== 'attachment' && type !== 'image') return
     const dom = editor.view.nodeDOM(position)
     if (!dom || dom.nodeType !== 1) return
     const element = dom as Element
+    if (type === 'attachment') {
+      if (!node.attrs.caption) element.textContent = t('Attachment')
+      return false
+    }
+    if (type === 'image') {
+      if (element.hasAttribute('data-jot-unavailable')) element.setAttribute('alt', t('Image unavailable'))
+      return false
+    }
     const label = taskCheckboxLabel(node.textContent, locale)
     element.querySelector(':scope > label > input[type="checkbox"]')?.setAttribute('aria-label', label)
     const hiddenLabel = element.querySelector(':scope > label > span')
@@ -104,7 +114,7 @@ const PaletteHighlight = Highlight.extend({
   },
 })
 
-function managedNode(name: 'image' | 'attachment', resolve: (id: string) => string | Promise<string>) {
+function managedNode(name: 'image' | 'attachment', resolve: (id: string) => string | Promise<string>, locale: () => JotLocale) {
   const description = name === 'image' ? 'alt' : 'caption'
   return Node.create({
     name, group: 'block', atom: true, draggable: true,
@@ -141,7 +151,13 @@ function managedNode(name: 'image' | 'attachment', resolve: (id: string) => stri
               imageUrl = url
               if (alive && url) dom.setAttribute('src', url)
               else if (url.startsWith('blob:')) URL.revokeObjectURL(url)
-            }, () => { if (alive) dom.setAttribute('alt', 'Image unavailable') })
+            }, () => {
+              if (!alive) return
+              // Marked so a language change can rewrite the fallback, never the note's own alt text.
+              dom.setAttribute('data-jot-unavailable', '')
+              const t = translator(locale())
+              dom.setAttribute('alt', t('Image unavailable'))
+            })
           }
           if (typeof IntersectionObserver === 'function') {
             observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) load() })
@@ -151,7 +167,8 @@ function managedNode(name: 'image' | 'attachment', resolve: (id: string) => stri
           dom.className = 'jot-attachment-card'
           dom.setAttribute('data-type', 'jot-attachment')
           dom.setAttribute('href', '#')
-          dom.textContent = String(node.attrs.caption || 'Attachment')
+          const t = translator(locale())
+          dom.textContent = String(node.attrs.caption || t('Attachment'))
         }
         return { dom, destroy() { alive = false; observer?.disconnect(); if (imageUrl.startsWith('blob:')) URL.revokeObjectURL(imageUrl) } }
       }
@@ -180,5 +197,5 @@ export function createJotExtensions(options: JotExtensionOptions = {}): Extensio
     JotTable.configure({ resizable: true, renderWrapper: true, cellMinWidth: TABLE_CELL_MIN_WIDTH,
       handleWidth: 6, View: JotTableView }), TableRow, TableHeader, TableCell, PersistableTableWidths,
     TextStyle, PaletteColor, PaletteHighlight.configure({ multicolor: true }),
-    managedNode('image', resolve), managedNode('attachment', resolve)]
+    managedNode('image', resolve, locale), managedNode('attachment', resolve, locale)]
 }

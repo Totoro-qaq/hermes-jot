@@ -2,13 +2,16 @@ import { createContext, useEffect, useId, useRef, type ReactNode } from 'react'
 import { createPortal } from './layers.js'
 import { jotStyles } from './styles.js'
 import { JotActionIcon } from './icons.js'
+import { translator, type JotLocale } from './i18n.js'
 
 export interface ModalProps {
   title: string
   onClose: () => void
   children: ReactNode
   footer?: ReactNode
+  /** Defaults to "Close" in `locale`. */
   closeLabel?: string
+  locale?: JotLocale
   /** Short forms and confirmations use a narrower dialog. */
   size?: 'small' | 'default'
 }
@@ -31,7 +34,8 @@ function focusFirst(container: HTMLElement): void {
 }
 
 /** A pane-independent dialog with a bounded keyboard focus lifetime. */
-export function Modal({ title, onClose, children, footer, closeLabel = 'Close', size = 'default' }: ModalProps) {
+export function Modal({ title, onClose, children, footer, closeLabel, locale = 'en', size = 'default' }: ModalProps) {
+  const closeText = closeLabel ?? translator(locale)('Close')
   const titleId = useId()
   const dialog = useRef<HTMLDivElement>(null)
   const close = useRef(onClose)
@@ -86,7 +90,7 @@ export function Modal({ title, onClose, children, footer, closeLabel = 'Close', 
       <div ref={dialog} className={`jot-modal${size === 'small' ? ' is-small' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <div className="jot-modal-header">
           <h2 id={titleId}>{title}</h2>
-          <button type="button" className="jot-icon-btn" aria-label={closeLabel} title={closeLabel} onClick={onClose}>
+          <button type="button" className="jot-icon-btn" aria-label={closeText} title={closeText} onClick={onClose}>
             <JotActionIcon name="close" />
           </button>
         </div>

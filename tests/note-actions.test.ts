@@ -44,7 +44,7 @@ test('equivalent Unicode titles and timestamps use ids as deterministic ties ind
 })
 
 test('duplicate titles stay within 240 UTF-16 units without dividing a grapheme', () => {
-  const cluster = '👩🏽‍💻'
+  const cluster = '👩🏽\u200d💻'
   const source = { title: `${'a'.repeat(231)}${cluster}${cluster}`, content: note('n').content, folderId: 'folder' }
   const copied = duplicateNoteInput(source)
   assert.ok(copied.title!.length <= 240)
@@ -55,6 +55,11 @@ test('duplicate titles stay within 240 UTF-16 units without dividing a grapheme'
   assert.ok(boundaries.has(prefix.length))
   assert.equal(copied.folderId, 'folder')
   assert.equal(duplicateNoteInput({ ...source, title: '' }, 'en').title, 'Untitled copy')
+  assert.equal(duplicateNoteInput({ ...source, title: 'Plan' }, 'ja').title, 'Plan のコピー')
+  assert.equal(duplicateNoteInput({ ...source, title: '' }, 'es').title, 'Sin título copia')
+  // Wording before the title counts against the limit too.
+  const arabic = duplicateNoteInput({ ...source, title: 'a'.repeat(400) }, 'ar').title!
+  assert.ok(arabic.length <= 240 && arabic.startsWith('نسخة من '))
 })
 
 test('duplicating tables, marks, and managed attachment attributes creates detached editable content', () => {
@@ -91,16 +96,39 @@ test('captured markup is appended as literal paragraphs without disturbing the o
 
 test('sources are plain labels or safe web links; unsafe URL and HTML source strings never become executable marks', () => {
   const original = note('n').content
-  const safe = appendExcerpt(original, 'Quote', { label: 'Reading', url: 'https://example.org/article?x=1&y=2' })
+  const safe = appendExcerpt(original, 'Quote', { label: 'Reading', url: 'https://example.org/article?x=1&y=2' }, 'zh')
   const line = safe.content!.at(-1)!
   assert.equal(line.content![0]!.text, '来源：Reading ')
   assert.equal(line.content![1]!.marks![0]!.attrs!.href, 'https://example.org/article?x=1&y=2')
   for (const source of ['javascript:alert(1)', 'data:text/html,<script>bad()</script>', '<a href="javascript:bad()">source</a>', 'https://user:secret@example.org/']) {
-    const appended = appendExcerpt(original, 'Quote', source)
+    const appended = appendExcerpt(original, 'Quote', source, 'zh')
     assert.equal(appended.content!.at(-1)!.content![0]!.text, `来源：${source}`)
     assert.equal(appended.content!.at(-1)!.content![0]!.marks, undefined)
   }
   const unicodeUrl = `https://example.org/${'路径'.repeat(300)}`
   assert.doesNotThrow(() => appendExcerpt(original, 'Quote', unicodeUrl))
   assert.equal(appendExcerpt(original, 'Quote', unicodeUrl).content!.at(-1)!.content![0]!.marks, undefined)
+})
+
+test('the source line is written in the reader\'s language', () => {
+  const original = note('n').content
+  const sourceLine = (source: Parameters<typeof appendExcerpt>[2], locale?: Parameters<typeof appendExcerpt>[3]) =>
+    appendExcerpt(original, 'Quote', source, locale).content!.at(-1)!.content!
+  assert.deepEqual(sourceLine('A book').map(node => node.text), ['Source: A book'], 'English by default')
+  assert.deepEqual(sourceLine('A book', 'en').map(node => node.text), ['Source: A book'])
+  assert.deepEqual(sourceLine('一本书', 'zh').map(node => node.text), ['来源：一本书'])
+  assert.deepEqual(sourceLine('Un livre', 'fr').map(node => node.text), ['Source\u00a0: Un livre'])
+  assert.deepEqual(sourceLine('كتاب', 'ar').map(node => node.text), ['المصدر: كتاب'])
+  const linked = sourceLine({ label: 'Lecture', url: 'https://example.org/a' }, 'fr')
+  assert.deepEqual(linked.map(node => node.text), ['Source\u00a0: Lecture ', 'https://example.org/a'])
+  assert.equal(linked[1]!.marks![0]!.attrs!.href, 'https://example.org/a')
+  const bare = sourceLine('https://example.org/b', 'de')
+  assert.deepEqual(bare.map(node => node.text), ['Quelle: ', 'https://example.org/b'])
+  assert.equal(bare[1]!.marks![0]!.attrs!.href, 'https://example.org/b')
+  // The capture dialog sends what was typed with the interface language; it reads like the string form.
+  assert.deepEqual(sourceLine({ typed: ' 一本书 ', locale: 'zh' }).map(node => node.text), ['来源：一本书'])
+  const typedLink = sourceLine({ typed: 'https://example.org/c', locale: 'ja' })
+  assert.deepEqual(typedLink.map(node => node.text), ['出典：', 'https://example.org/c'])
+  assert.equal(typedLink[1]!.marks![0]!.attrs!.href, 'https://example.org/c')
+  assert.deepEqual(sourceLine({ typed: 'Livre', locale: 'fr' }, 'es').map(node => node.text), ['Fuente: Livre'], 'an explicit locale wins')
 })

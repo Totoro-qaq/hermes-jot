@@ -1,6 +1,6 @@
 name: jot
-version: 0.1.0
-description: Human-editable notes, checklists and documents, with optional agent collaboration.
+version: 0.2.0
+description: Notes, checklists and documents beside Hermes that your agent can read and update safely, with revision checks and one-click undo.
 author: Totoro
 license: MIT
 requires_hermes: ">=0.21.5"

@@ -68,7 +68,9 @@ export const MAX_DOC_BYTES = 1_048_576
 export const MAX_TEXT_LENGTH = 200_000
 export const MAX_TITLE_LENGTH = 240
 export const MAX_FOLDER_NAME_LENGTH = 80
-const MAX_NODES = 10_000
+export const MAX_NODES = 10_000
+/** The whole notes file (jot.json), checked on every save. */
+export const MAX_STATE_BYTES = 32 * 1_048_576
 const MAX_DEPTH = 32
 export const TEXT_COLORS = ['#374151', '#dc2626', '#d97706', '#16a34a', '#2563eb', '#9333ea', '#db2777'] as const
 export const HIGHLIGHT_COLORS = ['#fef08a', '#fed7aa', '#bbf7d0', '#bfdbfe', '#e9d5ff', '#fecdd3'] as const
@@ -194,7 +196,9 @@ export function validateRichDoc(value: unknown): RichDoc {
       result.attrs = { checked: attrs.checked }
     } else if (type === 'orderedList') {
       if (attrs) {
-        onlyKeys(attrs, ['start'], 'ordered list attrs')
+        // The editor's list also carries the HTML numbering type (null unless pasted); it is not stored.
+        onlyKeys(attrs, ['start', 'type'], 'ordered list attrs')
+        if (attrs.type != null && (typeof attrs.type !== 'string' || attrs.type.length > 8)) invalid('Invalid ordered list type')
         if (attrs.start !== undefined && (!Number.isInteger(attrs.start) || (attrs.start as number) < 1 || (attrs.start as number) > 1_000_000)) invalid('Invalid ordered list start')
         result.attrs = { start: (attrs.start as number | undefined) ?? 1 }
       }
@@ -279,7 +283,11 @@ export function docFromText(text: string): RichDoc {
 export const plaintextToDoc = docFromText
 
 export function docToText(input: RichDoc): string {
-  const doc = validateRichDoc(input)
+  return validatedDocText(validateRichDoc(input))
+}
+
+/** Plain text of a document that `validateRichDoc` just returned; callers must not pass unvalidated input. */
+export function validatedDocText(doc: RichDoc): string {
   const render = (node: RichNode): string => {
     if (node.type === 'text') return node.text ?? ''
     if (node.type === 'hardBreak') return '\n'
@@ -310,7 +318,10 @@ const LIST_TYPES = new Set(['bulletList', 'orderedList', 'taskList'])
  * the existing checklist instead of starting a second one.
  */
 export function appendBlocks(existing: readonly RichNode[], added: readonly RichNode[]): RichNode[] {
-  const base = existing.length === 1 && existing[0]!.type === 'paragraph' && !existing[0]!.content?.length ? [] : [...existing]
+  const base = existing.length === 1 && isEmptyParagraph(existing[0]) ? [] : [...existing]
+  // The editor keeps an empty paragraph after a final list or table. It is not
+  // content: appended items still join that list, and it stays last.
+  const trailing = base.length > 1 && isEmptyParagraph(base.at(-1)) && base.at(-2)!.type !== 'paragraph' ? base.pop() : undefined
   const incoming = [...added]
   const last = base.at(-1)
   const first = incoming[0]
@@ -318,9 +329,10 @@ export function appendBlocks(existing: readonly RichNode[], added: readonly Rich
     base[base.length - 1] = { ...last, content: [...(last.content ?? []), ...(first.content ?? [])] }
     incoming.shift()
   }
-  const content = [...base, ...incoming]
+  const content = [...base, ...incoming, ...trailing ? [trailing] : []]
   return content.length ? content : [{ type: 'paragraph' }]
 }
+const isEmptyParagraph = (node: RichNode | undefined): boolean => node?.type === 'paragraph' && !node.content?.length
 
 /** Managed attachment ids referenced by images and file cards. */
 export function documentAttachmentIds(doc: RichDoc): Set<string> {

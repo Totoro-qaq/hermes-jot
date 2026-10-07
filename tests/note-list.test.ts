@@ -34,6 +34,10 @@ test('groups omit empty sections, retain the supplied order, and give notes thei
   assert.deepEqual(rows.filter(row => row.kind === 'header').map(row => [row.label, row.count]), [
     ['Pinned', 1], ['Today', 2], ['Earlier', 1],
   ])
+  assert.deepEqual(buildNoteListRows(notes, { now, locale: 'zh-hant' }).flatMap(row => row.kind === 'header' ? [row.label] : []),
+    ['已釘選', '今天', '更早'])
+  assert.deepEqual(buildNoteListRows(notes, { now, locale: 'ru' }).flatMap(row => row.kind === 'header' ? [row.label] : []),
+    ['Закреплённые', 'Сегодня', 'Ранее'])
   assert.deepEqual(rows.filter(row => row.kind === 'note').map(row => [row.note.id, row.position]), [
     ['old-pin', 1], ['today-first', 2], ['today-second', 3], ['earlier', 4],
   ])
@@ -66,7 +70,7 @@ test('a far-away body match shows the matching passage rather than the opening p
 })
 
 test('matched excerpts preserve whole emoji and combining-character graphemes', () => {
-  const family = '👩🏽‍💻'
+  const family = '👩🏽\u200d💻'
   const text = `${family.repeat(30)} cafe\u0301 的已确认要求 ${family.repeat(30)}`
   const excerpt = noteExcerpt(text, '已确认要求', 18)
   assert.ok(excerpt.includes('已确认要求'))
@@ -119,6 +123,10 @@ test('date metadata includes the year for older notes and handles malformed valu
   assert.ok(!formatNoteDate(localStamp(2026, 3, 4), 'en', now).includes('2026'))
   assert.ok(formatNoteDate(localStamp(2026, 10, 2, 15, 30), 'zh', now).includes('15:30'))
   assert.equal(formatNoteDate('bad', 'en', now), '')
+  // Every shipped language formats with its own conventions rather than falling back to Chinese.
+  assert.match(formatNoteDate(localStamp(2026, 3, 4), 'fr', now), /mars/u)
+  assert.match(formatNoteDate(localStamp(2026, 3, 4), 'de', now), /März/u)
+  for (const locale of ['zh-hant', 'ja', 'ar', 'ru', 'es'] as const) assert.ok(formatNoteDate(localStamp(2025, 3, 4), locale, now))
 })
 
 test('created grouping and displayed timestamp agree even when a much older note was modified today', () => {

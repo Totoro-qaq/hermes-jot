@@ -1,11 +1,16 @@
-/** One adapter for the host surface, overlays and the opaque editor frame. */
+/**
+ * One adapter for the host surface, overlays and the opaque editor frame. The app wears the
+ * host editor surface (transparent under Glass); popovers, menus and modals keep the opaque
+ * layer-1 tone. Jot dividers (--jot-line) use the host's tertiary stroke.
+ */
 export const HOST_THEME_PROPERTIES: Readonly<Record<string, string>> = {
   '--dsw-alias-bg-layer-1': 'var(--ui-bg-editor)',
   '--dsw-alias-bg-base': 'var(--ui-bg-editor)',
+  '--jot-surface': 'var(--ui-editor-surface-background,var(--ui-bg-editor))',
   '--dsw-alias-label-primary': 'var(--ui-text-primary)',
   '--dsw-alias-label-secondary': 'var(--ui-text-secondary)',
   '--dsw-alias-label-primary-inverted': 'var(--dt-primary-foreground)',
-  '--dsw-alias-border-l3': 'var(--ui-stroke-secondary)',
+  '--dsw-alias-border-l3': 'var(--ui-stroke-tertiary)',
   '--dsw-alias-border-l2': 'var(--ui-stroke-primary)',
   '--dsw-alias-interactive-bg-hover': 'var(--ui-control-hover-background)',
   '--dsw-alias-interactive-bg-hover-solid': 'var(--ui-control-hover-background)',

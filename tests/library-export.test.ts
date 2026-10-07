@@ -4,8 +4,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import { inflateSync } from 'node:zlib'
 import { strFromU8, unzipSync } from 'fflate'
-import { exportJotLibrary, MAX_LIBRARY_EXPORT_BYTES, MAX_LIBRARY_EXPORT_NOTES, MAX_LIBRARY_PDF_NOTES, type ExportAttachment, type LibraryExportNote } from '../src/exports.js'
+import { exportJotLibrary, exportJotNote, MAX_LIBRARY_EXPORT_BYTES, MAX_LIBRARY_EXPORT_NOTES, MAX_LIBRARY_PDF_NOTES, type ExportAttachment, type LibraryExportNote } from '../src/exports.js'
 import { describeError } from '../src/client/errors.js'
 import { JotApiError } from '../src/client/api.js'
 import { createJotHandler } from '../src/http.js'
@@ -44,7 +45,7 @@ function library() {
 
 test('Markdown archives sort notes into folders and link shared attachments relative to each note', async () => {
   loads = 0
-  const exported = await exportJotLibrary(library(), 'md', { attachmentLoader: loader, now: new Date(2026, 9, 5) })
+  const exported = await exportJotLibrary(library(), 'md', { attachmentLoader: loader, locale: 'zh', now: new Date(2026, 9, 5) })
   assert.equal(exported.filename, '随记-2026-10-05.zip')
   assert.equal(exported.contentType, 'application/zip')
   assert.deepEqual([exported.notes, exported.attachments], [4, 2])
@@ -78,6 +79,54 @@ test('Word and PDF archives embed images and still carry every original file', a
       assert.ok(Object.keys(parts).some(name => name.startsWith('word/media/')), 'the PNG is embedded in the Word file')
     }
   }
+})
+
+test('archives name the product, the attachments folder and untitled notes in the requested language', async () => {
+  const untitled = { folders: [{ id: 'empty-name', name: '' }], notes: [note('1', '', docFromMarkdown(''), 'empty-name'), note('2', 'Pic', withImage('x'))] }
+  const expected: Record<string, [string, string, string]> = {
+    en: ['Jot', 'attachments', 'Untitled'], zh: ['随记', '附件', '无标题'], 'zh-hant': ['隨記', '附件', '未命名'],
+    ja: ['Jot', '添付ファイル', '無題'], ar: ['Jot', 'المرفقات', 'بلا عنوان'], ru: ['Jot', 'вложения', 'Без названия'],
+    fr: ['Jot', 'pièces jointes', 'Sans titre'], de: ['Jot', 'Anhänge', 'Unbenannt'], es: ['Jot', 'adjuntos', 'Sin título'],
+  }
+  for (const [locale, [product, folder, name]] of Object.entries(expected)) {
+    const exported = await exportJotLibrary(untitled, 'md', { attachmentLoader: loader, locale, now: new Date(2026, 9, 5) })
+    assert.equal(exported.filename, `${product}-2026-10-05.zip`, locale)
+    assert.deepEqual(Object.keys(unzipSync(exported.buffer)).sort(), [`${folder}/示意图.png`, `${name}/${name}.md`, 'Pic.md'].sort(), locale)
+  }
+  const tagged = await exportJotLibrary(untitled, 'md', { locale: 'zh-Hant-TW', now: new Date(2026, 9, 5) })
+  assert.equal(tagged.filename, '隨記-2026-10-05.zip', 'Hermes and BCP 47 tags map to the closest language')
+  assert.equal((await exportJotLibrary(untitled, 'md', { locale: 'pt-BR', now: new Date(2026, 9, 5) })).filename, 'Jot-2026-10-05.zip')
+  assert.equal((await exportJotLibrary(untitled, 'md', { now: new Date(2026, 9, 5) })).filename, 'Jot-2026-10-05.zip', 'English by default')
+  const single = await exportJotNote({ title: '', content: docFromMarkdown('body') }, 'md', { locale: 'de' })
+  assert.equal(single.filename, 'Unbenannt.md')
+  assert.match(single.buffer.toString('utf8'), /^# Unbenannt\n/u)
+  assert.equal((await exportJotNote({ title: '', content: docFromMarkdown('body') }, 'txt')).filename, 'Untitled.txt')
+})
+
+/** Unicode code points a PDF's embedded fonts map glyphs to (from its ToUnicode CMaps). */
+function pdfCodePoints(buffer: Uint8Array): Set<number> {
+  const raw = Buffer.from(buffer), text = raw.toString('latin1'), found = new Set<number>()
+  for (const match of text.matchAll(/<<[^]*?>>\s*stream\r?\n/gu)) {
+    const start = match.index + match[0].length, end = text.indexOf('\nendstream', start)
+    let stream: string
+    try { stream = (match[0].includes('/FlateDecode') ? inflateSync(raw.subarray(start, end)) : raw.subarray(start, end)).toString('latin1') } catch { continue }
+    if (!stream.includes('begincmap')) continue
+    for (const [, hex] of stream.matchAll(/<[0-9a-f]+>\s*<([0-9a-f]{4})>/giu)) found.add(Number.parseInt(hex!, 16))
+  }
+  return found
+}
+
+test('an Arabic PDF prints untitled notes in English, since its font has no Arabic letters', async () => {
+  const arabic = (points: Set<number>) => [...points].some(point => point >= 0x0600 && point <= 0x06ff)
+  const single = await exportJotNote({ title: '', content: docFromMarkdown('body') }, 'pdf', { locale: 'ar' })
+  assert.equal(single.filename, 'بلا عنوان.pdf', 'the file name keeps the Arabic word')
+  const printed = pdfCodePoints(single.buffer)
+  assert.ok(printed.has(0x55) && !arabic(printed), 'the heading is drawn as "Untitled"')
+  const archive = unzipSync((await exportJotLibrary({ folders: [], notes: [note('1', '', docFromMarkdown(''))] }, 'pdf', { locale: 'ar' })).buffer)
+  assert.deepEqual(Object.keys(archive), ['بلا عنوان.pdf'])
+  assert.ok(!arabic(pdfCodePoints(archive['بلا عنوان.pdf']!)), 'archived PDFs print the English name too')
+  const russian = pdfCodePoints((await exportJotNote({ title: '', content: docFromMarkdown('body') }, 'pdf', { locale: 'ru' })).buffer)
+  assert.ok(russian.has('Б'.codePointAt(0)!), 'scripts the font covers keep the translated name')
 })
 
 test('library exports refuse empty, oversized and unknown requests', async () => {
@@ -121,7 +170,7 @@ test('Host export and undo refusals reach the user as actionable sentences in th
   }
   const pdf = await host(() => exportJotLibrary({ notes: Array.from({ length: MAX_LIBRARY_PDF_NOTES + 1 },
     (_, index) => note(String(index), `n${index}`, docFromMarkdown('x'))), folders: [] }, 'pdf'))
-  assert.match(describeError(pdf, 'zh'), /PDF 一次最多导出 500 篇/u)
+  assert.match(describeError(pdf, 'zh'), /PDF 一次最多导出 500 条/u)
   assert.match(describeError(pdf, 'en'), /choose Word/u)
   const empty = await host(() => exportJotLibrary({ notes: [], folders: [] }, 'md'))
   assert.equal(describeError(empty, 'zh'), '这里没有可以导出的笔记。')
@@ -167,6 +216,12 @@ test('HTTP library export scopes to a folder or unfiled notes, never includes Tr
   assert.match(all.headers.get('content-disposition')!, /filename\*=UTF-8''/u)
   const names = Object.keys(unzipSync(new Uint8Array(await all.arrayBuffer()))).sort()
   assert.deepEqual(names, ['未分类.md', '附件/图.png', '项目/在文件夹里.md'].sort())
+  const japanese = await post({ format: 'md', locale: 'ja' })
+  assert.match(japanese.headers.get('content-disposition')!, /filename\*=UTF-8''Jot-/u)
+  assert.ok(Object.keys(unzipSync(new Uint8Array(await japanese.arrayBuffer()))).includes('添付ファイル/图.png'), 'every Jot language is accepted')
+  const traditional = await post({ format: 'md', locale: 'zh-hant' })
+  assert.match(decodeURIComponent(traditional.headers.get('content-disposition')!), /隨記-/u)
+  await traditional.arrayBuffer()
 
   const one = await post({ format: 'docx', folderId: folder.id })
   assert.equal(one.headers.get('x-jot-export-notes'), '1')

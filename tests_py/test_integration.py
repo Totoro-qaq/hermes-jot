@@ -51,6 +51,9 @@ class Integration(unittest.TestCase):
         initial = self.rpc("/notes", "POST", {"title": "共同笔记", "content": doc("用户确认的原文")})["data"]
         self.rpc("/settings", "PATCH", {"agentEnabled": True})
         read = self.tool("jot_read", id=initial["id"])["data"]
+        self.assertEqual(set(read), {"id", "title", "revision", "folderId", "pinned", "updatedAt", "markdown", "tasks", "replaceKeepsFormatting"})
+        self.assertEqual(read["markdown"], "用户确认的原文")
+        self.assertTrue(read["replaceKeepsFormatting"])
         update = self.tool("jot_update", id=initial["id"], revision=read["revision"], appendText="- [ ] 验收")
         self.assertEqual(update["data"]["revision"], 2)
         self.assertEqual(self.tool("jot_update", id=initial["id"], revision=1, appendText="过期")["error"]["code"], "REVISION_CONFLICT")
@@ -58,7 +61,13 @@ class Integration(unittest.TestCase):
         self.assertFalse(tasks[0]["checked"])
         changed = self.tool("jot_set_task", id=initial["id"], revision=2, index=1, checked=True)["data"]
         self.assertTrue(changed["task"]["checked"])
-        undone = self.rpc(f"/notes/{initial['id']}/revert-agent-edit", "POST", {"revision": 3})["data"]
+        edited = self.tool("jot_update", id=initial["id"], revision=3, edits=[{"find": "验收", "replace": "最终验收"}])["data"]
+        self.assertEqual((edited["revision"], edited["edited"]), (4, 1))
+        self.assertEqual(self.tool("jot_read", id=initial["id"])["data"]["markdown"], "用户确认的原文\n\n- [x] 最终验收")
+        missing = self.tool("jot_update", id=initial["id"], revision=4, edits=[{"find": "不存在", "replace": "x"}])["error"]
+        self.assertEqual(missing["code"], "INVALID_INPUT")
+        self.assertIn("Edit 1: text not found", missing["message"])
+        undone = self.rpc(f"/notes/{initial['id']}/revert-agent-edit", "POST", {"revision": 4})["data"]
         self.assertEqual(undone["text"], "用户确认的原文")
         self.rpc("/settings", "PATCH", {"agentEnabled": False})
         self.assertIn("error", self.tool("jot_create", title="denied", text="denied"))

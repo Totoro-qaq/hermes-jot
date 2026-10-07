@@ -2,10 +2,11 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Editor, type JSONContent } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
-import { createJotExtensions } from '../src/client/editor-extensions.js'
-import { applySlashItem, filterSlashItems, SLASH_ITEMS, slashMatch } from '../src/client/slash-menu.js'
+import { createJotExtensions, taskCheckboxLabel } from '../src/client/editor-extensions.js'
+import { applySlashItem, filterSlashItems, SLASH_ITEMS, slashLabel, slashMatch } from '../src/client/slash-menu.js'
 import { shortcutHelpSections, shortcutLabel, withShortcut } from '../src/client/shortcut-labels.js'
 import { validateRichDoc } from '../src/model.js'
+import type { JotLocale } from '../src/client/i18n.js'
 
 const paragraph = (value?: string) => ({ type: 'paragraph', ...(value ? { content: [{ type: 'text', text: value }] } : {}) })
 function create(content: JSONContent[]) {
@@ -60,6 +61,40 @@ test('filters match Chinese labels, English words and pinyin initials, with labe
   assert.deepEqual(ids('lb'), ['bulletList', 'orderedList'])
   assert.deepEqual(ids('Quote'), ['blockquote'], 'English matching ignores case')
   assert.deepEqual(ids('zzz'), [])
+})
+
+test('labels follow the interface language, and a label in any shipped language finds its item', () => {
+  const table = SLASH_ITEMS.find(item => item.id === 'table')!
+  assert.deepEqual(['en', 'zh', 'zh-hant', 'fr', 'ar'].map(locale => slashLabel(table, locale as 'en')), ['Table', '表格', '表格', 'Tableau', 'جدول'])
+  assert.deepEqual(ids('Überschrift'), ['heading1', 'heading2', 'heading3'])
+  assert.deepEqual(ids('見出し2'), ['heading2'], 'spaces in labels are optional')
+  assert.equal(ids('taches')[0], 'taskList', 'accents are optional: Liste de tâches')
+  assert.equal(ids('puces')[0], 'bulletList', 'a word inside a label matches too')
+  assert.equal(ids('таблица')[0], 'table', 'Cyrillic ignores case')
+  assert.equal(ids('جدول')[0], 'table')
+  assert.equal(ids('Nummer')[0], 'orderedList')
+  assert.equal(ids('archivo', true)[0], 'attachment')
+})
+
+test('labels in the interface language outrank labels in other languages', () => {
+  const top = (query: string, locale?: JotLocale) => filterSlashItems(query, { attachments: true, locale })[0]?.id
+  // Each of these also appears inside another language's label: Überschrift, Checkliste, Bloc de code, Separador.
+  assert.equal(top('hr'), 'horizontalRule')
+  assert.equal(top('c'), 'codeBlock')
+  assert.equal(top('bloc'), 'blockquote')
+  assert.equal(top('s'), 'heading2')
+  assert.equal(top('at'), 'attachment')
+  assert.equal(top('bloc', 'fr'), 'codeBlock', 'the interface language decides')
+  assert.equal(top('c', 'de'), 'taskList')
+  assert.equal(top('db', 'fr'), 'taskList', 'English and pinyin keywords keep working in every language')
+  assert.equal(top('hr', 'de'), 'horizontalRule')
+})
+
+test('to-do checkboxes are named in the interface language', () => {
+  assert.equal(taskCheckboxLabel(' Buy milk ', 'en'), 'To-do: Buy milk')
+  assert.equal(taskCheckboxLabel('买牛奶', 'zh'), '待办：买牛奶')
+  assert.equal(taskCheckboxLabel('lait', 'fr'), 'Tâche\u00a0: lait')
+  assert.equal(taskCheckboxLabel('  ', 'de'), 'Leere Aufgabe')
 })
 
 test('choosing an item removes the typed trigger and produces persistable blocks', t => {

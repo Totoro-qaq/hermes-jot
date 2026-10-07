@@ -1,4 +1,5 @@
 import { isApplePlatform } from './editor-shortcuts.js'
+import { translator } from './i18n.js'
 import type { JotLocale } from './types.js'
 
 interface Chord { mod?: boolean; alt?: boolean; shift?: boolean; key: string }
@@ -37,7 +38,7 @@ export function ariaShortcut(id: ShortcutId, apple = isApplePlatform()): string 
     .filter(Boolean).join('+')
 }
 
-/** A tooltip such as "粗体 (⌘B)"; actions without keys keep their plain label. */
+/** A tooltip such as "Bold (⌘B)"; actions without keys keep their plain label. */
 export function withShortcut(label: string, id: ShortcutId | undefined, apple = isApplePlatform()): string {
   return id ? `${label} (${shortcutLabel(id, apple)})` : label
 }
@@ -47,47 +48,46 @@ export interface ShortcutHelpSection { title: string; rows: ShortcutHelpRow[] }
 
 /** Everything the keyboard does in Jot, grouped as the help dialog shows it. */
 export function shortcutHelpSections(locale: JotLocale, apple = isApplePlatform()): ShortcutHelpSection[] {
-  const en = locale === 'en'
-  const copy = (zh: string, english: string) => en ? english : zh
+  const t = translator(locale)
   const key = (id: ShortcutId) => shortcutLabel(id, apple)
   const row = (label: string, ...keys: string[]): ShortcutHelpRow => ({ label, keys })
   return [
-    { title: copy('笔记库', 'Library'), rows: [
-      row(copy('搜索笔记', 'Search notes'), key('searchLibrary')),
-      row(copy('在列表中移动', 'Move through the list'), '↑', '↓'),
-      row(copy('打开笔记', 'Open a note'), apple ? '↩' : 'Enter'),
-      row(copy('显示快捷键', 'Show shortcuts'), key('shortcutHelp')),
+    { title: t('Library'), rows: [
+      row(t('Search notes'), key('searchLibrary')),
+      row(t('Move through the list'), '↑', '↓'),
+      row(t('Open a note'), apple ? '↩' : 'Enter'),
+      row(t('Show shortcuts'), key('shortcutHelp')),
     ] },
-    { title: copy('编辑', 'Editing'), rows: [
-      row(copy('粗体／斜体／下划线', 'Bold / italic / underline'), key('bold'), key('italic'), key('underline')),
-      row(copy('撤销／重做', 'Undo / redo'), key('undo'), key('redo'), ...apple ? [] : ['Ctrl+Y']),
-      row(copy('在当前笔记中查找', 'Find in this note'), key('find')),
-      row(copy('立即保存', 'Save now'), key('save')),
+    { title: t('Editing'), rows: [
+      row(t('Bold / italic / underline'), key('bold'), key('italic'), key('underline')),
+      row(t('Undo / redo'), key('undo'), key('redo'), ...apple ? [] : ['Ctrl+Y']),
+      row(t('Find in this note'), key('find')),
+      row(t('Save now'), key('save')),
     ] },
-    { title: copy('段落', 'Blocks'), rows: [
-      row(copy('正文', 'Body text'), key('paragraph')),
-      row(copy('标题 1／2／3', 'Heading 1 / 2 / 3'), key('heading1'), key('heading2'), key('heading3')),
-      row(copy('无序／有序列表', 'Bullet / numbered list'), key('bulletList'), key('orderedList')),
-      row(copy('待办清单', 'To-do list'), key('taskList')),
-      row(copy('引用／代码块', 'Quote / code block'), key('blockquote'), key('codeBlock')),
+    { title: t('Blocks'), rows: [
+      row(t('Body text'), key('paragraph')),
+      row(t('Heading 1 / 2 / 3'), key('heading1'), key('heading2'), key('heading3')),
+      row(t('Bullet / numbered list'), key('bulletList'), key('orderedList')),
+      row(t('To-do list'), key('taskList')),
+      row(t('Quote / code block'), key('blockquote'), key('codeBlock')),
     ] },
-    { title: copy('文字', 'Text'), rows: [
-      row(copy('删除线', 'Strikethrough'), key('strike')),
-      row(copy('行内代码', 'Inline code'), key('code')),
-      row(copy('高亮', 'Highlight'), key('highlight')),
+    { title: t('Inline styles'), rows: [
+      row(t('Strikethrough'), key('strike')),
+      row(t('Inline code'), key('code')),
+      row(t('Highlight'), key('highlight')),
     ] },
-    { title: copy('清单', 'Lists'), rows: [
-      row(copy('勾选或取消当前待办', 'Check or uncheck this to-do'), key('toggleTask')),
-      row(copy('上移／下移这一项', 'Move this item up / down'), key('moveUp'), key('moveDown')),
-      row(copy('缩进／取消缩进', 'Indent / outdent'), key('indent'), key('outdent')),
+    { title: t('Lists'), rows: [
+      row(t('Check or uncheck this to-do'), key('toggleTask')),
+      row(t('Move this item up / down'), key('moveUp'), key('moveDown')),
+      row(t('Indent / outdent'), key('indent'), key('outdent')),
     ] },
-    { title: copy('边写边转换', 'Type to format'), rows: [
-      row(copy('在空行插入标题、清单、表格等', 'Insert a heading, list, table… on an empty line'), '/', ...en ? [] : ['、']),
-      row(copy('标题', 'Heading'), '# '),
-      row(copy('列表／编号', 'List / numbered'), '- ', '1. '),
-      row(copy('待办', 'To-do'), '[ ] '),
-      row(copy('引用／分割线', 'Quote / divider'), '> ', '---'),
-      row(copy('粗体', 'Bold'), '**…**'),
+    { title: t('Type to format'), rows: [
+      row(t('Insert a heading, list, table… on an empty line'), '/', ...locale === 'zh' ? ['、'] : []),
+      row(t('Heading'), '# '),
+      row(t('List / numbered'), '- ', '1. '),
+      row(t('To-do'), '[ ] '),
+      row(t('Quote / divider'), '> ', '---'),
+      row(t('Bold'), '**…**'),
     ] },
   ]
 }

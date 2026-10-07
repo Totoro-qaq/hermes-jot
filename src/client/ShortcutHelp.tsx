@@ -1,9 +1,10 @@
+import { translator } from './i18n.js'
 import { shortcutHelpSections } from './shortcut-labels.js'
 import type { JotLocale } from './types.js'
 
 /** The keyboard reference opened with "?" or from the list options; it describes, it does not rebind. */
 export function ShortcutHelp({ locale }: { locale: JotLocale }) {
-  const en = locale === 'en'
+  const t = translator(locale)
   return <div className="jot-shortcut-help">
     <div className="jot-shortcut-grid">
       {shortcutHelpSections(locale).map(section => <section key={section.title} className="jot-shortcut-section" aria-label={section.title}>
@@ -14,9 +15,8 @@ export function ShortcutHelp({ locale }: { locale: JotLocale }) {
         </div>)}</dl>
       </section>)}
     </div>
-    <p className="jot-shortcut-note">{en
-      ? '“Open Jot”, “New note” and “Capture selected text” have no default keys. Search for “Jot” in Hermes keyboard shortcut settings to bind them.'
-      : '「打开随记」「新建笔记」「摘录选中的文字」默认不占用按键，可以在 Hermes 设置的键盘快捷键里搜索「随记」绑定。'}</p>
+    <p className="jot-shortcut-note">
+      {t('“Open Jot”, “New note” and “Capture selected text” have no default keys. Search for “Jot” in Hermes keyboard shortcut settings to bind them.')}</p>
   </div>
 }
 

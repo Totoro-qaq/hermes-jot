@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as sdk from '@hermes/plugin-sdk'
 import { HOST_THEME_PROPERTIES } from './theme.js'
+import { translator } from '../client/i18n.js'
 import type { RichEditorActions, RichEditorProps } from '../client/RichEditor.js'
 
 const { SandboxedFrame, useTheme } = sdk
@@ -27,11 +28,14 @@ export function RichEditor(props: EmbeddedEditorProps) {
   callbacks.current = props
   const token = useMemo(() => crypto.randomUUID(), [])
   const [source, setSource] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<'' | 'unavailable' | 'failed'>('')
   const [height, setHeight] = useState(430)
   const theme = useTheme()
+  const t = translator(props.locale ?? 'en')
   const post = (kind: string, data?: unknown) => frame.current?.contentWindow?.postMessage({ channel: 'jot-editor', token, kind, data }, '*')
   const insert = (kind: string, data: Record<string, unknown>) => new Promise<boolean>(resolve => {
+    // A removed frame can never acknowledge; the caller keeps its own fallback.
+    if (!frame.current?.contentWindow) { resolve(false); return }
     const id = ++insertSequence.current
     pendingInsert.current.set(id, resolve)
     post(kind, { ...data, id })
@@ -55,8 +59,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
   useEffect(() => {
     let live = true
     const load = props.loadEditor
-    if (!load) { setError('Hermes editor backend is unavailable.'); return }
-    void load().then(value => { if (live) setSource(value) }, () => { if (live) setError('Could not load the Jot editor. Re-enable the backend and reopen this note.') })
+    if (!load) { setError('unavailable'); return }
+    void load().then(value => { if (live) setSource(value) }, () => { if (live) setError('failed') })
     return () => { live = false }
   }, [props.loadEditor])
   useEffect(() => {
@@ -64,6 +68,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
       focus: () => { frame.current?.focus(); post('focus') },
       insertImage: (attachmentId, alt) => insert('insert-image', { attachmentId, alt }),
       insertAttachment: (attachmentId, caption) => insert('insert-attachment', { attachmentId, caption }),
+      appendBlocks: blocks => insert('append-blocks', { blocks }),
       handleShortcut: action => { post('shortcut', action); return true },
     }
     let live = true
@@ -109,10 +114,11 @@ export function RichEditor(props: EmbeddedEditorProps) {
     return () => cancelAnimationFrame(repaint)
   }, [theme.resolvedMode, theme.renderedMode, theme.themeName, theme.theme])
   return <div ref={root} className="jot-embedded-editor" style={{ minWidth: 0, width: '100%' }}>
-    {error ? <p role="alert">{error}</p> : source ? <SandboxedFrame ref={frame} src={source}
-      title={props.locale === 'zh' ? '随记正文编辑器' : 'Jot document editor'} onLoad={sync}
+    {error ? <p role="alert">{error === 'unavailable' ? t('Hermes editor backend is unavailable.')
+      : t('Could not load the Jot editor. Re-enable the backend and reopen this note.')}</p> : source ? <SandboxedFrame ref={frame} src={source}
+      title={t('Jot document editor')} onLoad={sync}
       style={{ display: 'block', width: '100%', height, border: 0, background: 'transparent' }} />
-      : <p role="status">{props.locale === 'zh' ? '正在载入编辑器…' : 'Loading editor…'}</p>}
+      : <p role="status">{t('Loading editor…')}</p>}
   </div>
 }
 export type { RichEditorActions }

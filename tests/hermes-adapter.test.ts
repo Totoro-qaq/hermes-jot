@@ -122,3 +122,114 @@ test('a host echo queued before typing is checked when React applies it, not whe
   assert.equal(pendingReactEffect(), second)
   assert.equal(pendingReactEffect(), second, 'replayed effects must also retain newer input')
 })
+
+test('importing uploads to the import route with the folder and a long timeout', async () => {
+  const calls: Array<{ path: string; options: any }> = []
+  const imported = { notes: 2, attachments: 0, folders: 0, noteIds: ['a', 'b'], skipped: [] }
+  const api = createHermesApi({ rest: async (path: string, options: unknown) => { calls.push({ path, options }); return { status: 200, data: imported } } } as unknown as PluginContext, () => true, save)
+  const bytes = new TextEncoder().encode('# Hello').buffer
+  const file = { name: 'Notes & ideas.md', type: 'text/markdown', arrayBuffer: async () => bytes } as File
+  assert.deepEqual(await api.importNotes!(file, { folderId: 'f/1 2' }), imported)
+  await api.importNotes!(file, { folderId: null })
+  assert.equal(calls[0].path, '/import?folderId=f%2F1%202')
+  assert.equal(calls[1].path, '/import?folderId=')
+  assert.deepEqual(calls[0].options, { method: 'POST', upload: { filename: 'Notes & ideas.md', contentType: 'text/markdown', bytes }, timeoutMs: 300_000 })
+})
+
+test('an import error is raised, and a profile change while reading the file sends nothing', async () => {
+  const api = createHermesApi({ rest: async () => ({ status: 413, error: { code: 'REQUEST_TOO_LARGE', message: 'Too large' } }) } as unknown as PluginContext, () => true, save)
+  await assert.rejects(api.importNotes!({ name: 'a.zip', type: '', arrayBuffer: async () => new ArrayBuffer(1) } as File, { folderId: null }),
+    (error: any) => error.status === 413 && error.code === 'REQUEST_TOO_LARGE')
+  const bytes = deferred<ArrayBuffer>()
+  let owner = true, calls = 0
+  const other = createHermesApi({ rest: async () => { calls++; return {} } } as unknown as PluginContext, () => owner, save)
+  const pending = other.importNotes!({ name: 'a.md', type: '', arrayBuffer: () => bytes.promise } as File, { folderId: null })
+  owner = false
+  bytes.resolve(new ArrayBuffer(1))
+  await assert.rejects(pending, /profile changed/)
+  assert.equal(calls, 0)
+})
+
+test('a state read that started before an import is retried rather than returned stale', async () => {
+  const stale = deferred<unknown>()
+  const state = (notes: number) => ({ version: 1, notes: Array.from({ length: notes }, () => ({})), folders: [], agentEnabled: false })
+  let reads = 0
+  const ctx = { rest: (path: string) => {
+    if (path.startsWith('/import')) return Promise.resolve({ status: 200, data: { notes: 1, attachments: 0, folders: 0, noteIds: ['x'], skipped: [] } })
+    reads++
+    return reads === 1 ? stale.promise : Promise.resolve({ status: 200, headers: { etag: 'after' }, data: state(1) })
+  } } as unknown as PluginContext
+  const api = createHermesApi(ctx, () => true, save)
+  const reading = api.getState()
+  await api.importNotes!({ name: 'a.md', type: '', arrayBuffer: async () => new ArrayBuffer(1) } as File, { folderId: null })
+  stale.resolve({ status: 200, headers: { etag: 'before' }, data: state(0) })
+  assert.equal((await reading).notes.length, 1)
+  assert.equal(reads, 2)
+})
+
+test('an HTTP error from the host keeps the backend error code', async () => {
+  const { hostRestError } = await import('../src/hermes/api.js')
+  const { describeError } = await import('../src/client/errors.js')
+  const rejected = new Error('Error invoking remote method: Error: 413: {"error":{"code":"IMPORT_TOO_LARGE","message":"Imports are limited to 100 MiB."}}')
+  const api = createHermesApi({ rest: async () => { throw rejected } } as unknown as PluginContext, () => true, () => async () => {})
+  const file = new File([new Uint8Array(4)], 'notes.zip', { type: 'application/zip' })
+  await assert.rejects(api.importNotes!(file, { folderId: null }), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, 'IMPORT_TOO_LARGE')
+    assert.equal((error as { status?: number }).status, 413)
+    assert.equal(describeError(error, 'en'), 'Import files are limited to 100 MB.')
+    return true
+  })
+  const plain = new Error('504: Gateway Timeout')
+  assert.equal(hostRestError(plain), plain)
+  assert.equal(describeError(hostRestError(new Error('504: {"error":{"code":"REQUEST_TIMEOUT","message":"Jot took too long."}}')), 'zh'), '随记处理超时，请检查当前内容后再试。')
+})
+
+test('Hermes adapter errors carry codes the interface describes in its language', async () => {
+  const { describeError } = await import('../src/client/errors.js')
+  let owner = true
+  const api = createHermesApi({ rest: async () => ({ status: 200 }), os: { openExternal: async () => false } } as unknown as PluginContext, () => owner, save)
+  await assert.rejects(api.openExternal!('file:///etc/passwd'), (error: unknown) => describeError(error, 'de') === 'Jot öffnet nur Web- und E-Mail-Links.')
+  await assert.rejects(api.openExternal!('https://example.com'), (error: unknown) => describeError(error, 'zh') === '无法打开链接。')
+  await assert.rejects(api.exportNote!({ title: 'A', content: docFromText('x') }, 'txt'), (error: unknown) =>
+    describeError(error, 'es') === 'Hermes no devolvió el archivo exportado. Inténtalo de nuevo.')
+  owner = false
+  await assert.rejects(api.getNote('a'), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, 'PROFILE_CHANGED')
+    assert.equal(describeError(error, 'ja'), 'Hermes の使用中のプロファイルが切り替わりました。続けるには元のプロファイルに戻してください。')
+    assert.match(describeError(error, 'en'), /Return to the original profile/u)
+    return true
+  })
+})
+
+test('a failed editor load is described, and reopening tries again', async () => {
+  const { describeError } = await import('../src/client/errors.js')
+  let calls = 0
+  const api = createHermesApi({ rest: async () => { if (++calls === 1) throw new Error('backend off'); return { src: 'blob:editor' } } } as unknown as PluginContext, () => true, save)
+  await assert.rejects(api.loadEditor!(), (error: unknown) => describeError(error, 'fr') === "Impossible de charger l'éditeur Jot. Réactivez le backend, puis rouvrez cette note.")
+  assert.equal(await api.loadEditor!(), 'blob:editor')
+  assert.equal(await api.loadEditor!(), 'blob:editor')
+  assert.equal(calls, 2, 'a loaded editor is cached')
+  assert.equal(describeError({ code: 'EDITOR_UNAVAILABLE' }, 'en'), 'Could not load the Jot editor. Re-enable the backend and reopen this note.')
+})
+
+test('exports name files in the interface language, and import reasons follow it', async () => {
+  const bodies: any[] = []
+  let language: 'en' | 'ru' = 'ru'
+  const skipped = [{ path: 'a.bin', reason: 'Not a Markdown or text note, and no imported note links to it.' },
+    { path: 'big.md', reason: 'The note is too large or complex for Jot: Document exceeds byte limit.' }, { path: '…', reason: '3 more files were skipped.' }]
+  const api = createHermesApi({ rest: async (path: string, options: any) => {
+    if (path.startsWith('/import')) return { status: 200, data: { notes: 0, attachments: 0, folders: 0, noteIds: [], skipped } }
+    bodies.push(options.body)
+    return { status: 200, file: { path: '/downloads/x', filename: 'x' } }
+  } } as unknown as PluginContext, () => true, save, () => language)
+  await api.exportNote({ title: '', content: docFromText('x') }, 'md')
+  await api.exportLibrary!({ format: 'md', locale: 'ja' })
+  assert.equal(bodies[0].body.locale, 'ru')
+  assert.equal(bodies[1].body.locale, 'ja', 'a library export names its own language')
+  const file = { name: 'a.zip', type: '', arrayBuffer: async () => new ArrayBuffer(1) } as File
+  assert.deepEqual((await api.importNotes!(file, { folderId: null })).skipped.map(item => item.reason), [
+    'Это не Markdown- или текстовая заметка, и ни одна импортированная заметка не ссылается на этот файл.',
+    'Заметка слишком большая или сложная для Jot.', '3 more files were skipped.'])
+  language = 'en'
+  assert.deepEqual((await api.importNotes!(file, { folderId: null })).skipped, skipped, 'English keeps the engine detail')
+})

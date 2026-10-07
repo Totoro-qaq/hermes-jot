@@ -8,8 +8,8 @@ test('browser-shared document validation and capture work without the Node Buffe
   Reflect.deleteProperty(globalThis, 'Buffer')
   try {
     const initial = docFromText('已有正文 🙂')
-    const captured = appendExcerpt(initial, '新的摘录 👩🏽‍💻', 'https://example.org/reading')
-    assert.ok(docToText(validateRichDoc(captured)).includes('新的摘录 👩🏽‍💻'))
+    const captured = appendExcerpt(initial, '新的摘录 👩🏽\u200d💻', 'https://example.org/reading')
+    assert.ok(docToText(validateRichDoc(captured)).includes('新的摘录 👩🏽\u200d💻'))
   } finally { Object.defineProperty(globalThis, 'Buffer', buffer) }
 })
 

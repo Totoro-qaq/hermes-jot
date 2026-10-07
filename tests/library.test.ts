@@ -105,7 +105,10 @@ test('agent tools write checklists, extend them, tick items and refuse lossy rep
   const plain = await run('jot_create', { title: 'Literal', text: '- not a list', format: 'plain' })
   assert.equal((await store.getNote(plain.id)).content.content[0]!.type, 'paragraph')
 
-  const table = await store.createNote({ title: 'Table', content: docFromMarkdown('| A |\n| --- |\n| 1 |') })
+  // A resized column cannot be written as Markdown, so a text rewrite would lose it.
+  const resized = docFromMarkdown('| A |\n| --- |\n| 1 |')
+  resized.content[0]!.content![0]!.content![0]!.attrs!.colwidth = [180]
+  const table = await store.createNote({ title: 'Table', content: resized })
   await assert.rejects(run('jot_update', { id: table.id, revision: table.revision, text: 'flattened' }), code('INVALID_INPUT'))
   assert.equal((await store.getNote(table.id)).content.content[0]!.type, 'table')
   const replaced = await run('jot_update', { id: table.id, revision: table.revision, text: 'flattened', allowFormattingLoss: true })

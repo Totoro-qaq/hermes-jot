@@ -53,6 +53,11 @@ export interface LibraryExportOptions {
   folderId?: string | null
   locale: JotLocale
 }
+export interface ImportResult {
+  notes: number; attachments: number; folders: number; noteIds: string[]
+  /** Files inside the upload that were not imported, with a short reason. */
+  skipped: Array<{ path: string; reason: string }>
+}
 
 export interface JotApi {
   loadEditor?(): Promise<string>
@@ -84,6 +89,9 @@ export interface JotApi {
   exportLibrary?(options: LibraryExportOptions): Promise<LibraryDownload>
   /** Restore the version from before the latest run of AI edits. */
   revertAgentEdit?(id: string, revision: number): Promise<Note>
+  /** Import Markdown, text or a ZIP of them; folderId null imports unfiled. */
+  importNotes?(file: File, options: { folderId: string | null }): Promise<ImportResult>
 }
 
-export type JotLocale = 'zh' | 'en'
+import type { JotLocale } from './i18n.js'
+export type { JotLocale }

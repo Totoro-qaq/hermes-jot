@@ -7,14 +7,26 @@ import { createHash } from 'node:crypto'
 
 const require = createRequire(import.meta.url)
 await mkdir('runtime', { recursive: true })
-const engine = await build({ entryPoints: ['src/worker.ts'], outfile: 'runtime/worker.cjs', bundle: true,
-  platform: 'node', format: 'cjs', target: 'node22', minify: false,
-  metafile: true,
+// Every request is a fresh worker process. Export/import code and its large
+// dependencies live in runtime/library.cjs, loaded by `await import('./library.js')`
+// only when a request needs it. Both bundles locate assets from their own URL.
+const nodeBundle = { bundle: true, platform: 'node', format: 'cjs', target: 'node22', minify: false, metafile: true,
   define: { 'import.meta.url': '__jotModuleUrl' },
   banner: { js: 'const __jotModuleUrl = require("node:url").pathToFileURL(__filename).href;' },
-})
+}
+// The import() becomes a lazy require: Node's ESM loader would first scan the
+// 3 MB CommonJS file for export names, costing about 40 ms per export.
+const lazyLibrary = { name: 'jot-lazy-library', setup(build) {
+  build.onResolve({ filter: /^\.\/library\.js$/ }, () => ({ path: 'library', namespace: 'jot-library' }))
+  build.onLoad({ filter: /.*/, namespace: 'jot-library' }, () => ({ contents: 'module.exports = require("./library.cjs")', loader: 'js' }))
+  build.onResolve({ filter: /^\.\/library\.cjs$/, namespace: 'jot-library' }, () => ({ path: './library.cjs', external: true }))
+} }
+const engine = await build({ ...nodeBundle, entryPoints: ['src/worker.ts'], outfile: 'runtime/worker.cjs', plugins: [lazyLibrary] })
+const heavy = Object.keys(engine.metafile.inputs).filter(input => /(?:^|\/)(?:src\/(?:exports|markdown-import)\.ts|node_modules\/(?:pdfkit|fontkit|docx|fflate|markdown-it)\/)/u.test(input))
+if (heavy.length) throw new Error(`runtime/worker.cjs must not bundle export/import code: ${heavy.slice(0, 5).join(', ')}`)
+const library = await build({ ...nodeBundle, entryPoints: ['src/library.ts'], outfile: 'runtime/library.cjs' })
 const pdf = dirname(require.resolve('pdfkit/package.json'))
-const inputs = new Set(Object.keys(engine.metafile.inputs))
+const inputs = new Set([...Object.keys(engine.metafile.inputs), ...Object.keys(library.metafile.inputs)])
 await cp(join(pdf, 'js/data'), 'runtime/data', { recursive: true })
 await writeFile('runtime/tools.json', execFileSync(process.execPath, ['runtime/worker.cjs', '--schemas']))
 if (!process.argv.includes('--engine-only')) {
