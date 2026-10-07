@@ -44,7 +44,7 @@ def main():
             if not hermes:
                 raise SystemExit("Hermes CLI is required with --hermes.")
             result = subprocess.run([hermes, "plugins", "validate", str(package), "--install-deps", "--json"],
-                                    text=True, capture_output=True, timeout=120)
+                                    text=True, encoding="utf-8", capture_output=True, timeout=120)
             (ROOT / "artifacts/final-extracted-validation.json").write_text(result.stdout, encoding="utf-8")
             if result.returncode or not json.loads(result.stdout).get("ok"):
                 raise SystemExit("Extracted package failed Hermes validation; see artifacts/final-extracted-validation.json.")
@@ -54,7 +54,7 @@ def main():
 
         def request(payload):
             result = subprocess.run([node, str(package / "runtime/worker.cjs"), str(parent / "note-data")],
-                                    cwd=parent, env=env, input=json.dumps(payload), text=True,
+                                    cwd=parent, env=env, input=json.dumps(payload), text=True, encoding="utf-8",
                                     capture_output=True, check=True, timeout=60)
             response = json.loads(result.stdout)
             if "error" in response:

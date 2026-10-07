@@ -28,8 +28,8 @@ def main():
     ]
     for name, command in steps:
         log = artifacts / (name + (".json" if name == "plugin-validation" else ".log"))
-        result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
-        log.write_text(result.stdout + ("\n" + result.stderr if result.stderr else ""))
+        result = subprocess.run(command, cwd=ROOT, text=True, encoding="utf-8", capture_output=True)
+        log.write_text(result.stdout + ("\n" + result.stderr if result.stderr else ""), encoding="utf-8")
         if result.returncode:
             print(f"FAIL {name}: see {log.name}")
             print((result.stdout + result.stderr)[-3500:])

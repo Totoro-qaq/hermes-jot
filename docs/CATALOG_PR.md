@@ -28,7 +28,7 @@ This is the Hermes integration of my MIT-licensed [DSH Jot](https://github.com/T
 ## Compatibility limits
 
 - Tested Desktop baseline: source build `cd94de7ea4`, reported as `0.21.5+8136.gcd94de7`, macOS arm64. Requires current SDK support for `SandboxedFrame`, pane visibility/reveal and gateway file downloads, plus Node.js 22.19+.
-- Windows/Linux paths and modifier conventions are implemented; their native UI behavior has not been exercised on physical hosts. The three-OS CI workflow is prepared locally and has not run remotely.
+- Hosted CI covers Linux, macOS and Windows, including independent package exports. Native Windows/Linux UI behavior has not been exercised on physical hosts; the real Hermes profile-context integration was validated locally and is skipped in standalone CI.
 - The tested host renders PDF but not DOCX; Word attachments use download or the configured default application. External edits do not sync back into the note.
 - No separate Web Dashboard UI, cloud sync, OCR, handwriting canvas or multi-user live editing.
 

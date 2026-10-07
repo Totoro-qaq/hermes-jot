@@ -17,15 +17,17 @@ Date: 2026-10-07, Asia/Shanghai. These are separate evidence levels, not a blank
 | Theme changes | Native Nous light/dark, Solarized light, Catppuccin dark and Cyberpunk dark inspected; editor colors and typography updated, Cyberpunk dialog and filled-button text remained readable | Passed on these representative built-in themes; arbitrary third-party palettes are not individually certified |
 | Native attachment preview/download/open | Native picker uploaded PNG/PDF/DOCX/TXT; sequential inserts retained all four. Hermes rendered the PDF, macOS Preview opened its managed copy, downloaded bytes matched the original | Passed for these types/actions; Hermes does not render Word (DOCX), which offers a binary warning |
 | Screenshot assets | Separate English and Chinese workspace/side-pane JPEGs in `assets/readme/`; native screenshots include real model responses to synthetic demo prompts. Personal directory/status details hidden for capture | Completed and visually inspected |
-| Catalog submission | Template/material preparation only; repository decision belongs to user | Not submitted |
+| Catalog submission | Public repository and entry materials prepared; a separate upstream PR pins the reviewed commit | Maintainer acceptance is separate from publication |
 
-This records local submission preparation, not public publication or catalog approval. Public repository selection, the exact published commit pin and maintainer review remain external steps. Native checks use the actual host, not standalone previews. Initial native loading exposed a bundled ReactDOM/CommonJS failure; the host list now uses virtual-core with the host React singleton, and a compiled ESM evaluation check covers registration. Native visual inspection also exposed missing isolated-editor styles; the editor now mounts its own stylesheet and defines its table-control gutter. Table chrome uses the isolated editor’s own ReactDOM portal into its table node view; it is not placed in the viewport-level menu overlay. Narrow tables anchor add-column/options to their visible right edge.
+Native checks use the actual host, not standalone previews. Catalog acceptance is determined by upstream maintainer review. Initial native loading exposed a bundled ReactDOM/CommonJS failure; the host list now uses virtual-core with the host React singleton, and a compiled ESM evaluation check covers registration. Native visual inspection also exposed missing isolated-editor styles; the editor now mounts its own stylesheet and defines its table-control gutter. Table chrome uses the isolated editor’s own ReactDOM portal into its table node view; it is not placed in the viewport-level menu overlay. Narrow tables anchor add-column/options to their visible right edge.
 
 ## Host
 
 The repaired source-built Hermes Desktop is based on `cd94de7ea4` (displayed identity `0.21.5+8136.gcd94de7`, dated `2026.9.24`), macOS arm64. Node 22.23.1; managed Python 3.14.7.
 
-Windows/Linux code paths and modifier conventions are included. A Linux/macOS/Windows CI matrix is prepared locally; no remote repository exists yet, so that matrix has not run. Native Windows/Linux application behavior has not been tested on physical hosts.
+The [hosted CI matrix](https://github.com/Totoro-qaq/hermes-jot/actions/workflows/ci.yml) runs on Linux, macOS and Windows. Each platform checks types, core tests, the compiled Desktop module, Python/API integration, packaging and independent package exports. The Hermes profile-context test requires the real host environment: it passed locally and is explicitly skipped in standalone CI. The required `CI` gate passes only when every platform passes. Native Windows/Linux Desktop application behavior remains untested on physical hosts.
+
+The first Windows CI run found a verification-script encoding error while reading Chinese engine output. The scripts now explicitly decode subprocess text as UTF-8; the production bridge already handles the engine protocol as UTF-8 bytes.
 
 ## Evidence handling
 
