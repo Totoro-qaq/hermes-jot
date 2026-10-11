@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- `/jot ai on`, `/jot ai off` and `/jot ai status` let users control AI collaboration from CLI, TUI and gateway chats. They share the same profile setting as the Desktop switch.
+- Outside Desktop, `/jot` reports the collaboration state, note count and up to five recent note titles. Desktop's `/jot`, `/jot new` and `/jot capture` keep their existing pane-opening behavior.
+- Disabled-tool messages explain both ways to enable collaboration: the Desktop switch or `/jot ai on`.
+- Collaboration still defaults to off. The commands are user-typed; none of the six agent tools can change the switch.
+
 ## 0.2.0
 
 ### Agent collaboration

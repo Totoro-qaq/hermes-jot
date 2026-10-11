@@ -11,7 +11,7 @@ Substitute the exact commit for `@FULL_COMMIT_SHA@` after its checks pass on the
 Adds **Jot** to the Desktop plugin catalog: notes, checklists and documents beside Hermes that the agent can read and update safely. People edit rich text, checklists, tables and attachments in a full workspace or in a pane beside a conversation. An optional switch enables six `jot_*` tools, with revision checks on edits. Agent-edited notes are marked; for an existing note, human undo restores the whole note to before the agent's latest round of changes. Newly created notes have no earlier version to restore.
 
 Plugin repository: https://github.com/Totoro-qaq/hermes-jot
-Pinned commit: `@FULL_COMMIT_SHA@` · version `0.2.0` · MIT
+Pinned commit: `@FULL_COMMIT_SHA@` · version `0.3.0` · MIT
 
 This is my Hermes integration of [DSH Jot](https://github.com/Totoro-qaq/dsh-jot). The shared document/storage/export core and asset provenance are recorded in `UPSTREAM.json`. It is not derived from a bundled Hermes plugin or an existing catalog entry.
 
