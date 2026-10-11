@@ -56,7 +56,12 @@ class Integration(unittest.TestCase):
         self.assertTrue(read["replaceKeepsFormatting"])
         update = self.tool("jot_update", id=initial["id"], revision=read["revision"], appendText="- [ ] 验收")
         self.assertEqual(update["data"]["revision"], 2)
-        self.assertEqual(self.tool("jot_update", id=initial["id"], revision=1, appendText="过期")["error"]["code"], "REVISION_CONFLICT")
+        refused = self.tool("jot_update", id=initial["id"], revision=1, appendText="过期")
+        self.assertEqual(refused["status"], 409)
+        self.assertEqual(refused["error"]["code"], "REVISION_CONFLICT")
+        self.assertEqual(refused["error"]["message"], "Note changed; expected revision 1, current revision 2")
+        self.assertIs(refused["applied"], False)
+        self.assertEqual(refused["recovery"]["arguments"], {"id": initial["id"]})
         tasks = self.tool("jot_read", id=initial["id"])["data"]["tasks"]
         self.assertFalse(tasks[0]["checked"])
         changed = self.tool("jot_set_task", id=initial["id"], revision=2, index=1, checked=True)["data"]

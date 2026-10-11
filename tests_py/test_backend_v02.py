@@ -178,7 +178,14 @@ class ChangeEvents(Base):
         read = json.loads(backend.agent_call("jot_read", {"id": note["id"]}))["data"]
         json.loads(backend.agent_call("jot_list", {}))
         self.assertEqual(len(events.calls), 1)
-        self.assertIn("error", json.loads(backend.agent_call("jot_update", {"id": note["id"], "revision": 99, "appendText": "x"})))
+        refused = json.loads(backend.agent_call("jot_update", {"id": note["id"], "revision": 99, "appendText": "x"}))
+        self.assertEqual(refused["status"], 409)
+        self.assertEqual(refused["error"]["code"], "REVISION_CONFLICT")
+        self.assertIs(refused["applied"], False)
+        self.assertEqual(refused["recovery"], {
+            "tool": "jot_read", "arguments": {"id": note["id"]},
+            "instruction": "Read the latest note, reconsider the requested changes against it, and retry once. Do not merely replace the revision.",
+        })
         self.assertEqual(len(events.calls), 1)
         json.loads(backend.agent_call("jot_update", {"id": note["id"], "revision": read["revision"], "appendText": "- [ ] t"}))
         self.assertEqual(len(events.calls), 2)

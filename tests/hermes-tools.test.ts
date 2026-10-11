@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { test, type TestContext } from 'node:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { JotStore } from '../src/store.js'
-import { StoreError, docFromMarkdown, docFromText, validateRichDoc } from '../src/model.js'
+import { JotStore, STATE_FILENAME } from '../src/store.js'
+import { StoreError, docFromMarkdown, docFromText, documentTasks, setDocumentTask, validateRichDoc } from '../src/model.js'
 import { createJotTools } from '../src/tools.js'
 import { toolSchema, validateToolArgs } from '../src/tool-definition.js'
+import { runWorker } from '../src/worker-request.js'
 
 test('tool summaries never split an emoji into an unpaired surrogate across the Python bridge', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'jot-tool-unicode-'))
@@ -29,7 +30,7 @@ async function tools(t: TestContext) {
   await store.setAgentEnabled(true)
   const list = createJotTools(store)
   const run = (name: string, args: Record<string, unknown>) => list.find(tool => tool.name === name)!.execute(args) as Promise<any>
-  return { store, list, run }
+  return { directory, store, list, run }
 }
 const code = (expected: string, message?: RegExp) => (error: unknown) =>
   error instanceof StoreError && error.code === expected && (!message || message.test(error.message))
@@ -126,4 +127,73 @@ test('appended checklist items join a final checklist that the editor ends with 
   const saved = await store.getNote(note.id)
   assert.deepEqual(saved.content.content.map(block => block.type), ['taskList', 'paragraph'])
   assert.deepEqual(saved.content.content[0]!.content!.length, 2)
+})
+
+test('a stale AI plan requests a fresh read without writing; a reconsidered retry and undo preserve the human check', async t => {
+  const { directory, store } = await tools(t)
+  const call = (name: string, args: Record<string, unknown>) => runWorker({ kind: 'tool', name, args }, directory) as Promise<any>
+  const original = await store.createNote({ title: 'Weekend workshop', content: docFromMarkdown('Shared supplies.\n\n- [x] Confirm booking\n- [ ] Send invitation') })
+  const first = (await call('jot_update', { id: original.id, revision: original.revision, appendText: '- [ ] Review materials\n- [ ] Make sample' })).data
+  const oldRead = (await call('jot_read', { id: original.id })).data
+  assert.equal(oldRead.revision, first.revision)
+  const human = await store.updateNote(original.id, first.revision, {
+    content: setDocumentTask((await store.getNote(original.id)).content, 3, true),
+  })
+  const before = await readFile(join(directory, STATE_FILENAME), 'utf8')
+  const beforeSnapshot = await store.readSnapshot()
+  const plan = (read: typeof oldRead) => '## Wrap-up plan\n\n' + read.tasks
+    .filter((item: { checked: boolean }) => !item.checked)
+    .map((item: { text: string }, index: number) => `${index + 1}. ${item.text}`).join('\n')
+  const refused = await call('jot_update', { id: original.id, revision: oldRead.revision, appendText: plan(oldRead) })
+  assert.deepEqual(refused, {
+    status: 409,
+    error: { code: 'REVISION_CONFLICT', message: `Note changed; expected revision ${oldRead.revision}, current revision ${human.revision}` },
+    applied: false,
+    recovery: { tool: 'jot_read', arguments: { id: original.id },
+      instruction: 'Read the latest note, reconsider the requested changes against it, and retry once. Do not merely replace the revision.' },
+  })
+  assert.equal(await readFile(join(directory, STATE_FILENAME), 'utf8'), before, 'a rejected write neither changes content nor bumps revision')
+  assert.deepEqual(await store.readSnapshot(), beforeSnapshot, 'the rejection creates no AI edit/undo state')
+  assert.deepEqual(await store.getNote(original.id), human, 'there is no automatic retry or overwrite')
+  const fresh = (await call(refused.recovery.tool, refused.recovery.arguments)).data
+  assert.equal(fresh.revision, human.revision)
+  assert.equal(fresh.tasks[2].checked, true)
+  assert.notEqual(plan(fresh), plan(oldRead), 'the requested plan is reconsidered from the latest checklist')
+  assert.doesNotMatch(plan(fresh), /Review materials/u)
+  const updated = (await call('jot_update', { id: fresh.id, revision: fresh.revision, appendText: plan(fresh) })).data
+  const saved = await store.getNote(original.id)
+  assert.equal(saved.revision, human.revision + 1)
+  assert.match(saved.text, /Wrap-up plan/u)
+  assert.equal(documentTasks(saved.content)[2]!.checked, true)
+  const undone = await store.revertAgentEdit(original.id, updated.revision)
+  assert.deepEqual(undone.content, human.content, 'undo removes only the reconsidered plan, retaining the human check and prior AI todos')
+  assert.deepEqual(documentTasks(undone.content).map(item => [item.text, item.checked]), [
+    ['Confirm booking', true], ['Send invitation', false], ['Review materials', true], ['Make sample', false],
+  ])
+})
+
+test('revision recovery is limited to rejected agent mutations; reads, other errors and human HTTP conflicts keep their contract', async t => {
+  const { directory, store } = await tools(t)
+  const note = await store.createNote({ title: 'Tasks', content: docFromMarkdown('- [ ] Review') })
+  const human = await store.updateNote(note.id, note.revision, { content: setDocumentTask(note.content, 1, true) })
+  for (const [name, args] of [
+    ['jot_update', { id: note.id, revision: note.revision, edits: [{ find: 'Review', replace: 'Gone' }] }],
+    ['jot_set_task', { id: note.id, revision: note.revision, index: 1, checked: false }],
+    ['jot_delete', { id: note.id, revision: note.revision }],
+  ] as const) {
+    const result = await runWorker({ kind: 'tool', name, args }, directory) as any
+    assert.equal(result.status, 409)
+    assert.equal(result.error.code, 'REVISION_CONFLICT')
+    assert.equal(result.applied, false)
+    assert.deepEqual(result.recovery.arguments, { id: note.id })
+    assert.deepEqual(await store.getNote(note.id), human, `${name} must not change or trash the human revision`)
+  }
+  await assert.rejects(runWorker({ kind: 'tool', name: 'jot_set_task', args: { id: note.id, revision: human.revision, index: 99, checked: true } }, directory), code('NOT_FOUND'))
+  await assert.rejects(runWorker({ kind: 'tool', name: 'jot_read', args: { id: 'missing' } }, directory), code('NOT_FOUND'))
+  const humanConflict = await runWorker({ kind: 'http', method: 'PATCH', path: `/notes/${note.id}`, body: { revision: note.revision, title: 'Old' } }, directory)
+  assert.equal(humanConflict.status, 409)
+  assert.deepEqual(Object.keys(humanConflict).sort(), ['error', 'headers', 'status'])
+  assert.deepEqual(await store.getNote(note.id), human)
+  await store.setAgentEnabled(false)
+  await assert.rejects(runWorker({ kind: 'tool', name: 'jot_update', args: { id: note.id, revision: human.revision, appendText: 'Denied' } }, directory), code('AGENT_DISABLED'))
 })

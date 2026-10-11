@@ -2,6 +2,18 @@
 
 These are separate evidence levels, not a blanket completion claim.
 
+## 0.3.1
+
+Date: 2026-10-11, Asia/Shanghai. This patch release completes bundled license notices and gives the agent explicit recovery guidance for rejected stale-revision writes.
+
+- TypeScript, all 327 Node tests, the full build, and the compiled Desktop-module check passed. All 32 Python/API tests passed through the installed Hermes runtime, with isolated temporary note directories.
+- The regression covers a human checklist change after the agent's read: the stale write preserves the complete saved state, returns the original 409/error with `applied: false`, and directs a new read. A reconsidered retry preserves the human change, and undo removes only that retry while retaining the earlier collaboration. No automatic retry is implemented.
+- The regenerated inventory contains 120 license files, including Lucide's ISC and Feather's MIT notices. The versioned license source participates in the build fingerprint and package freshness checks; rebuilding recreates the generated notice.
+- Hermes admission validation passed on the source tree and extracted archive: security scan `safe`, capability declarations matched, and no warnings.
+- The isolated archive passed Chinese rich-note persistence, TXT/Markdown/PDF/DOCX exports, Markdown/ZIP imports, and packaged-documentation link checks.
+
+These are local automated and Hermes-runtime checks, not a new provider-account or native Desktop acceptance run. Existing hosts keep their current tool-error display. The plugin does not require a host patch; hosted CI, publication, and catalog acceptance remain separate gates.
+
 ## 0.3.0
 
 Date: 2026-10-11, Asia/Shanghai. This release adds user-typed `/jot ai on|off|status` commands and a library summary outside Desktop.
