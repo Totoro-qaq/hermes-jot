@@ -2,6 +2,17 @@
 
 These are separate evidence levels, not a blanket completion claim.
 
+## 0.3.0
+
+Date: 2026-10-11, Asia/Shanghai. This release adds user-typed `/jot ai on|off|status` commands and a library summary outside Desktop.
+
+- `python3 scripts/check.py --package` passed: TypeScript, 321 Node tests, full build, compiled Desktop module check and all 32 Python/API tests through the Hermes runtime.
+- Command tests cover on/off/status, invalid arguments, shared Desktop settings, CLI/TUI/gateway context detection, unchanged Desktop pane-opening behavior and the boundary that agent tools cannot enable collaboration.
+- Hermes admission validation passed on both the source tree and the extracted archive: security scan `safe`, capability declarations matched, no warnings.
+- The isolated archive passed Chinese rich-note persistence, TXT/Markdown/PDF/DOCX exports, Markdown/ZIP imports and packaged-documentation link checks.
+
+These are local automated and Hermes-runtime checks. This release does not add a new native Desktop or provider-account model run; earlier native checks below retain their recorded version and scope. Hosted CI and catalog acceptance are separate gates.
+
 ## 0.2.0
 
 Date: 2026-10-07, Asia/Shanghai. Same macOS host as 0.1.0 (below).
