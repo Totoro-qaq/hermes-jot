@@ -1,6 +1,6 @@
 {
   "name": "hermes-jot",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "Notes, checklists and documents beside Hermes that your agent can read and update safely, with revision checks and undo for AI edits.",

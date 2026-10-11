@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Bundled third-party notices now include docx's prebuilt dependencies and the vendored Lucide SVG paths, with the ISC and Feather MIT copyright and license texts. Versioned license sources are fingerprinted, and packaging refuses sources changed after the last build.
+- Tool descriptions ask the agent to read the current note again before each editing turn. Rejected revision-conflict writes retain their original 409 error and add explicit `needs_refresh` / `applied: false` recovery information, directing the agent to read and reconsider the changes before retrying. No automatic overwrite or retry is performed.
+- Existing Hermes versions continue to receive the original error; this release does not change the host's tool-result display.
+
 ## 0.3.0
 
 - `/jot ai on`, `/jot ai off` and `/jot ai status` let users control AI collaboration from CLI, TUI and gateway chats. They share the same profile setting as the Desktop switch.

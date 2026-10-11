@@ -8,6 +8,19 @@ import { test } from 'node:test'
 
 const placeholder = 'See the package source for license details.'
 
+test('generated notices retain licenses for vendored SVG icons', async () => {
+  const notices = await readFile('THIRD_PARTY_NOTICES.md', 'utf8')
+  const license = await readFile('LICENSES/lucide.txt', 'utf8')
+  assert.match(notices, /lucide@0\.292\.0 — \[license\]\(LICENSES\/lucide\.txt\)/)
+  assert.match(license, /License: ISC AND MIT/)
+  assert.match(license, /Vendored in: Inline SVG icon paths in src\/client\/icons\.tsx/)
+  assert.match(license, /Lucide Contributors 2022/)
+  assert.match(license, /Cole Bemis/)
+  assert.match(license, /ISC License/)
+  assert.match(license, /MIT License/)
+  assert.match(license, /feathericons\/feather\/v4\.29\.0\/LICENSE/)
+})
+
 test('versioned license sources are included in build fingerprints', async () => {
   const build = JSON.parse(await readFile('runtime/build-info.json', 'utf8'))
   const sources = (await readdir('scripts/license-texts')).filter(name => name.endsWith('.txt'))

@@ -105,7 +105,17 @@ export async function runWorker(input: Record<string, any>, directory: string) {
     const tool = createJotTools(store).find(item => item.name === input.name)
     if (!tool) throw new Error('Unknown Jot tool.')
     validateToolArgs(tool, input.args)
-    return { data: await tool.execute(input.args) }
+    try { return { data: await tool.execute(input.args) } }
+    catch (error) {
+      if (!(error instanceof StoreError) || error.code !== 'REVISION_CONFLICT'
+          || !['jot_update', 'jot_set_task', 'jot_delete'].includes(tool.name)) throw error
+      // Keep the rejected write an error for existing hosts. The agent must
+      // reread and reconsider its changes; the worker never retries for it.
+      return { status: error.status, error: { code: error.code, message: error.message },
+        outcome: 'needs_refresh', applied: false,
+        recovery: { tool: 'jot_read', arguments: { id: input.args.id },
+          instruction: 'Read the latest note, reconsider the requested changes against it, and retry once. Do not merely replace the revision.' } }
+    }
   }
   if (input.kind === 'import') {
     const request = await readImport(store.directory, input)

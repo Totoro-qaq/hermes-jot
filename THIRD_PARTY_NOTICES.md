@@ -1,6 +1,6 @@
 # Third-party notices
 
-The compiled editor and note engine include these dependencies. Hermes supplies the React singleton for the host-facing UI; the isolated editor includes its own React runtime. Packages inlined in docx's prebuilt file, which esbuild's metafile cannot see, are included here and tagged in their license files.
+The compiled editor and note engine include these dependencies and vendored assets. Hermes supplies the React singleton for the host-facing UI; the isolated editor includes its own React runtime. Packages inlined in docx's prebuilt file, which esbuild's metafile cannot see, are included here and tagged in their license files. Vendored SVG icon paths in `src/client/icons.tsx` are covered by the Lucide notice, including the MIT license for Feather-derived portions.
 
 - @swc/helpers@0.5.23 — [license](LICENSES/_swc_helpers.txt)
 - @tanstack/virtual-core@3.17.11 — [license](LICENSES/_tanstack_virtual-core.txt)
@@ -74,6 +74,7 @@ The compiled editor and note engine include these dependencies. Hermes supplies 
 - linebreak@1.1.0 — [license](LICENSES/linebreak.txt)
 - linkify-it@6.1.0 — [license](LICENSES/linkify-it.txt)
 - linkifyjs@4.3.3 — [license](LICENSES/linkifyjs.txt)
+- lucide@0.292.0 — [license](LICENSES/lucide.txt)
 - markdown-it@15.0.2 — [license](LICENSES/markdown-it.txt)
 - math-intrinsics@1.1.0 — [license](LICENSES/math-intrinsics.txt)
 - mdurl@2.1.0 — [license](LICENSES/mdurl.txt)

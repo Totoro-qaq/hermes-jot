@@ -54,6 +54,13 @@ const licenseFallbacks = new Map([
   ['dfa@1.2.0', 'MIT'],
   ['brotli@1.3.3', 'MIT AND Apache-2.0'],
 ])
+// Vendored SVG paths are not npm imports, so esbuild cannot report their licenses.
+// Keep their versioned notices in the same generated inventory as bundled packages.
+const vendoredAssets = [
+  { name: 'lucide', version: '0.292.0', license: 'ISC AND MIT',
+    source: 'https://github.com/lucide-icons/lucide/tree/0.292.0',
+    vendored: 'Inline SVG icon paths in src/client/icons.tsx, including Feather-derived portions.' },
+]
 // 内联在 docx 预构建 dist/index.mjs 里的代码。esbuild 的 metafile 只能看到 docx。
 // 版本取自 docx 9.5.1 的 lockfile，且对应文件里确实出现的模块
 //（JSZip 自己的包报告 3.10.1；sax 1.2.4 是 ISC，不是后来的 Blue Oak）。
@@ -170,6 +177,11 @@ for (const item of prebuilt) {
   seen.add(id)
   entries.push({ name: item.name, version: item.version, license: item.license, body: stored.trimEnd(), inlined: docxVersion })
 }
+for (const item of vendoredAssets) {
+  const stored = await storedLicense(item.name, item.version)
+  if (!stored) throw new Error(`Missing vendored asset license for ${item.name}@${item.version}`)
+  entries.push({ ...item, body: stored.trimEnd(), inlined: null })
+}
 for (const id of licenseFallbacks.keys()) {
   if (!seen.has(id)) throw new Error(`License fallback ${id} was not used; that package was not in the bundle`)
 }
@@ -188,15 +200,17 @@ const written = new Set()
 for (const entry of entries) {
   const safe = entry.name.replace(/[^a-zA-Z0-9._-]/g, '_')
   const file = versions.get(entry.name).size > 1 ? `${safe}@${entry.version}.txt` : `${safe}.txt`
-  const tail = entry.inlined ? `Inlined in: docx@${entry.inlined} prebuilt distribution\n\n` : '\n'
-  const text = `${entry.name}@${entry.version}\nLicense: ${entry.license}\nSource: https://www.npmjs.com/package/${entry.name}\n${tail}${entry.body}\n`
+  const tail = entry.inlined ? `Inlined in: docx@${entry.inlined} prebuilt distribution\n\n`
+    : entry.vendored ? `Vendored in: ${entry.vendored}\n\n` : '\n'
+  const source = entry.source ?? `https://www.npmjs.com/package/${entry.name}`
+  const text = `${entry.name}@${entry.version}\nLicense: ${entry.license}\nSource: ${source}\n${tail}${entry.body}\n`
   if (text.includes(placeholder)) throw new Error(`Refusing placeholder license text for ${entry.name}@${entry.version}`)
   await writeFile(join('LICENSES', file), text)
   written.add(file)
   notices.push(`- ${entry.name}@${entry.version} — [license](LICENSES/${file})`)
 }
 const noticeBody = [...notices].sort().join('\n')
-const noticeText = '# Third-party notices\n\nThe compiled editor and note engine include these dependencies. Hermes supplies the React singleton for the host-facing UI; the isolated editor includes its own React runtime. Packages inlined in docx\'s prebuilt file, which esbuild\'s metafile cannot see, are included here and tagged in their license files.\n\n' + noticeBody + '\n\npdfkit\'s Adobe Core 14 AFM metric files are shipped in `runtime/data/*.afm` with their copyright comments intact, along with the ICC sRGB profile `runtime/data/sRGB_IEC61966_2_1.icc` (Copyright International Color Consortium, 2015).\n\nOffline PDF fonts: [SIL Open Font License](assets/fonts/OFL.txt). Original Jot source: [MIT](LICENSE), provenance in [UPSTREAM.json](UPSTREAM.json).\n'
+const noticeText = '# Third-party notices\n\nThe compiled editor and note engine include these dependencies and vendored assets. Hermes supplies the React singleton for the host-facing UI; the isolated editor includes its own React runtime. Packages inlined in docx\'s prebuilt file, which esbuild\'s metafile cannot see, are included here and tagged in their license files. Vendored SVG icon paths in `src/client/icons.tsx` are covered by the Lucide notice, including the MIT license for Feather-derived portions.\n\n' + noticeBody + '\n\npdfkit\'s Adobe Core 14 AFM metric files are shipped in `runtime/data/*.afm` with their copyright comments intact, along with the ICC sRGB profile `runtime/data/sRGB_IEC61966_2_1.icc` (Copyright International Color Consortium, 2015).\n\nOffline PDF fonts: [SIL Open Font License](assets/fonts/OFL.txt). Original Jot source: [MIT](LICENSE), provenance in [UPSTREAM.json](UPSTREAM.json).\n'
 if (!noticeText.includes('runtime/data/*.afm') || !noticeText.includes('runtime/data/sRGB_IEC61966_2_1.icc')) throw new Error('Third-party notices are missing the pdfkit AFM or ICC line')
 const ofl = await readFile('assets/fonts/OFL.txt', 'utf8')
 if (!ofl.startsWith("Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.")) throw new Error('assets/fonts/OFL.txt is missing the Adobe copyright line')
