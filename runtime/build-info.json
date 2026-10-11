@@ -9,7 +9,7 @@
     "package-lock.json": "216846e1568b3d1bbec7eee1120c269e13817490f35035be20c43bf26d4262da",
     "package.json": "5a7435035ae21e3966e64df853497449c1ef57bedcc0615fb3dd1755b8954fb2",
     "plugin.yaml": "2d786f8d9026aa1bddd15ba1f98e10772da530d0e4b1bdc9562f42df29f2b5d4",
-    "scripts/build.mjs": "b0c8c4b0ad701023a22413374cf348b8acb385679e8d5d989776297910f04c10",
+    "scripts/build.mjs": "39f49894849d8f8bece0d7bcb5c8be965876fc4b2356f6f9cf6863fbeb1f7622",
     "src/agent-edits.ts": "564ddd985b84609b6e62b47d82cb7108c31cdacb6ee5e419fa9bbbef5c92853c",
     "src/agent-markdown.ts": "958d8cb708eb42b7d2d911bc5aac813e062736e62c6f1440e46a7f679f43d9f9",
     "src/attachments.ts": "e94dd4ef2eea1d0c878ac1925d8347dada62c1b5c720bd466c5f257b138a8e23",
