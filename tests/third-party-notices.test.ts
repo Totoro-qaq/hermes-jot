@@ -1,8 +1,61 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile } from 'node:fs/promises'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 
 const placeholder = 'See the package source for license details.'
+
+test('versioned license sources are included in build fingerprints', async () => {
+  const build = JSON.parse(await readFile('runtime/build-info.json', 'utf8'))
+  const sources = (await readdir('scripts/license-texts')).filter(name => name.endsWith('.txt'))
+  assert.ok(sources.length > 0)
+  for (const source of sources) {
+    const name = `scripts/license-texts/${source}`
+    const hash = createHash('sha256').update(await readFile(name)).digest('hex')
+    assert.equal(build.inputs[name], hash, `missing or stale build fingerprint for ${name}`)
+  }
+})
+
+test('packaging rejects license source changes after the last build', async () => {
+  const python = process.platform === 'win32' ? 'python' : 'python3'
+  const packager = resolve('scripts/package.py')
+  const layout = JSON.parse(execFileSync(python, ['-c',
+    'import json, runpy, sys; p = runpy.run_path(sys.argv[1]); print(json.dumps({k: p[k] for k in ("ALLOWED_FILES", "DOCS", "REQUIRED")}))',
+    packager], { encoding: 'utf8' })) as { ALLOWED_FILES: string[], DOCS: string[], REQUIRED: string[] }
+  const fixture = await mkdtemp(join(tmpdir(), 'jot-license-freshness-'))
+  try {
+    const paths = new Set([...layout.ALLOWED_FILES, ...layout.DOCS.map(name => `docs/${name}`),
+      ...layout.REQUIRED, 'scripts/package.py'])
+    for (const path of paths) {
+      const target = join(fixture, path)
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, 'Fixture content\n')
+    }
+    await writeFile(join(fixture, 'scripts/package.py'), await readFile(packager))
+    await writeFile(join(fixture, 'package.json'), JSON.stringify({ version: '0.0.0' }))
+    const source = 'scripts/license-texts/fontkit@2.0.4.txt'
+    const license = await readFile(source)
+    const build = JSON.parse(await readFile('runtime/build-info.json', 'utf8'))
+    assert.equal(build.inputs[source], createHash('sha256').update(license).digest('hex'))
+    await mkdir(dirname(join(fixture, source)), { recursive: true })
+    await writeFile(join(fixture, source), license)
+    await writeFile(join(fixture, 'runtime/build-info.json'), JSON.stringify({
+      fullBuild: true, inputs: { [source]: build.inputs[source] },
+    }))
+    const pack = () => spawnSync(python, ['scripts/package.py'], { cwd: fixture, encoding: 'utf8' })
+    const fresh = pack()
+    assert.equal(fresh.status, 0, fresh.stderr)
+    await writeFile(join(fixture, source), Buffer.concat([license, Buffer.from('\nUpdated license source\n')]))
+    const stale = pack()
+    assert.equal(stale.status, 1, stale.stderr)
+    assert.match(stale.stderr, /Source changed after the last build: scripts\/license-texts\/fontkit@2\.0\.4\.txt/)
+  } finally {
+    await rm(fixture, { recursive: true, force: true })
+  }
+})
 
 test('third-party notices cover bundled packages without placeholder or stale license files', async () => {
   const notices = await readFile('THIRD_PARTY_NOTICES.md', 'utf8')

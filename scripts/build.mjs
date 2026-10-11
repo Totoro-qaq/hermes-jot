@@ -116,8 +116,14 @@ const docxPrebuilt = {
 const licenseFileName = /^(?:licen[cs]e|copying|notice)(?:[._-].*)?$/i
 const placeholder = 'See the package source for license details.'
 const storedLicenseName = (name, version) => `${name.replace(/[^a-zA-Z0-9._-]/g, '_')}@${version}.txt`
+const licenseSourceFiles = new Set()
 async function storedLicense(name, version) {
-  try { return await readFile(join('scripts/license-texts', storedLicenseName(name, version)), 'utf8') }
+  const file = `scripts/license-texts/${storedLicenseName(name, version)}`
+  try {
+    const text = await readFile(file, 'utf8')
+    licenseSourceFiles.add(file)
+    return text
+  }
   catch (error) { if (error.code === 'ENOENT') return null; throw error }
 }
 const docxBundle = await readFile(join(dirname(require.resolve('docx')), 'index.mjs'), 'utf8')
@@ -202,7 +208,8 @@ for (const file of licenseFiles) {
 await writeFile('THIRD_PARTY_NOTICES.md', noticeText)
 const sourceFiles = [...inputs].filter(name => name.startsWith('src/'))
 sourceFiles.push('package.json', 'package-lock.json', 'tsconfig.json', 'scripts/build.mjs',
-  '__init__.py', 'backend.py', 'native_open.py', 'plugin.yaml', 'dashboard/plugin_api.py', 'dashboard/manifest.json')
+  '__init__.py', 'backend.py', 'native_open.py', 'plugin.yaml', 'dashboard/plugin_api.py', 'dashboard/manifest.json',
+  ...licenseSourceFiles)
 const fingerprints = {}
 for (const name of sourceFiles.sort()) fingerprints[name] = createHash('sha256').update(await readFile(name)).digest('hex')
 await writeFile('runtime/build-info.json', JSON.stringify({ fullBuild: !process.argv.includes('--engine-only'), inputs: fingerprints }, null, 2) + '\n')
