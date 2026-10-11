@@ -12,7 +12,7 @@ Updates `plugin-catalog/jot.yaml` from Jot 0.2.0 to 0.3.1, pinned to `@FULL_COMM
 
 - Adds user-typed `/jot ai on|off|status` and a note-library summary outside Desktop (introduced in 0.3.0).
 - Includes complete notices for dependencies inlined in docx and the vendored SVG icon paths. Versioned license sources participate in the build fingerprint and package freshness check.
-- Asks the agent to read the note fresh in each editing turn and adds explicit `needs_refresh` / `applied: false` information to rejected tool writes. The original HTTP-style 409 and error are retained, with guidance to read again and reconsider the edit before retrying. Existing hosts retain their existing error display.
+- Asks the agent to read the note fresh in each editing turn. Rejected writes retain the original 409 / `REVISION_CONFLICT` error and add `applied: false` with guidance to read again and reconsider the edit before retrying. Existing hosts retain their existing error display.
 
 The entry still points to the same repository and declares the same six tools. AI collaboration defaults to off. Notes remain profile-scoped; only users can enable collaboration and undo agent edits.
 

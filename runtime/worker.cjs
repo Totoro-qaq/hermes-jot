@@ -2625,7 +2625,6 @@ async function runWorker(input, directory) {
       return {
         status: error.status,
         error: { code: error.code, message: error.message },
-        outcome: "needs_refresh",
         applied: false,
         recovery: {
           tool: "jot_read",

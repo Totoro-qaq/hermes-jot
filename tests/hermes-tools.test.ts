@@ -148,7 +148,7 @@ test('a stale AI plan requests a fresh read without writing; a reconsidered retr
   assert.deepEqual(refused, {
     status: 409,
     error: { code: 'REVISION_CONFLICT', message: `Note changed; expected revision ${oldRead.revision}, current revision ${human.revision}` },
-    outcome: 'needs_refresh', applied: false,
+    applied: false,
     recovery: { tool: 'jot_read', arguments: { id: original.id },
       instruction: 'Read the latest note, reconsider the requested changes against it, and retry once. Do not merely replace the revision.' },
   })
@@ -184,7 +184,6 @@ test('revision recovery is limited to rejected agent mutations; reads, other err
     const result = await runWorker({ kind: 'tool', name, args }, directory) as any
     assert.equal(result.status, 409)
     assert.equal(result.error.code, 'REVISION_CONFLICT')
-    assert.equal(result.outcome, 'needs_refresh')
     assert.equal(result.applied, false)
     assert.deepEqual(result.recovery.arguments, { id: note.id })
     assert.deepEqual(await store.getNote(note.id), human, `${name} must not change or trash the human revision`)

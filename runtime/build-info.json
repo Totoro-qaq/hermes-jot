@@ -137,7 +137,7 @@
     "src/store.ts": "e6acb0115ba4aa281b8f248cc618891e292a6487e86793b12ff64d0db8dcdeb8",
     "src/tool-definition.ts": "81ab33af979ab807929f0bfa620fbd240999ca82841fed9de94f6e9f32f286ab",
     "src/tools.ts": "e54b276cda969062e3c68c004af9e21ba78dc9aba4b3e2c63756cf9ba2da7880",
-    "src/worker-request.ts": "524ef8f646b05b99e90b71e4b35ecb433d23cbfedcdb5bbac5fb5ab87eac8133",
+    "src/worker-request.ts": "8f93f1d098b31bc0aa3f8fd40b777a7ef25e175a16e0c8554c961a47b15d5782",
     "src/worker.ts": "3149acee72c0b56a7a7f7214e44624ca01b3c9b19db7d27f8cc2dbcb16572af8",
     "tsconfig.json": "a02d5d61e18bafa8a81c32cc254a99d65463614e6fa94da061ac9e3554748413"
   }

@@ -112,7 +112,7 @@ export async function runWorker(input: Record<string, any>, directory: string) {
       // Keep the rejected write an error for existing hosts. The agent must
       // reread and reconsider its changes; the worker never retries for it.
       return { status: error.status, error: { code: error.code, message: error.message },
-        outcome: 'needs_refresh', applied: false,
+        applied: false,
         recovery: { tool: 'jot_read', arguments: { id: input.args.id },
           instruction: 'Read the latest note, reconsider the requested changes against it, and retry once. Do not merely replace the revision.' } }
     }

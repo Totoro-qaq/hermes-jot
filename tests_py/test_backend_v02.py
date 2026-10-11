@@ -181,7 +181,6 @@ class ChangeEvents(Base):
         refused = json.loads(backend.agent_call("jot_update", {"id": note["id"], "revision": 99, "appendText": "x"}))
         self.assertEqual(refused["status"], 409)
         self.assertEqual(refused["error"]["code"], "REVISION_CONFLICT")
-        self.assertEqual(refused["outcome"], "needs_refresh")
         self.assertIs(refused["applied"], False)
         self.assertEqual(refused["recovery"], {
             "tool": "jot_read", "arguments": {"id": note["id"]},

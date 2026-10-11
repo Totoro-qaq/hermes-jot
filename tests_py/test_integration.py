@@ -60,7 +60,6 @@ class Integration(unittest.TestCase):
         self.assertEqual(refused["status"], 409)
         self.assertEqual(refused["error"]["code"], "REVISION_CONFLICT")
         self.assertEqual(refused["error"]["message"], "Note changed; expected revision 1, current revision 2")
-        self.assertEqual(refused["outcome"], "needs_refresh")
         self.assertIs(refused["applied"], False)
         self.assertEqual(refused["recovery"]["arguments"], {"id": initial["id"]})
         tasks = self.tool("jot_read", id=initial["id"])["data"]["tasks"]
