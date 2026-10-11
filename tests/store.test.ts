@@ -131,6 +131,13 @@ test('every agent read and mutation is gated by the latest persisted preference'
     () => store.deleteFolder(folder.id, 'agent'),
   ]
   for (const operation of operations) await assert.rejects(operation(), code('AGENT_DISABLED'))
+  await assert.rejects(store.readState('agent'), (error: unknown) => {
+    assert.ok(error instanceof StoreError)
+    assert.equal(error.code, 'AGENT_DISABLED')
+    assert.match(error.message, /Allow AI collaboration/)
+    assert.match(error.message, /\/jot ai on/)
+    return true
+  })
   await assert.rejects(store.setAgentEnabled(true, 'agent'), code('HUMAN_ONLY'))
   await other.setAgentEnabled(true)
   assert.equal((await store.getNote(note.id, 'agent')).text, 'Secret')

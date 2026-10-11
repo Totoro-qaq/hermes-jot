@@ -1,7 +1,7 @@
 """Jot: human-owned notes with optional agent collaboration."""
 import json
 from pathlib import Path
-from .backend import agent_call
+from .backend import agent_call, handle_command
 
 
 def register(ctx):
@@ -11,10 +11,10 @@ def register(ctx):
         def handler(args, _name=name, **kwargs):
             return agent_call(_name, args)
         ctx.register_tool(name=name, toolset="jot", schema=schema, handler=handler)
-    # Desktop's supported composer middleware opens the local pane. Registering
-    # the command here lets Hermes consume it normally without a model turn.
-    def command(raw_args):
-        if raw_args.strip() in ("", "new", "capture"):
-            return None
-        return "Jot: /jot, /jot new, /jot capture in Hermes Desktop. Agent access uses the six jot_* tools and requires the human collaboration switch."
-    ctx.register_command("jot", command, description="Open Jot notes", args_hint="[new|capture|help]")
+    # User-typed only. There is no tool for this switch: Hermes dispatches slash
+    # commands before the model sees them, and the store rejects an agent actor.
+    ctx.register_command(
+        "jot", handle_command,
+        description="Open Jot or turn AI collaboration on or off",
+        args_hint="[new|capture|ai on|off|status|help]",
+    )

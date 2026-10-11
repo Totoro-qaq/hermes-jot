@@ -1204,7 +1204,7 @@ var JotStore = class {
     const unlock = await this.lock();
     try {
       const { state, previous } = await this.load(!mutate);
-      if (actor === "agent" && !state.agentEnabled) throw new StoreError("AGENT_DISABLED", "Jot AI collaboration is off. Ask the user to turn on \u201CAllow AI collaboration\u201D at the bottom of the Jot note list, then retry.");
+      if (actor === "agent" && !state.agentEnabled) throw new StoreError("AGENT_DISABLED", "Jot AI collaboration is off. Ask the user to turn on \u201CAllow AI collaboration\u201D at the bottom of the Jot note list, or to type /jot ai on, then retry.");
       const previousRevisions = actor === "user" && mutate ? new Map(state.notes.map((note) => [note.id, note.revision])) : void 0;
       const result = await operation(state);
       if (mutate) {

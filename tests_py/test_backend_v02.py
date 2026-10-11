@@ -123,6 +123,7 @@ class Registration(Base):
         refused = json.loads(handlers["jot_list"]({}))
         self.assertEqual(refused["error"]["code"], "AGENT_DISABLED")
         self.assertIn("Allow AI collaboration", refused["error"]["message"])
+        self.assertIn("/jot ai on", refused["error"]["message"])
         self.enable_agent()
         self.assertIn("data", json.loads(handlers["jot_list"]({})))
 
@@ -423,6 +424,128 @@ class Import(Base):
         response = self.upload("real.md", b"# Real\n\nimported")
         self.assertIn(response.status_code, (200, 400, 404, 413, 500))
         self.assertEqual(self.imports(), [])
+
+
+class SlashCommand(Base):
+    """/jot is user-typed. It writes the same agentEnabled flag as the Desktop switch."""
+
+    OFF = "Jot AI collaboration is off. Turn it on with /jot ai on, or with Allow AI collaboration in Hermes Desktop."
+    ON = "Jot AI collaboration is on."
+
+    def setUp(self):
+        super().setUp()
+        self.package, self.package_backend = load_plugin_package()
+        patcher = patch.object(self.package_backend, "data_directory", lambda: self.directory)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        ctx = FakeContext()
+        self.package.register(ctx)
+        self.command = ctx.commands[0][0][1]
+        self.handlers = {tool["name"]: tool["handler"] for tool in ctx.tools}
+        self.assertEqual(ctx.commands[0][1]["args_hint"], "[new|capture|ai on|off|status|help]")
+        self.assertFalse(any("agentEnabled" in tool["schema"]["parameters"].get("properties", {}) for tool in ctx.tools))
+
+    def saved(self):
+        path = self.directory / "jot.json"
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_on_off_status_invalid_args_and_library_summary(self):
+        self.events.calls.clear()
+        self.assertEqual(self.command("ai status"), self.OFF)
+        self.assertEqual(self.command("  AI   STATUS  "), self.OFF)
+        self.assertEqual(self.events.calls, [])
+        self.assertIsNone(self.saved())
+        for raw in ("ai", "ai maybe", "ai on extra", "ai on off", "ai status now"):
+            self.assertEqual(self.command(raw), self.package_backend.AI_USAGE, raw)
+        self.assertIsNone(self.saved())
+        self.assertEqual(self.command("help"), self.package_backend.HELP)
+        self.assertEqual(self.command("--help"), self.package_backend.HELP)
+        self.assertEqual(self.command("nope"), self.package_backend.HELP)
+        self.assertIsNone(self.command("new"))
+        self.assertIsNone(self.command("capture"))
+        self.assertEqual(
+            self.command(""),
+            "Jot: AI collaboration is off. No notes yet.\n"
+            "Turn it on with /jot ai on, or with Allow AI collaboration in Hermes Desktop.",
+        )
+        self.assertEqual(self.command("ai on"), self.ON)
+        self.assertEqual(self.events.calls, [("jot", "notes.changed", {})])
+        self.assertTrue(self.saved()["agentEnabled"])
+        # The Desktop settings call reads and writes this same file.
+        self.assertTrue(self.post_rpc("/state")["data"]["agentEnabled"])
+        self.events.calls.clear()
+        self.assertEqual(self.command("ai status"), self.ON)
+        self.assertEqual(self.events.calls, [])
+        self.post_rpc("/settings", "PATCH", {"agentEnabled": False})
+        self.assertEqual(self.command("ai status"), self.OFF)
+        self.assertFalse(self.saved()["agentEnabled"])
+        self.post_rpc("/notes", "POST", {"title": "Plain", "content": doc("a")})
+        self.assertEqual(
+            self.command(""),
+            "Jot: AI collaboration is off. 1 note.\nRecent: Plain\n"
+            "Turn it on with /jot ai on, or with Allow AI collaboration in Hermes Desktop.",
+        )
+        self.post_rpc("/notes", "POST", {"title": "Pinned", "content": doc("b"), "pinned": True})
+        gone = self.post_rpc("/notes", "POST", {"title": "Gone", "content": doc("c")})["data"]
+        self.post_rpc(f"/notes/{gone['id']}", "DELETE", {"revision": gone["revision"]})
+        summary = self.command("")
+        self.assertEqual(
+            summary,
+            "Jot: AI collaboration is off. 2 notes.\nRecent: Pinned, Plain\n"
+            "Turn it on with /jot ai on, or with Allow AI collaboration in Hermes Desktop.",
+        )
+        self.assertNotIn("Gone", summary)
+        self.events.calls.clear()
+        self.assertEqual(self.command("ai off"), self.OFF)
+        self.assertEqual(self.events.calls, [("jot", "notes.changed", {})])
+
+    def test_desktop_chat_stays_silent_for_open_new_and_capture(self):
+        quiet = {"HERMES_DESKTOP": "1", "HERMES_DESKTOP_TERMINAL": "", "HERMES_SESSION_SOURCE": "", "HERMES_SESSION_PLATFORM": ""}
+        with patch.dict(os.environ, quiet), patch.object(self.package_backend, "invoke", side_effect=AssertionError("engine")):
+            self.assertIsNone(self.command(""))
+            self.assertIsNone(self.command("new"))
+            self.assertIsNone(self.command("NEW"))
+            self.assertIsNone(self.command("capture"))
+        # The embedded terminal and a real TUI/gateway session are not the Desktop composer.
+        with patch.dict(os.environ, {**quiet, "HERMES_DESKTOP_TERMINAL": "1"}):
+            self.assertIn("No notes yet.", self.command(""))
+        with patch.dict(os.environ, {**quiet, "HERMES_SESSION_SOURCE": "tui"}):
+            self.assertIn("No notes yet.", self.command(""))
+        with patch.dict(os.environ, {**quiet, "HERMES_SESSION_PLATFORM": "telegram"}):
+            self.assertIn("No notes yet.", self.command(""))
+        with patch.dict(os.environ, {"HERMES_SESSION_SOURCE": "desktop", "HERMES_DESKTOP": ""}), \
+                patch.object(self.package_backend, "invoke", side_effect=AssertionError("engine")):
+            self.assertIsNone(self.command(""))
+            self.assertIsNone(self.command("capture"))
+        # The switch still works when the composer is Desktop; middleware does not swallow /jot ai.
+        with patch.dict(os.environ, quiet):
+            self.assertEqual(self.command("ai on"), self.ON)
+            self.assertTrue(self.saved()["agentEnabled"])
+
+    def test_agent_cannot_flip_the_switch(self):
+        refused = json.loads(self.handlers["jot_list"]({}))
+        self.assertEqual(refused["error"]["code"], "AGENT_DISABLED")
+        self.assertIn("Allow AI collaboration", refused["error"]["message"])
+        self.assertIn("/jot ai on", refused["error"]["message"])
+        smuggled = json.loads(self.handlers["jot_list"]({"agentEnabled": True}))
+        self.assertEqual(smuggled["error"]["code"], "INVALID_INPUT")
+        self.assertNotIn("data", json.loads(self.handlers["jot_create"]({"title": "denied", "text": "secret"})))
+        self.assertIsNone(self.saved())
+        self.assertEqual(self.command("ai on"), self.ON)
+        self.assertTrue(self.saved()["agentEnabled"])
+        listed = json.loads(self.handlers["jot_list"]({}))
+        self.assertIn("data", listed)
+        self.assertEqual(listed["data"]["total"], 0)
+        created = json.loads(self.handlers["jot_create"]({"title": "From the agent", "text": "hello"}))
+        self.assertEqual(created["data"]["title"], "From the agent")
+        self.assertIn("From the agent", self.command(""))
+        self.assertIn("AI collaboration is on", self.command(""))
+        self.assertEqual(self.command("ai off"), self.OFF)
+        again = json.loads(self.handlers["jot_read"]({"id": created["data"]["id"]}))
+        self.assertEqual(again["error"]["code"], "AGENT_DISABLED")
+        self.assertFalse(self.saved()["agentEnabled"])
 
 
 class Invoke(unittest.TestCase):

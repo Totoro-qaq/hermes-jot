@@ -1,8 +1,8 @@
 {
   "fullBuild": true,
   "inputs": {
-    "__init__.py": "25a759d7f91995ade9c18b0de09e776aa8b9ab3e5080f07a2b2267d3e3804328",
-    "backend.py": "0ebd1858eede1689fc4832406a66678bea9e31877bcbc5d97e02e7a1f0a58022",
+    "__init__.py": "1c02e7faeb7704e5208701f256be70031a901cff20d542cdda316619c0a6abeb",
+    "backend.py": "5fe38d6d9a82e85927540d494324160589bb940eeb94670b6769aeb19b90f14f",
     "dashboard/manifest.json": "b9dc063e9ad3657b8eee8561a2c6bf25937336636df93f7441655a2369997a39",
     "dashboard/plugin_api.py": "53de2964dad5c058909ebb6e964a41e5f32a3b61efda22ad9c574c632bb070fc",
     "native_open.py": "261b5385588716924fbece632ce7cb4a7aea761e15dc1f97fa559539306cd9d5",
@@ -79,7 +79,7 @@
     "src/library.ts": "baa56a1c9c2e843a2c89a7308808c9c59c45eb524c5668e37203f08dd19b5ce0",
     "src/markdown-import.ts": "c78cbe95c274bec7c80f68253cec2ebb2845eaaadb798636989356d5706df179",
     "src/model.ts": "b84fd08765187e031917caa60a233609cc68e0879bed873edf7b79eb5242f3c0",
-    "src/store.ts": "83f38afa01892537cf033108bec8a3db2156fccd8d8b566ca070062951049123",
+    "src/store.ts": "e6acb0115ba4aa281b8f248cc618891e292a6487e86793b12ff64d0db8dcdeb8",
     "src/tool-definition.ts": "81ab33af979ab807929f0bfa620fbd240999ca82841fed9de94f6e9f32f286ab",
     "src/tools.ts": "9a58441e25491b0d44b36e8964a674c5fa5be6ad3630bd146eb48b2297ddda38",
     "src/worker-request.ts": "ae2d469eb546edc398124e16b433c3b8f9c6ab36d193c4383a6f3b6345ca7381",
