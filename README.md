@@ -22,6 +22,8 @@ Notes save as you type. You can export a note as Markdown, Word, PDF or plain te
 
 AI collaboration starts off. Turn on **Allow AI collaboration** at the bottom of the note list, and from then on, when you ask, Hermes can find, read, create and edit notes, tick or untick to-dos, and move notes to Trash. The switch takes effect at once, even in a conversation that is already open, and you can turn it off at any time. While it is off, Hermes is refused and told where the switch is. Jot never puts a note into a conversation by itself.
 
+Outside Hermes Desktop, type `/jot ai on` in the CLI, TUI or a gateway chat to turn it on for this profile, and `/jot ai off` to turn it off. `/jot` there shows the switch, how many notes you have, and a few recent titles. The agent cannot change the switch.
+
 To keep a note beside the chat, click the Jot button in the message box or type `/jot`. **Ask Hermes about this note**, in the editor toolbar and the note menu, saves what you have written and puts a reference to the note in the message box, or copies it if no message box is open. Then you only have to say what you want.
 
 In the screenshot below, Hermes was asked for two more checks before shipping. It read the release checklist and added two items to the end, and the open note now shows **AI edited**.

@@ -66,7 +66,7 @@ The page, side panel and composer button register through the Hermes SDK in `src
 
 At load, Jot checks for the SDK features it needs (`SandboxedFrame`, gateway file download, the theme hook, pane visibility and `revealPane`) and otherwise shows “Jot requires a recent Hermes Desktop SDK with SandboxedFrame and gateway file downloads.”
 
-`/jot`, `/jot new` and `/jot capture` are handled by Desktop composer middleware, which opens the side panel. The same command is registered on the Python side so Hermes consumes it without a model turn; any other argument returns a one-line help text.
+`/jot`, `/jot new` and `/jot capture` are handled by Desktop composer middleware, which opens the side panel. The Python command returns no text for those three in Desktop chat, so Hermes consumes them without a model turn. Outside Desktop, `/jot` replies with the AI switch, the note count and a few recent titles. `/jot ai on`, `/jot ai off` and `/jot ai status` read and write the same `agentEnabled` flag as the Desktop switch (`PATCH /settings` as the user). Any other argument returns help text. The agent has no tool that can change the switch.
 
 ### Note engine and IPC
 
@@ -102,7 +102,7 @@ Directories are created with mode 0700 and files with 0600.
 | `jot_set_task` | Checks or unchecks one checklist item. Requires the current revision |
 | `jot_delete` | Moves a note to Trash. Requires the current revision |
 
-The tools stay registered while AI collaboration is off. Every agent call is checked under the store lock and fails with `AGENT_DISABLED` while the switch is off. The store refuses an agent that tries to change the switch, undo agent edits or permanently delete notes (`HUMAN_ONLY`), and imports always run as the user. No tool reads Trash, sets pins or reads attachment contents.
+The tools stay registered while AI collaboration is off. Every agent call is checked under the store lock and fails with `AGENT_DISABLED` while the switch is off. The refusal names both the Desktop switch and `/jot ai on`. The store refuses an agent that tries to change the switch, undo agent edits or permanently delete notes (`HUMAN_ONLY`), and imports always run as the user. No tool reads Trash, sets pins or reads attachment contents.
 
 ### Editor sandbox
 

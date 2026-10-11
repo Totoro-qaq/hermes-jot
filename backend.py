@@ -228,3 +228,136 @@ def stage_import(source, extension: str, directory: Path | None = None) -> Path:
         remove_quietly(target)
         raise
     return target
+
+
+# Slash commands are dispatched by Hermes before a model turn. This is the same
+# PATCH /settings write the Desktop switch uses (actor "user" inside the engine).
+HELP = (
+    "Jot: /jot shows the AI switch, note count and recent titles outside Hermes Desktop. "
+    "/jot, /jot new and /jot capture open Jot in Hermes Desktop. "
+    "/jot ai on, /jot ai off and /jot ai status control AI collaboration for this profile. "
+    "Only you can change that switch; the agent cannot."
+)
+AI_USAGE = "Usage: /jot ai on|off|status"
+_DESKTOP_OPEN = frozenset({"new", "capture"})
+_AI_ACTIONS = frozenset({"on", "off", "status"})
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in _TRUTHY
+
+
+def _session_surface() -> tuple[str, str]:
+    """Hermes binds the chat surface on the slash-command thread. Empty when it did not."""
+    try:
+        from gateway.session_context import get_session_env
+    except Exception:
+        get_session_env = None
+    if get_session_env is None:
+        return (
+            os.environ.get("HERMES_SESSION_SOURCE", "").strip().lower(),
+            os.environ.get("HERMES_SESSION_PLATFORM", "").strip().lower(),
+        )
+    return (
+        get_session_env("HERMES_SESSION_SOURCE", "").strip().lower(),
+        get_session_env("HERMES_SESSION_PLATFORM", "").strip().lower(),
+    )
+
+
+def desktop_chat() -> bool:
+    """True only for Hermes Desktop chat, where composer middleware already opened Jot.
+
+    CLI, TUI, the Desktop terminal (``HERMES_DESKTOP_TERMINAL``) and messaging
+    gateways are not that surface, so ``/jot`` has to answer there itself.
+    """
+    source, platform = _session_surface()
+    if source == "desktop" or platform == "desktop":
+        return True
+    if source or platform:
+        return False
+    return _truthy(os.environ.get("HERMES_DESKTOP")) and not _truthy(os.environ.get("HERMES_DESKTOP_TERMINAL"))
+
+
+def _engine(method: str, path: str, body: dict | None = None) -> dict:
+    payload: dict = {"kind": "http", "method": method, "path": path}
+    if body is not None:
+        payload["body"] = body
+    response = invoke(payload)
+    if not isinstance(response, dict) or not succeeded(response) or not isinstance(response.get("data"), dict):
+        error = response.get("error") if isinstance(response, dict) else None
+        code = error.get("code") if isinstance(error, dict) and isinstance(error.get("code"), str) else "RUNTIME_ERROR"
+        message = error.get("message") if isinstance(error, dict) and isinstance(error.get("message"), str) else "Jot could not read its notes."
+        status = response.get("status") if isinstance(response, dict) and isinstance(response.get("status"), int) else 500
+        raise JotError(code, message, status)
+    return response["data"]
+
+
+def _note_title(note: dict) -> str:
+    title = note.get("title")
+    text = " ".join(title.split()) if isinstance(title, str) else ""
+    if not text:
+        text = "(untitled)"
+    if len(text) > 80:
+        text = text[:79] + "…"
+    return text
+
+
+def _active_notes(state: dict) -> list[dict]:
+    notes = [note for note in state.get("notes") or [] if isinstance(note, dict) and not note.get("deletedAt")]
+    # Same order as the note list: pinned, then most recently updated, then id.
+    notes.sort(key=lambda note: note.get("id") or "")
+    notes.sort(key=lambda note: note.get("updatedAt") or "", reverse=True)
+    notes.sort(key=lambda note: 0 if note.get("pinned") else 1)
+    return notes
+
+
+def library_summary(state: dict) -> str:
+    enabled = state.get("agentEnabled") is True
+    notes = _active_notes(state)
+    count = len(notes)
+    count_text = "No notes yet." if count == 0 else "1 note." if count == 1 else f"{count} notes."
+    lines = [f"Jot: AI collaboration is {'on' if enabled else 'off'}. {count_text}"]
+    if notes:
+        lines.append("Recent: " + ", ".join(_note_title(note) for note in notes[:5]))
+    if not enabled:
+        lines.append("Turn it on with /jot ai on, or with Allow AI collaboration in Hermes Desktop.")
+    return "\n".join(lines)
+
+
+def _switch_text(enabled: bool) -> str:
+    if enabled:
+        return "Jot AI collaboration is on."
+    return "Jot AI collaboration is off. Turn it on with /jot ai on, or with Allow AI collaboration in Hermes Desktop."
+
+
+def _ai_command(tokens: list[str]) -> str:
+    if len(tokens) != 1 or tokens[0].lower() not in _AI_ACTIONS:
+        return AI_USAGE
+    action = tokens[0].lower()
+    if action == "status":
+        return _switch_text(_engine("GET", "/state").get("agentEnabled") is True)
+    enabled = _engine("PATCH", "/settings", {"agentEnabled": action == "on"}).get("agentEnabled") is True
+    # The Desktop API announces this write so an open note list picks up the switch.
+    notify_changed()
+    return _switch_text(enabled)
+
+
+def handle_command(raw_args: str) -> str | None:
+    """``/jot`` for CLI, TUI, gateways and Desktop. Returns None when Desktop owns the draft."""
+    try:
+        tokens = raw_args.split() if isinstance(raw_args, str) else []
+        if len(tokens) == 1 and tokens[0].lower() in {"help", "-h", "--help"}:
+            return HELP
+        head = tokens[0].lower() if len(tokens) == 1 else ""
+        if not tokens or head in _DESKTOP_OPEN:
+            # Desktop chat already opened the pane for these. A reply would replace
+            # the host's "no output" notice. new/capture have no CLI equivalent.
+            if desktop_chat() or head in _DESKTOP_OPEN:
+                return None
+            return library_summary(_engine("GET", "/state"))
+        if tokens and tokens[0].lower() == "ai":
+            return _ai_command(tokens[1:])
+        return HELP
+    except JotError as error:
+        return str(error)
