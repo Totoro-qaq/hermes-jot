@@ -54,6 +54,14 @@ test('the editor frame opens a link once for a click, Enter on a focused link, o
     if (editorLinkEventAction(event, href, href).open) middleOpens++
   }
   assert.equal(middleOpens, 1)
+  // A right-click delivers auxclick with button 2. It must neither open the link nor cancel the context menu.
+  for (const target of [href, 'example.com/docs', '#section']) {
+    for (const type of ['mousedown', 'contextmenu', 'mouseup', 'auxclick']) {
+      assert.deepEqual(editorLinkEventAction({ type, button: 2 }, target, target), ignored, `${type} with the right button on ${target}`)
+    }
+  }
+  for (const button of [2, 3, 4]) assert.deepEqual(editorLinkEventAction({ type: 'auxclick', button }, href, href), ignored, `auxclick button ${button}`)
+  assert.deepEqual(editorLinkEventAction({ type: 'auxclick', button: 2 }, 'https://user:secret@example.com/a', 'https://example.com/a'), ignored)
   assert.deepEqual(editorLinkEventAction({ type: 'auxclick', button: 1 }, 'https://user:secret@example.com/a', 'https://example.com/a'), { preventDefault: true, open: null })
   assert.deepEqual(editorLinkEventAction({ type: 'auxclick', button: 1 }, '#section', '#section'), ignored)
 })
@@ -324,4 +332,53 @@ test('saving a selection that mixes links checks each stretch and does not overw
   assert.deepEqual(linkHrefSegments(editor.state.doc, two.from, two.to), [{ text: 'two', href: 'https://changed.example' }])
   assert.equal(applyLinkEdit(editor.state, editor.view.dispatch, { ...input, originalSegments: linkHrefSegments(editor.state.doc, from, to) }), true)
   assert.deepEqual(linkHrefSegments(editor.state.doc, from, to), [{ text: 'one and two', href: 'https://example.com/all' }])
+})
+
+test('changing the address of a link that spans a line break keeps the break and links the text on both sides', t => {
+  const old = 'https://old.example'
+  const next = 'https://new.example'
+  const content = { type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'one', marks: [{ type: 'link', attrs: { href: old } }, { type: 'bold' }] },
+    { type: 'hardBreak' },
+    { type: 'text', text: 'two', marks: [{ type: 'link', attrs: { href: old, title: 'Old docs' } }] },
+  ] }] }
+  const inline = (editor: Editor) => validateRichDoc(editor.getJSON()).content[0]!.content!
+  const hrefs = (editor: Editor) => inline(editor).map(node => node.marks?.find(mark => mark.type === 'link')?.attrs?.href ?? null)
+
+  const popover = headless(content)
+  t.after(() => popover.destroy())
+  const from = 1
+  const to = popover.state.doc.content.size - 1
+  const original = popover.state.doc.textBetween(from, to)
+  assert.equal(original, 'onetwo')
+  const segments = linkHrefSegments(popover.state.doc, from, to)
+  assert.deepEqual(segments, [{ text: 'onetwo', href: old }])
+  const input = { from, to, original, originalHref: old, originalSegments: segments, text: original, href: next }
+  assert.equal(applyLinkEdit(popover.state, undefined, { ...input, href: old }), true, 'the same address is already applied')
+  assert.equal(applyLinkEdit(popover.state, undefined, input), true)
+  assert.equal(applyLinkEdit(popover.state, popover.view.dispatch, input), true)
+  assert.deepEqual(inline(popover).map(node => node.type), ['text', 'hardBreak', 'text'])
+  assert.equal(inline(popover)[1]!.marks, undefined, 'the line break carries no marks')
+  assert.deepEqual(hrefs(popover), [next, null, next])
+  assert.deepEqual(inline(popover)[0]!.marks?.map(mark => mark.type).sort(), ['bold', 'link'])
+  assert.deepEqual(linkHrefSegments(popover.state.doc, from, to), [{ text: 'onetwo', href: next }])
+
+  const selected = headless(content)
+  t.after(() => selected.destroy())
+  selected.view.dispatch(selected.state.tr.setSelection(TextSelection.create(selected.state.doc, 1, selected.state.doc.content.size - 1)))
+  assert.equal(applyLinkEdit(selected.state, selected.view.dispatch, { href: next, text: '' }), true)
+  assert.deepEqual(inline(selected).map(node => node.type), ['text', 'hardBreak', 'text'])
+  assert.deepEqual(hrefs(selected), [next, null, next])
+
+  const fromBreak = headless(content)
+  t.after(() => fromBreak.destroy())
+  const breakAt = 4
+  assert.equal(fromBreak.state.doc.nodeAt(breakAt)?.type.name, 'hardBreak')
+  const end = fromBreak.state.doc.content.size - 1
+  assert.equal(applyLinkEdit(fromBreak.state, fromBreak.view.dispatch, {
+    from: breakAt, to: end, original: 'two', originalSegments: [{ text: 'two', href: old }], text: 'two', href: next,
+  }), true, 'a range that starts on the break is still applied')
+  assert.deepEqual(hrefs(fromBreak), [old, null, next])
+  assert.equal(inline(fromBreak)[1]!.marks, undefined)
+  assert.equal(inline(fromBreak)[2]!.marks?.find(mark => mark.type === 'link')?.attrs?.title, 'Old docs', 'the link keeps its other attributes')
 })

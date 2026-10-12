@@ -99,7 +99,7 @@
     "src/client/import-notes.ts": "647e194956a757717b8b5e1e4660fb81b7da6b4439d4b02659e3abc6c7c0de83",
     "src/client/layers.tsx": "65fe2c7bbe19195d6b02e7320adfb89bb83f797b04790583bc762f1b155c5d2d",
     "src/client/library-export.ts": "2fcb98e9506f9cd8baa32f7cc1cec40a9f98c1e4d7b9a0fa417e7d25e8f9778d",
-    "src/client/link-commands.ts": "c60621817d77877a6a03928ebea632154bbbf4fd5a53ba87acdbd1354beee20f",
+    "src/client/link-commands.ts": "039cbf9c7b8d94e411a935e7f457f092c2723bc19ed9480acd2ba1f39821cba1",
     "src/client/list-commands.ts": "62e885abc285d2f040fdeda8f03f8a11262c361500f11813d3ca60fbbbdec05b",
     "src/client/live-refresh.ts": "6b668ca50f3bd110fa7d24c3e3ea9613f1a0a47c270123debab22df661f6f348",
     "src/client/locales/app.ts": "280feee5b2df5298be91761f7a27f74688c1ca7e1a8037a321b4a59c2543e871",

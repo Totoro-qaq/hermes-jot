@@ -103,6 +103,16 @@ function rangeCarriesLink(state: EditorState, range: { from: number; to: number 
   return carries && sawText
 }
 
+/** 范围里第一段文字上的链接标记。选区从换行开始时 `nodeAt(from)` 是换行，读不到原有的链接属性。 */
+function firstLinkMark(state: EditorState, range: { from: number; to: number }, type: MarkType): Mark | undefined {
+  let first: ProseMirrorNode | null = null
+  state.doc.nodesBetween(range.from, range.to, (node, pos) => {
+    if (first || !node.isText || Math.max(pos, range.from) >= Math.min(pos + node.nodeSize, range.to)) return
+    first = node
+  })
+  return (first ?? state.doc.nodeAt(range.from))?.marks.find(mark => mark.type === type)
+}
+
 /** 选区里一段连续文字和它的链接地址。没有链接时 href 为 null。 */
 export interface LinkHrefSegment { text: string; href: string | null }
 
@@ -171,14 +181,22 @@ export function applyLinkEdit(
   const typed = typeof input.text === 'string' ? input.text : ''
   const text = typed.trim() ? typed : (current || href)
   if (!text || /[\u0000\n\r]/u.test(text)) return false
-  const existing = state.doc.nodeAt(range.from)?.marks.find(mark => mark.type === type)
+  const existing = firstLinkMark(state, range, type)
   if (text === current && range.from < range.to && rangeCarriesLink(state, range, type, href)) return true
   const link = type.create({ ...(existing?.attrs ?? {}), href })
   const empty = range.from === range.to
   let tr = state.tr
   // 文字没改时只加链接标记，原有的加粗、斜体和空格都留在各自的文本节点上。
-  if (text === current && range.from < range.to) tr = tr.removeMark(range.from, range.to, type).addMark(range.from, range.to, link)
-  else {
+  // 换行和其他行内节点不能带链接标记，只给文字段加，否则校验会把整次修改退回。
+  if (text === current && range.from < range.to) {
+    tr = tr.removeMark(range.from, range.to, type)
+    state.doc.nodesBetween(range.from, range.to, (node, pos) => {
+      if (!node.isText) return
+      const start = Math.max(pos, range.from)
+      const end = Math.min(pos + node.nodeSize, range.to)
+      if (start < end) tr = tr.addMark(start, end, link)
+    })
+  } else {
     const kept = keptMarks(state, range.from, type, empty)
     if (!kept) return false
     let node
