@@ -9,7 +9,7 @@ import { findMatches, replaceAllMatches, replaceMatch } from './document-find.js
 import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
 import { applyLinkEdit, normalizeLinkHref, openableLinkHref, readLinkDraft, removeLink } from './link-commands.js'
-import { tidyCompletedTasks } from './list-commands.js'
+import { taskListsNeedTidy, tidyCompletedTasks } from './list-commands.js'
 import { nextRovingIndex } from './roving-focus.js'
 import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
@@ -22,7 +22,7 @@ import { HIGHLIGHT_COLORS, TEXT_COLORS } from '../model.js'
 import { applySlashItem, filterSlashItems, slashLabel, slashMatch, type SlashItem, type SlashMatch } from './slash-menu.js'
 import { ariaShortcut, shortcutLabel, SHORTCUTS, withShortcut, type ShortcutId } from './shortcut-labels.js'
 import { jotStyles } from './styles.js'
-import { translator } from './i18n.js'
+import { isRtlLocale, translator } from './i18n.js'
 import type { JotLocale, RichDoc, RichNode } from './types.js'
 
 export interface RichEditorProps {
@@ -259,6 +259,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
 
   const editor = instance.current
   const document = editor?.state.doc
+  const canTidy = useMemo(() => Boolean(document && taskListsNeedTidy(document)), [document])
   const matches = useMemo(() => document && findOpen ? findMatches(document, query) : [], [document, findOpen, query])
   const index = matches.length ? Math.min(activeMatch, matches.length - 1) : 0
   useEffect(() => {
@@ -280,9 +281,11 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   }, [formatOpen])
   useLayoutEffect(() => {
     if (!formatOpen) return
-    const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
     const edge = formatFocus.current
     formatFocus.current = null
+    // 鼠标点开菜单时焦点留在编辑器里；只有方向键才会把焦点移进菜单。
+    if (edge !== 'first' && edge !== 'last') return
+    const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
     ;(edge === 'last' ? buttons.at(-1) : buttons[0])?.focus()
   }, [formatOpen])
   useEffect(() => {
@@ -509,7 +512,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
         </button>
         <button type="button" className="jot-format jot-editor-control jot-editor-control-icon-only jot-format-tidy"
           aria-label={t('Tidy completed items')} title={t('Move completed to-dos to the bottom of each list')}
-          disabled={readOnly || !editor || !tidyCompletedTasks(editor.state)}
+          disabled={readOnly || !editor || !canTidy}
           onMouseDown={event => event.preventDefault()}
           onClick={() => { if (editor && tidyCompletedTasks(editor.state, editor.view.dispatch)) editor.commands.focus() }}>
           <JotActionIcon name="sort" size={16} className="jot-editor-control-icon" />
@@ -527,7 +530,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
           onKeyDown={event => {
             if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey) return
             const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
-            const next = nextRovingIndex(buttons.length, buttons.indexOf(event.target as HTMLButtonElement), event.key)
+            const next = nextRovingIndex(buttons.length, buttons.indexOf(event.target as HTMLButtonElement), event.key, isRtlLocale(locale) ? 'rtl' : 'ltr')
             if (next === null) return
             event.preventDefault(); event.stopPropagation()
             buttons[next]?.focus()
@@ -578,7 +581,8 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
           <div className="jot-link-actions">
             <button type="button" className="jot-btn jot-primary" onClick={applyLink}>{t('Apply link')}</button>
             <button type="button" className="jot-text-btn" disabled={!linkEditing} onClick={clearLink}>{t('Remove link')}</button>
-            {openableLinkHref(linkHref) && <a className="jot-text-btn" href={openableLinkHref(linkHref)!}>{t('Open link')}</a>}
+            {openableLinkHref(linkHref) && <a className="jot-text-btn" href={openableLinkHref(linkHref)!} rel="noopener noreferrer"
+              onClick={event => event.preventDefault()}>{t('Open link')}</a>}
           </div>
         </div>}
       </div>

@@ -1,3 +1,5 @@
+import { httpHrefHasCredentials } from './link-href.js'
+
 /** JSON-only rich documents shared by the editor, persistence, and agent tools. */
 export type Actor = 'user' | 'agent'
 export type ErrorCode = 'INVALID_INPUT' | 'NOT_FOUND' | 'REVISION_CONFLICT' |
@@ -141,7 +143,7 @@ function mark(value: unknown): RichMark {
   const attrs = record(data.attrs, 'link attrs')
   onlyKeys(attrs, ['href', 'target', 'rel', 'class', 'title'], 'link attrs')
   const href = boundedString(attrs.href, 2_048, 'link href', false)
-  if (!/^(https?:\/\/|mailto:|tel:|#)/i.test(href) || /[\u0000-\u0020]/.test(href)) invalid('Unsafe link href')
+  if (!/^(https?:\/\/|mailto:|tel:|#)/i.test(href) || /[\u0000-\u0020]/.test(href) || httpHrefHasCredentials(href)) invalid('Unsafe link href')
   const result: RichAttrs = { href }
   if (attrs.target !== undefined) {
     if (attrs.target !== null && attrs.target !== '_blank' && attrs.target !== '_self') invalid('Invalid link target')

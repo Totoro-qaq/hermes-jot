@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { Editor } from '@tiptap/core'
 import { history } from '@tiptap/pm/history'
 import { createJotExtensions } from '../src/client/editor-extensions.js'
-import { tidyCompletedTasks } from '../src/client/list-commands.js'
+import { taskListsNeedTidy, tidyCompletedTasks, toggleTaskAtSelection } from '../src/client/list-commands.js'
 import type { RichNode } from '../src/client/types.js'
 
 const item = (text: string, checked: boolean, nested?: RichNode): RichNode => ({
@@ -34,6 +34,41 @@ test('completed items move under the open ones in each list, and one undo puts t
   assert.equal(tidyCompletedTasks(editor.state, editor.view.dispatch), true)
   assert.deepEqual(labels(editor), [' :openinner openinner done', ' :inner open', 'x:inner done', 'x:done first', 'x:done second', ' :only open'])
   assert.equal(tidyCompletedTasks(editor.state), false)
+  assert.equal(taskListsNeedTidy(editor.state.doc), false)
+  assert.equal(taskListsNeedTidy(editor.state.doc), false)
   assert.equal(editor.commands.undo(), true)
   assert.deepEqual(editor.getJSON(), before)
+})
+
+test('tidy is a separate undo step and leaves the cursor on the same item', t => {
+  const editor = new Editor({ element: null, extensions: createJotExtensions(), content: {
+    type: 'doc', content: [list(item('open', false), item('done', true), item('later', false))],
+  } })
+  editor.registerPlugin(history())
+  t.after(() => editor.destroy())
+  const at = (text: string) => {
+    let position = -1
+    editor.state.doc.descendants((node, pos) => {
+      if (position >= 0) return false
+      if (node.isText && node.text === text) position = pos + 1
+    })
+    editor.commands.setTextSelection(position)
+  }
+  const itemAtCursor = () => {
+    const { $from } = editor.state.selection
+    for (let depth = $from.depth; depth > 0; depth--) if ($from.node(depth).type.name === 'taskItem') return $from.node(depth).textContent
+    return ''
+  }
+  at('open')
+  assert.equal(toggleTaskAtSelection(editor.state, editor.view.dispatch), true)
+  at('done')
+  const toggled = editor.getJSON()
+  assert.equal(taskListsNeedTidy(editor.state.doc), true)
+  assert.equal(tidyCompletedTasks(editor.state, editor.view.dispatch), true)
+  assert.equal(itemAtCursor(), 'done')
+  assert.deepEqual(labels(editor), [' :later', 'x:open', 'x:done'])
+  assert.equal(editor.commands.undo(), true)
+  assert.deepEqual(editor.getJSON(), toggled)
+  assert.equal(editor.commands.undo(), true)
+  assert.deepEqual(labels(editor), [' :open', 'x:done', ' :later'])
 })

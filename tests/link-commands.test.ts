@@ -21,6 +21,8 @@ test('link addresses keep the typed form and only add a scheme when the user lef
   assert.equal(normalizeLinkHref('mailto:ada@example.com'), 'mailto:ada@example.com')
   assert.equal(normalizeLinkHref('#section'), '#section')
   assert.equal(normalizeLinkHref('https://user:secret@example.com'), null)
+  assert.equal(normalizeLinkHref('https://user@example.com/a'), null)
+  assert.equal(openableLinkHref('https://user:secret@example.com/a'), null)
   assert.equal(normalizeLinkHref('javascript:alert(1)'), null)
   assert.equal(normalizeLinkHref('https://example.com/a b'), null)
   assert.equal(openableLinkHref('example.com'), 'https://example.com')
@@ -50,6 +52,45 @@ test('a selection becomes a link, an existing link can change, and removing it k
   assert.equal(editor.state.doc.textBetween(0, editor.state.doc.content.size), 'Hi world')
   assert.equal(editor.commands.undo(), true)
   assert.equal(linkMark(editor)?.attrs?.href, 'https://example.com/next')
+})
+
+test('applying a link keeps mixed formatting and spaces, and covers a partly linked selection', t => {
+  const mixed = new Editor({ element: null, extensions: createJotExtensions(), content: {
+    type: 'doc', content: [{ type: 'paragraph', content: [
+      { type: 'text', text: ' Hello', marks: [{ type: 'bold' }] },
+      { type: 'text', text: ' world ' },
+    ] }],
+  } })
+  t.after(() => mixed.destroy())
+  mixed.commands.setTextSelection({ from: 1, to: mixed.state.doc.content.size - 1 })
+  const text = mixed.state.doc.textBetween(mixed.state.selection.from, mixed.state.selection.to)
+  assert.equal(text, ' Hello world ')
+  assert.equal(applyLinkEdit(mixed.state, mixed.view.dispatch, { href: 'https://example.com/a', text }), true)
+  const nodes = validateRichDoc(mixed.getJSON()).content[0]!.content!
+  assert.equal(nodes.map(node => node.text).join(''), ' Hello world ')
+  assert.equal(nodes[0]!.text, ' Hello')
+  assert.ok(nodes[0]!.marks!.some(mark => mark.type === 'bold'))
+  assert.ok(nodes[0]!.marks!.some(mark => mark.type === 'link' && mark.attrs?.href === 'https://example.com/a'))
+  assert.equal(nodes[1]!.text, ' world ')
+  assert.equal(nodes[1]!.marks!.some(mark => mark.type === 'bold'), false)
+  assert.ok(nodes[1]!.marks!.every(mark => mark.type !== 'bold'))
+  assert.ok(nodes[1]!.marks!.some(mark => mark.type === 'link' && mark.attrs?.href === 'https://example.com/a'))
+
+  const partial = new Editor({ element: null, extensions: createJotExtensions(), content: {
+    type: 'doc', content: [{ type: 'paragraph', content: [
+      { type: 'text', text: 'Hello', marks: [{ type: 'link', attrs: { href: 'https://example.com/a' } }, { type: 'bold' }] },
+      { type: 'text', text: ' world' },
+    ] }],
+  } })
+  t.after(() => partial.destroy())
+  partial.commands.setTextSelection({ from: 1, to: partial.state.doc.content.size - 1 })
+  const partialText = partial.state.doc.textBetween(partial.state.selection.from, partial.state.selection.to)
+  assert.equal(applyLinkEdit(partial.state, partial.view.dispatch, { href: 'https://example.com/a', text: partialText }), true)
+  const parts = validateRichDoc(partial.getJSON()).content[0]!.content!
+  assert.equal(parts.map(node => node.text).join(''), 'Hello world')
+  for (const node of parts) assert.ok(node.marks!.some(mark => mark.type === 'link' && mark.attrs?.href === 'https://example.com/a'), node.text)
+  assert.ok(parts[0]!.marks!.some(mark => mark.type === 'bold'))
+  assert.ok(parts[1]!.marks!.every(mark => mark.type !== 'bold'))
 })
 
 test('an empty selection inserts the link, and a selection across paragraphs is refused', t => {

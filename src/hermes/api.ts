@@ -1,5 +1,6 @@
 import type { PluginContext } from '@hermes/plugin-sdk'
 import { JotApiError } from '../client/api.js'
+import { openableLinkHref } from '../link-href.js'
 import { describeSkipReason } from '../client/errors.js'
 import type { AttachmentInfo, ImportResult, JotApi, JotLocale, JotState, NoteDownload, RichDoc } from '../client/types.js'
 
@@ -79,8 +80,9 @@ export function createHermesApi(ctx: PluginContext, ownsProfile: () => boolean,
   return {
     async openExternal(url) {
       assertOwner()
-      if (!['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) throw failure('UNSUPPORTED_LINK', 'Unsupported link.')
-      if (!await ctx.os.openExternal(url)) throw failure('LINK_OPEN_FAILED', 'Could not open the link.')
+      const href = openableLinkHref(url)
+      if (!href) throw failure('UNSUPPORTED_LINK', 'Unsupported link.')
+      if (!await ctx.os.openExternal(href)) throw failure('LINK_OPEN_FAILED', 'Could not open the link.')
     },
     loadEditor: () => {
       assertOwner()

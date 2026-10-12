@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { RichEditor, type RichEditorActions } from '../client/RichEditor.js'
 import type { RichDoc } from '../client/types.js'
 import { intlLocale, isRtlLocale, normalizeLocale, type JotLocale } from '../client/i18n.js'
+import { openableLinkHref } from '../link-href.js'
 import { EditorSync } from './editor-sync.js'
 import { jotStyles } from '../client/styles.js'
 import { HOST_THEME_PROPERTIES } from './theme.js'
@@ -24,6 +25,8 @@ function Editor() {
   const actions = useRef<RichEditorActions | null>(null)
   const synchronized = useRef(new EditorSync())
   const root = useRef<HTMLDivElement>(null)
+  const frame = useRef({ documentId: '', generation: 0 })
+  const selectionGate = useRef({ muted: true, last: '' })
   useEffect(() => {
     const receive = (event: MessageEvent) => {
       if (event.source !== parent || event.data?.channel !== 'jot-editor') return
@@ -33,8 +36,16 @@ function Editor() {
         token = event.data.token
         const locale = normalizeLocale(data.locale)
         const documentId = typeof data.documentId === 'string' ? data.documentId : ''
+        const generation = Number.isSafeInteger(data.generation) && data.generation >= 0 ? data.generation : 0
+        const switched = frame.current.documentId !== documentId || frame.current.generation !== generation
+        frame.current = { documentId, generation }
         // 先重置同步状态，再接受这篇笔记，避免上一篇的修订号把新正文丢掉。
         synchronized.current.beginDocument(documentId)
+        if (switched) {
+          // 新文档挂上之前，选区变化还是上一篇的文字，先按住，并告诉宿主选区已空。
+          selectionGate.current = { muted: true, last: '' }
+          send('selection', { text: '', documentId, generation })
+        }
         // The slash menu is portaled to <body>, so the language and direction belong to the whole frame.
         document.documentElement.lang = intlLocale(locale)
         document.documentElement.dir = isRtlLocale(locale) ? 'rtl' : 'ltr'
@@ -87,7 +98,12 @@ function Editor() {
       const element = event.target instanceof Element ? event.target.closest('[data-jot-attachment-id]') : null
       if (element) { event.preventDefault(); event.stopPropagation(); send('preview', element.getAttribute('data-jot-attachment-id')); return }
       const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null
-      if (link && /^(?:https?:|mailto:)/i.test(link.href)) { event.preventDefault(); event.stopPropagation(); send('link', link.href) }
+      if (link && /^(?:https?:|mailto:)/i.test(link.href)) {
+        event.preventDefault(); event.stopPropagation()
+        const href = openableLinkHref(link.href)
+        if (href) send('link', href)
+        return
+      }
     }
     const paste = (event: ClipboardEvent) => {
       const files = [...(event.clipboardData?.files ?? [])]
@@ -108,16 +124,17 @@ function Editor() {
         editor.setPointerCapture(event.pointerId)
       }
     }
-    let lastSelection = ''
+    const publishSelection = (text: string, force = false) => {
+      if (selectionGate.current.muted) return
+      if (!force && text === selectionGate.current.last) return
+      selectionGate.current.last = text
+      send('selection', { text, documentId: frame.current.documentId, generation: frame.current.generation })
+    }
     const selection = () => {
       if (!document.hasFocus()) return
-      const text = document.getSelection()?.toString() ?? ''
-      if (text !== lastSelection) { lastSelection = text; send('selection', text) }
+      publishSelection(document.getSelection()?.toString() ?? '')
     }
-    const focused = () => {
-      lastSelection = document.getSelection()?.toString() ?? ''
-      send('selection', lastSelection)
-    }
+    const focused = () => publishSelection(document.getSelection()?.toString() ?? '', true)
     window.addEventListener('message', receive)
     window.addEventListener('keydown', key, true)
     document.addEventListener('click', click, true)
@@ -146,8 +163,16 @@ function Editor() {
   return props && <div ref={root} lang={intlLocale(props.locale)} dir={isRtlLocale(props.locale) ? 'rtl' : 'ltr'} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
     <style>{jotStyles}</style>
     <RichEditor key={props.documentId || 'default'} value={props.value} resolveExternalValue={props.resolveExternalValue} locale={props.locale} readOnly={props.readOnly}
-      resolveAttachmentUrl={image} onChange={value => send('change', synchronized.current.edited(value))} onBlur={() => send('blur')}
-      onReady={value => { actions.current = value; if (value) send('ready') }} onRequestAttachment={() => send('upload')} />
+      resolveAttachmentUrl={image} onChange={value => send('change', { ...synchronized.current.edited(value), documentId: frame.current.documentId, generation: frame.current.generation })} onBlur={() => send('blur')}
+      onReady={value => {
+        actions.current = value
+        if (!value) return
+        selectionGate.current.muted = false
+        send('ready')
+        const text = document.getSelection()?.toString() ?? ''
+        selectionGate.current.last = text
+        send('selection', { text, documentId: frame.current.documentId, generation: frame.current.generation })
+      }} onRequestAttachment={() => send('upload')} />
   </div>
 }
 createRoot(document.getElementById('jot-editor-root')!).render(<Editor />)

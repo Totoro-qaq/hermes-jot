@@ -134,4 +134,7 @@ body[data-ds-dark-theme] .jot-highlight-swatch{color:var(--jot-fg)!important}bod
 .jot-app button.jot-agent-chip{border:0;background:transparent;color:var(--dsw-alias-state-business-primary,var(--jot-accent));font:var(--jot-caption-font);cursor:pointer;border-radius:4px;padding:2px 4px;margin-inline-start:2px}
 .jot-app button.jot-agent-chip:hover{background:var(--jot-hover)}
 .jot-app .jot-agent-indicator{display:inline-flex;align-items:center;flex:none;color:var(--jot-accent)}
+.jot-editor-load-error{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin:12px;padding:10px 12px;border:1px solid var(--jot-line);border-radius:8px;background:var(--jot-hover);color:var(--jot-fg);font:var(--jot-secondary-font)}
+.jot-editor-load-error p{margin:0}
+.jot-agent-refresh{flex:none}
 `

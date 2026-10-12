@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as sdk from '@hermes/plugin-sdk'
-import { HOST_THEME_PROPERTIES } from './theme.js'
+import { openableLinkHref } from '../link-href.js'
 import { translator } from '../client/i18n.js'
 import type { RichEditorActions, RichEditorProps } from '../client/RichEditor.js'
+import { advanceEditorFrame, guestEditorAction, initialEditorFrame } from './editor-frame.js'
+import { editorLoadOffersRetry, initialEditorLoad, reduceEditorLoad, type EditorLoadState } from './editor-load.js'
+import { HOST_THEME_PROPERTIES } from './theme.js'
 
 const { SandboxedFrame, useTheme } = sdk
 
@@ -29,9 +32,11 @@ export function RichEditor(props: EmbeddedEditorProps) {
   const callbacks = useRef(props)
   callbacks.current = props
   const token = useMemo(() => crypto.randomUUID(), [])
-  const [source, setSource] = useState('')
-  const [error, setError] = useState<'' | 'unavailable' | 'failed'>('')
-  const [attempt, setAttempt] = useState(0)
+  const frameStamp = useRef(initialEditorFrame(props.documentId ?? ''))
+  const documentId = props.documentId ?? ''
+  const stamped = advanceEditorFrame(frameStamp.current, documentId)
+  if (stamped !== frameStamp.current) frameStamp.current = stamped
+  const [load, setLoad] = useState<EditorLoadState>(initialEditorLoad)
   const [height, setHeight] = useState(430)
   const theme = useTheme()
   const t = translator(props.locale ?? 'en')
@@ -56,18 +61,19 @@ export function RichEditor(props: EmbeddedEditorProps) {
       '--dsw-font-xxs-12': `400 ${size * 11 / 13}px/1.5 ${style.fontFamily}`,
     } : {}
     post('props', { value: callbacks.current.value, acknowledgedRevision: callbacks.current.acknowledgedRevision ?? 0, locale: callbacks.current.locale,
-      documentId: callbacks.current.documentId ?? '',
+      documentId: frameStamp.current.documentId, generation: frameStamp.current.generation,
       readOnly: callbacks.current.readOnly, dark: (theme.renderedMode ?? theme.resolvedMode) === 'dark',
       theme: { ...Object.fromEntries(THEME_KEYS.map(key => [key, style.getPropertyValue(key)])), ...fonts } })
   }
   useEffect(() => {
     let live = true
-    const load = props.loadEditor
-    if (!load) { setError('unavailable'); return }
-    setError('')
-    void load().then(value => { if (live) { setSource(value); setError('') } }, () => { if (live) setError('failed') })
+    const loader = props.loadEditor
+    if (!loader) { setLoad(current => reduceEditorLoad(current, { type: 'missing-loader' })); return }
+    setLoad(current => reduceEditorLoad(current, { type: 'start' }))
+    void loader().then(value => { if (live) setLoad(current => reduceEditorLoad(current, { type: 'loaded', source: value })) },
+      () => { if (live) setLoad(current => reduceEditorLoad(current, { type: 'failed' })) })
     return () => { live = false }
-  }, [props.loadEditor, attempt])
+  }, [props.loadEditor, load.attempt])
   useEffect(() => {
     const actions: RichEditorActions = {
       focus: () => { frame.current?.focus(); post('focus') },
@@ -82,7 +88,10 @@ export function RichEditor(props: EmbeddedEditorProps) {
       if (event.data.kind === 'hello') { sync(); return }
       if (event.data?.token !== token) return
       const { kind, data, id } = event.data
-      if (kind === 'change' && data?.content?.type === 'doc' && Number.isSafeInteger(data.revision)) callbacks.current.onChange(data.content, data.revision)
+      const framed = guestEditorAction(frameStamp.current, kind, data)
+      if (framed.type === 'change') callbacks.current.onChange(framed.content, framed.revision)
+      else if (framed.type === 'selection') callbacks.current.onSelectionChange?.(framed.text)
+      else if (framed.type === 'drop') { /* 上一篇笔记的在途编辑或选区 */ }
       else if (kind === 'inserted' && Number.isSafeInteger(data?.id)) {
         pendingInsert.current.get(data.id)?.(data.inserted === true)
         pendingInsert.current.delete(data.id)
@@ -92,8 +101,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
       else if (kind === 'save') callbacks.current.onSave?.()
       else if (kind === 'upload') callbacks.current.onRequestAttachment?.()
       else if (kind === 'files' && Array.isArray(data) && data.length <= 21 && data.every(file => file instanceof File)) callbacks.current.onFiles?.(data)
-      else if (kind === 'link' && typeof data === 'string' && /^(?:https?:|mailto:)/i.test(data)) callbacks.current.onExternalLink?.(data)
-      else if (kind === 'selection' && typeof data === 'string') callbacks.current.onSelectionChange?.(data)
+      else if (kind === 'link' && typeof data === 'string') { const href = openableLinkHref(data); if (href) callbacks.current.onExternalLink?.(href) }
       else if (kind === 'preview' && typeof data === 'string' && /^[a-f0-9]{32}$/.test(data)) callbacks.current.onPreviewAttachment?.(data)
       else if (kind === 'height' && Number.isFinite(data)) setHeight(Math.max(360, Math.min(100_000, data)))
       else if (kind === 'image' && typeof data === 'string' && /^[a-f0-9]{32}$/.test(data)) {
@@ -110,7 +118,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
       callbacks.current.onSelectionChange?.(null)
     }
   }, [token])
-  useEffect(sync, [props.value, props.acknowledgedRevision, props.locale, props.readOnly, props.documentId, source])
+  useEffect(sync, [props.value, props.acknowledgedRevision, props.locale, props.readOnly, props.documentId, load.source])
+  useEffect(() => { callbacks.current.onSelectionChange?.(null) }, [documentId])
   useEffect(() => {
     // Hermes paints its CSS variables in the provider's effect. Child effects
     // run first, so reading immediately can send the previous palette to the
@@ -119,11 +128,11 @@ export function RichEditor(props: EmbeddedEditorProps) {
     return () => cancelAnimationFrame(repaint)
   }, [theme.resolvedMode, theme.renderedMode, theme.themeName, theme.theme])
   return <div ref={root} className="jot-embedded-editor" style={{ minWidth: 0, width: '100%' }}>
-    {error ? <div role="alert" className="jot-editor-load-error">
-      <p>{error === 'unavailable' ? t('Hermes editor backend is unavailable.')
+    {load.error ? <div role="alert" className="jot-editor-load-error">
+      <p>{load.error === 'unavailable' ? t('Hermes editor backend is unavailable.')
         : t('Could not load the Jot editor. Re-enable the backend and reopen this note.')}</p>
-      {error === 'failed' && <button type="button" className="jot-text-btn" onClick={() => setAttempt(value => value + 1)}>{t('Retry')}</button>}
-    </div> : source ? <SandboxedFrame ref={frame} src={source}
+      {editorLoadOffersRetry(load) && <button type="button" className="jot-text-btn" onClick={() => setLoad(current => reduceEditorLoad(current, { type: 'retry' }))}>{t('Retry')}</button>}
+    </div> : load.source ? <SandboxedFrame ref={frame} src={load.source}
       title={t('Jot document editor')} onLoad={sync}
       style={{ display: 'block', width: '100%', height, border: 0, background: 'transparent' }} />
       : <p role="status">{t('Loading editor…')}</p>}

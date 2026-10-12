@@ -123,7 +123,12 @@ def tool_display_locale(locale: str | None = None) -> str:
 
 
 def present_agent_result(response: dict, locale: str | None = None) -> dict:
-    """只改给工具卡片看的冲突说明。worker 的原始 409 不经过这里。"""
+    """只改给工具卡片看的冲突说明。worker 的原始 409 不经过这里。
+
+    CLI（agent/display.py）优先展示 user_summary，最长约 200 字。Desktop 工具卡片不读
+    user_summary，而是取 error.message，其次 reason、detail。两处写成同一句；读不到
+    Hermes 的界面语言时退回英语。技术修订号留在 error.detail。
+    """
     error = response.get("error")
     if not isinstance(error, dict) or error.get("code") != "REVISION_CONFLICT":
         return response
