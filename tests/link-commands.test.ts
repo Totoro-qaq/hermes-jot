@@ -4,6 +4,7 @@ import { Editor } from '@tiptap/core'
 import { history } from '@tiptap/pm/history'
 import { createJotExtensions } from '../src/client/editor-extensions.js'
 import { applyLinkEdit, blockCredentialLinkEvent, linkMarkHref, linkUnderCaret, normalizeLinkHref, openableLinkHref, openedLinkRange, readLinkDraft, removeLink } from '../src/client/link-commands.js'
+import { translator } from '../src/client/i18n.js'
 import { exportableLinkHref, resolveEditorLinkClick } from '../src/link-href.js'
 import { MAX_TEXT_LENGTH, validateRichDoc } from '../src/model.js'
 
@@ -240,4 +241,32 @@ test('remove uses the address from when the popover opened, not the address type
   assert.equal(removeLink(editor.state, editor.view.dispatch, openedLinkRange(opened)), true)
   assert.equal(linkUnderCaret(editor.state), null)
   assert.equal(editor.state.doc.textContent, 'docs')
+})
+
+test('saving a link does not overwrite an address that changed after the popover opened', t => {
+  const editor = headless({ type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'docs', marks: [{ type: 'link', attrs: { href: 'https://example.com/docs' } }] },
+  ] }] })
+  t.after(() => editor.destroy())
+  const found = linkUnderCaret(editor.state)
+  assert.ok(found)
+  const link = editor.schema.marks.link!
+  editor.view.dispatch(editor.state.tr.addMark(found.from, found.to, link.create({ href: 'https://other.example/docs' })))
+  const before = editor.getJSON()
+  const conflict = {
+    from: found.from, to: found.to, original: 'docs', originalHref: 'https://example.com/docs',
+    text: 'docs', href: 'https://example.com/new',
+  }
+  assert.equal(applyLinkEdit(editor.state, undefined, conflict), 'stale')
+  assert.equal(applyLinkEdit(editor.state, editor.view.dispatch, conflict), 'stale')
+  assert.deepEqual(editor.getJSON(), before)
+  assert.equal(linkUnderCaret(editor.state)?.href, 'https://other.example/docs')
+  assert.equal(translator('en')('The note changed. Open the link again.'), 'The note changed. Open the link again.')
+  assert.equal(translator('zh')('The note changed. Open the link again.'), '正文已变化，请重新打开链接。')
+  assert.equal(applyLinkEdit(editor.state, editor.view.dispatch, {
+    from: found.from, to: found.to, original: 'docs', originalHref: 'https://other.example/docs',
+    text: 'guide', href: 'https://example.com/new',
+  }), true)
+  assert.equal(editor.state.doc.textContent, 'guide')
+  assert.equal(linkUnderCaret(editor.state)?.href, 'https://example.com/new')
 })

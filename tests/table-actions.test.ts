@@ -6,7 +6,7 @@ import { CellSelection, columnResizingPluginKey, TableMap } from '@tiptap/pm/tab
 import { createJotExtensions } from '../src/client/editor-extensions.js'
 import { syncEditorContent } from '../src/client/editor-content.js'
 import { persistableTableWidthPlugin } from '../src/client/table-view.js'
-import { selectedTable, tableActionAllowed, tableActionTransaction, type TableAction } from '../src/client/table-actions.js'
+import { COLUMN_WIDTH_ANNOUNCE_MS, columnDividerDelta, columnWidthChange, explicitColumnWidth, flushWidthAnnouncement, nudgeTableColumn, planWidthAnnouncement, selectedTable, TABLE_CELL_MAX_WIDTH, TABLE_COLUMN_NUDGE, tableActionAllowed, tableActionTransaction, type TableAction } from '../src/client/table-actions.js'
 import { docToText, MAX_DOC_BYTES, validateRichDoc } from '../src/model.js'
 
 const paragraph = (text?: string) => ({ type: 'paragraph', ...(text ? { content: [{ type: 'text', text }] } : {}) })
@@ -384,4 +384,48 @@ test('a synchronized external change keeps the caret where the user left it', t 
   assert.deepEqual(validateRichDoc(editor.getJSON()), prefixed)
   assert.equal(editor.state.selection.from, 11)
   assert.equal(updates, 0)
+})
+
+test('the column divider ignores modified arrows and width announcements stay throttled', () => {
+  assert.equal(columnWidthChange({ key: '1:1', width: 120 }, { key: '1:1', width: 136 }), 136)
+  assert.equal(columnWidthChange({ key: '1:1', width: 136 }, { key: '1:2', width: 200 }), null)
+  assert.equal(columnWidthChange({ key: '1:1', width: 136 }, { key: '1:1', width: null }), null)
+  assert.equal(columnWidthChange({ key: '1:1', width: null }, { key: '1:1', width: 104 }), 104)
+  const plain = { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false }
+  assert.equal(columnDividerDelta({ ...plain, key: 'ArrowLeft' }), -1)
+  assert.equal(columnDividerDelta({ ...plain, key: 'ArrowRight' }), 1)
+  assert.equal(columnDividerDelta({ ...plain, key: 'ArrowUp' }), null)
+  for (const extra of ['altKey', 'ctrlKey', 'metaKey', 'shiftKey'] as const) {
+    assert.equal(columnDividerDelta({ ...plain, key: 'ArrowRight', [extra]: true }), null, extra)
+  }
+  const first = planWidthAnnouncement(null, 120, 1_000)
+  assert.equal(first.announce, 120)
+  assert.equal(first.waitMs, null)
+  const skipped = planWidthAnnouncement(first.clock, 136, 1_000 + 200)
+  assert.equal(skipped.announce, null)
+  assert.equal(skipped.clock.pending, 136)
+  assert.equal(skipped.waitMs, COLUMN_WIDTH_ANNOUNCE_MS - 200)
+  const later = planWidthAnnouncement(skipped.clock, 152, 1_000 + 400)
+  assert.equal(later.clock.pending, 152)
+  const flushed = flushWidthAnnouncement(later.clock, 1_000 + COLUMN_WIDTH_ANNOUNCE_MS)
+  assert.equal(flushed.announce, 152)
+  assert.equal(flushed.clock.pending, null)
+  const again = planWidthAnnouncement(flushed.clock, 168, flushed.clock.lastAt + COLUMN_WIDTH_ANNOUNCE_MS)
+  assert.equal(again.announce, 168)
+})
+
+test('nudging a column writes the new width and stops at the limit', t => {
+  const editor = create([table(2, 2)])
+  t.after(() => editor.destroy())
+  const target = select(editor, 0, 0, 0)
+  const grown = nudgeTableColumn(editor.state, target, 0, TABLE_COLUMN_NUDGE, 100)
+  assert.ok(grown)
+  editor.view.dispatch(grown)
+  assert.equal(explicitColumnWidth(editor.state.doc.child(0), 0), 116)
+  const selected = selectedTable(editor.state)!
+  const capped = nudgeTableColumn(editor.state, selected, 0, TABLE_CELL_MAX_WIDTH, 116)
+  assert.ok(capped)
+  editor.view.dispatch(capped)
+  assert.equal(explicitColumnWidth(editor.state.doc.child(0), 0), TABLE_CELL_MAX_WIDTH)
+  assert.equal(nudgeTableColumn(editor.state, selectedTable(editor.state)!, 0, TABLE_COLUMN_NUDGE, TABLE_CELL_MAX_WIDTH), null)
 })

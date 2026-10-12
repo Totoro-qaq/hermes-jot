@@ -5,9 +5,9 @@ import { draftFromNote, draftFingerprint, emptyDocument, receiveLatestDraft, rec
 import type { NoteDraft } from './drafts.js'
 import type { JotPersistence } from '../hermes/persistence.js'
 import type { ReactNode } from 'react'
-import { editHumanDraft, parkedDraftForLateEdit, parkedEditorChange, planFreshNoteRelease, takeUntouchedFreshNote } from './draft-lifecycle.js'
+import { editHumanDraft, freshFlushSettlement, parkedDraftForLateEdit, parkedEditorChange, planFreshNoteRelease, takeUntouchedFreshNote, type FreshFlushToken } from './draft-lifecycle.js'
 import { acceptRemoteAppend, planRemoteAppend, remoteBase, type RemoteBase } from './remote-append.js'
-import { acceptEditorRevision, type EditorGenerationRevision } from '../hermes/editor-frame.js'
+import { acceptEditorRevision, claimEditorMount, type EditorFrameStamp, type EditorGenerationRevision } from '../hermes/editor-frame.js'
 import { RichEditor, type RichEditorActions } from '../hermes/EmbeddedEditor.js'
 import { appShortcut } from './app-shortcuts.js'
 import { ActionMenu, type ActionMenuEntry } from './ActionMenu.js'
@@ -104,7 +104,16 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const editorActions = useRef<RichEditorActions | null>(null)
   const editorRevisionsRef = useRef<Record<string, EditorGenerationRevision>>({})
   const [editorRevisions, setEditorRevisions] = useState<Record<string, EditorGenerationRevision>>({})
-  const pendingFreshFlush = useRef(new Set<string>())
+  const editorMountRef = useRef(0)
+  const editorMountFloor = useRef(0)
+  const frameStampRef = useRef<EditorFrameStamp | null>(null)
+  const pendingFreshFlush = useRef(new Map<string, FreshFlushToken>())
+  const claimEditorMountId = useCallback(() => {
+    const mount = claimEditorMount(editorMountRef.current)
+    editorMountRef.current = mount
+    editorMountFloor.current = mount
+    return mount
+  }, [])
   const editorFocusLease = useRef<(() => void) | null>(null)
   const releaseEditorFocus = useCallback(() => {
     editorFocusLease.current?.()
@@ -453,14 +462,22 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const releaseFreshNote = useCallback((id: string) => {
     const editorCanFlush = editorNote.current === id && editorActions.current !== null
     if (planFreshNoteRelease(id, freshNotes.current, editorCanFlush) === 'wait') {
-      pendingFreshFlush.current.add(id)
+      const stamp = frameStampRef.current
+      pendingFreshFlush.current.set(id, stamp && stamp.documentId === id
+        ? { mount: stamp.mount, generation: stamp.generation }
+        : { mount: -1, generation: -1 })
       return
     }
     purgeUntouchedFreshNote(id)
   }, [purgeUntouchedFreshNote])
 
-  const settleFreshFlush = useCallback((id: string) => {
-    if (!pendingFreshFlush.current.delete(id)) return
+  const settleFreshFlush = useCallback((id: string, generation = 0, mount = 0) => {
+    const decision = freshFlushSettlement(draftRef.current?.noteId ?? null, pendingFreshFlush.current.get(id), { noteId: id, mount, generation })
+    if (decision !== 'settle') {
+      if (draftRef.current?.noteId === id) pendingFreshFlush.current.delete(id)
+      return
+    }
+    pendingFreshFlush.current.delete(id)
     purgeUntouchedFreshNote(id)
   }, [purgeUntouchedFreshNote])
 
@@ -471,6 +488,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     const previous = draftRef.current
     if (previous?.dirty && previous.noteId !== note.id && statusesRef.current[previous.noteId]?.phase !== 'conflict') void saveDraft(previous.noteId)
     if (previous && previous.noteId !== note.id) releaseFreshNote(previous.noteId)
+    pendingFreshFlush.current.delete(note.id)
     const stored = handoff ? readHandoffDraft(note, handoff.draftId, sharedDraftStorage) : readDraft(note, drafts.current.get(note.id))
     const result = reconcileDraft(stored, note)
     if (result.draft.baseRevision === note.revision) rememberBase(note)
@@ -1306,7 +1324,8 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
                   event.preventDefault(); editorActions.current?.focus()
                 }
               }} />
-            <RichEditor editorRevision={editorRevisions[draft.noteId]} onFlushSettled={settleFreshFlush} loadEditor={api.loadEditor} onSave={() => void saveDraft(draft.noteId)} onPreviewAttachment={previewAttachment}
+            <RichEditor editorRevision={editorRevisions[draft.noteId]} onFlushSettled={settleFreshFlush} claimEditorMount={claimEditorMountId}
+              onFrameStamp={stamp => { frameStampRef.current = stamp }} loadEditor={api.loadEditor} onSave={() => void saveDraft(draft.noteId)} onPreviewAttachment={previewAttachment}
               onSelectionChange={onEditorSelection}
               onFiles={files => { if (!selectedDeleted) void uploadFiles(files) }}
               onExternalLink={url => void perform(async () => { await api.openExternal?.(url) })}
@@ -1318,10 +1337,10 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
                 const remote = actions ? snapshotRef.current?.notes.find(note => note.id === draft.noteId) : undefined
                 if (remote) followRemote(remote)
               }}
-              onChange={(content, revision, editedNoteId, generation) => {
+              onChange={(content, revision, editedNoteId, generation, mount) => {
                 const id = editedNoteId || draft.noteId
                 if (revision !== undefined && generation !== undefined) {
-                  const decision = acceptEditorRevision(editorRevisionsRef.current[id], { generation, revision })
+                  const decision = acceptEditorRevision(editorRevisionsRef.current[id], { mount, generation, revision }, editorMountFloor.current)
                   if (!decision.accept) return
                   editorRevisionsRef.current = { ...editorRevisionsRef.current, [id]: decision.next }
                   setEditorRevisions(editorRevisionsRef.current)

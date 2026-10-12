@@ -118,12 +118,31 @@ function hrefInRange(state: EditorState, from: number, to: number): string | nul
   return href || null
 }
 
-export function applyLinkEdit(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined, input: { href: string; text: string }): boolean {
+export function applyLinkEdit(
+  state: EditorState,
+  dispatch: ((tr: Transaction) => void) | undefined,
+  input: { href: string; text: string; from?: number; to?: number; original?: string; originalHref?: string | null },
+): boolean | 'stale' {
   const type = state.schema.marks.link
   if (!type) return false
   const href = normalizeLinkHref(input.href)
   if (!href) return false
-  const range = linkTarget(state, type)
+  // 浮层打开时记下的范围、原文和地址。对不上就不动，并告诉调用方正文已经变了。
+  const remembered = input.from !== undefined && input.to !== undefined && input.original !== undefined
+  let range: { from: number; to: number } | null
+  if (remembered) {
+    const size = state.doc.content.size
+    const from = input.from as number
+    const to = input.to as number
+    if (from < 0 || to < from || from > size || to > size || state.doc.textBetween(from, to) !== input.original) return 'stale'
+    if (input.originalHref !== undefined && hrefInRange(state, from, to) !== input.originalHref) return 'stale'
+    const $from = state.doc.resolve(from)
+    const $to = state.doc.resolve(to)
+    if (!$from.sameParent($to) || !$from.parent.isTextblock || !$from.parent.type.allowsMarkType(type)) return false
+    range = { from, to }
+  } else {
+    range = linkTarget(state, type)
+  }
   if (!range) return false
   const current = state.doc.textBetween(range.from, range.to)
   // 空白输入表示沿用选区原文。用户留下的首尾空格要保留，不能 trim 后再写回去。

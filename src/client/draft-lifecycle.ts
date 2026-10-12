@@ -16,6 +16,23 @@ export function parkedEditorChange(parked: NoteDraft | undefined, content: RichD
   return conflicted ? 'keep-conflict' : 'save'
 }
 
+/** 离开时记下的挂载和代次。只有同一次离开的 flush 才能删笔记。 */
+export interface FreshFlushToken { mount: number; generation: number }
+
+/**
+ * 晚到的 flush 只结算当时离开的那一次。
+ * 笔记已经重新打开时不删，哪怕编号碰巧一样。
+ */
+export function freshFlushSettlement(
+  openNoteId: string | null,
+  pending: FreshFlushToken | undefined,
+  flush: { noteId: string; mount: number; generation: number },
+): 'ignore' | 'settle' {
+  if (flush.noteId === openNoteId) return 'ignore'
+  if (!pending || pending.mount !== flush.mount || pending.generation !== flush.generation) return 'ignore'
+  return 'settle'
+}
+
 /**
  * 编辑器还能把这篇的正文发出来时，先别删。
  * 等 flush 落地：有字就留下，确认没改过再删。

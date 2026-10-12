@@ -11,7 +11,7 @@ import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
 import { applyLinkEdit, blockCredentialLinkEvent, linkMarkHref, linkUnderCaret, normalizeLinkHref, openableLinkHref, openedLinkRange, removeLink } from './link-commands.js'
 import { taskListsNeedTidy, tidyCompletedTasks } from './list-commands.js'
-import { nextRovingIndex, styleMenuActivationIsDuplicate, styleMenuArmsClickDedupe, styleMenuDismissFocus, styleMenuKeyboardEdge } from './roving-focus.js'
+import { nextRovingIndex, styleMenuActivationIsDuplicate, styleMenuArmsClickDedupe, styleMenuDedupeShouldRelease, styleMenuDismissFocus, styleMenuKeyboardEdge } from './roving-focus.js'
 import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
 import { insertManagedAttachment } from './editor-attachments.js'
@@ -29,7 +29,7 @@ export interface RichEditorProps {
   value: RichDoc
   /** Resolve a delayed host update against edits made before this React effect. */
   resolveExternalValue?: () => RichDoc
-  onChange: (content: RichDoc, editorRevision?: number, documentId?: string, generation?: number) => void
+  onChange: (content: RichDoc, editorRevision?: number, documentId?: string, generation?: number, mount?: number) => void
   onBlur?: () => void
   readOnly?: boolean
   locale?: JotLocale
@@ -408,7 +408,17 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       linkUrlInput.current?.focus()
       return
     }
-    if (!applyLinkEdit(current.state, current.view.dispatch, { href: linkHref, text: linkText })) {
+    const captured = openedLink.current
+    const result = applyLinkEdit(current.state, current.view.dispatch, {
+      href: linkHref,
+      text: linkText,
+      ...(captured ? { from: captured.from, to: captured.to, original: captured.original, originalHref: captured.originalHref } : {}),
+    })
+    if (result === 'stale') {
+      setLinkError(t('The note changed. Open the link again.'))
+      return
+    }
+    if (result !== true) {
       setLinkError(t('Links stay within one paragraph.'))
       return
     }
@@ -418,7 +428,11 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   const clearLink = () => {
     const current = instance.current
     const captured = openedLink.current
-    if (!current || !captured || !removeLink(current.state, current.view.dispatch, openedLinkRange(captured))) return
+    if (!current || !captured) return
+    if (!removeLink(current.state, current.view.dispatch, openedLinkRange(captured))) {
+      setLinkError(t('The note changed. Open the link again.'))
+      return
+    }
     openedLink.current = null
     setLinkOpen(false)
     current.commands.focus()
@@ -527,12 +541,20 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
             if (!edge || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
             event.preventDefault(); event.stopPropagation()
             styleKeyActivation.current = styleMenuArmsClickDedupe(event.key)
+            const releaseKey = event.key
+            const page = event.currentTarget.ownerDocument.defaultView ?? globalThis
+            if (styleMenuDedupeShouldRelease('tick', releaseKey)) page.setTimeout(() => { styleKeyActivation.current = false }, 0)
             formatFocus.current = edge
             setLinkOpen(false); setPaletteOpen(null)
             if (!formatOpen) { setFormatOpen(true); return }
             const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
             ;(edge === 'last' ? buttons.at(-1) : buttons[0])?.focus()
             formatFocus.current = null
+          }}
+          onKeyUp={event => {
+            if (!styleMenuDedupeShouldRelease('keyup', event.key)) return
+            const page = event.currentTarget.ownerDocument.defaultView ?? globalThis
+            page.setTimeout(() => { styleKeyActivation.current = false }, 0)
           }}
           onClick={event => {
             const duplicate = styleMenuActivationIsDuplicate(event.detail, styleKeyActivation.current)

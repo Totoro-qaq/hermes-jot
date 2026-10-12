@@ -178302,6 +178302,9 @@ var editor_default = {
     "Open link": "\u6253\u5F00\u94FE\u63A5",
     "Enter a web, email, or phone link.": "\u8BF7\u8F93\u5165\u7F51\u9875\u3001\u7535\u5B50\u90AE\u7BB1\u6216\u7535\u8BDD\u94FE\u63A5\u3002",
     "Links stay within one paragraph.": "\u94FE\u63A5\u53EA\u80FD\u4F4D\u4E8E\u540C\u4E00\u6BB5\u843D\u5185\u3002",
+    "The note changed. Open the link again.": "\u6B63\u6587\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u94FE\u63A5\u3002",
+    "Resize column {column}": "\u8C03\u6574\u7B2C {column} \u5217\u7684\u5BBD\u5EA6",
+    "Column {column} width {width} pixels": "\u7B2C {column} \u5217\u5BBD\u5EA6 {width} \u50CF\u7D20",
     "Tidy completed items": "\u6574\u7406\u5DF2\u5B8C\u6210\u9879",
     "Move completed to-dos to the bottom of each list": "\u628A\u6BCF\u4E2A\u6E05\u5355\u91CC\u5DF2\u5B8C\u6210\u7684\u5F85\u529E\u79FB\u5230\u5E95\u90E8\uFF0C\u5E76\u4FDD\u6301\u539F\u6709\u987A\u5E8F",
     "Loading editor\u2026": "\u6B63\u5728\u8F7D\u5165\u7F16\u8F91\u5668\u2026"
@@ -178396,6 +178399,9 @@ var editor_default = {
     "Open link": "\u958B\u555F\u9023\u7D50",
     "Enter a web, email, or phone link.": "\u8ACB\u8F38\u5165\u7DB2\u9801\u3001\u96FB\u5B50\u90F5\u4EF6\u6216\u96FB\u8A71\u9023\u7D50\u3002",
     "Links stay within one paragraph.": "\u9023\u7D50\u53EA\u80FD\u4F4D\u65BC\u540C\u4E00\u6BB5\u843D\u5167\u3002",
+    "The note changed. Open the link again.": "\u5167\u6587\u5DF2\u8B8A\u66F4\uFF0C\u8ACB\u91CD\u65B0\u958B\u555F\u9023\u7D50\u3002",
+    "Resize column {column}": "\u8ABF\u6574\u7B2C {column} \u6B04\u7684\u5BEC\u5EA6",
+    "Column {column} width {width} pixels": "\u7B2C {column} \u6B04\u5BEC\u5EA6 {width} \u50CF\u7D20",
     "Tidy completed items": "\u6574\u7406\u5DF2\u5B8C\u6210\u9805\u76EE",
     "Move completed to-dos to the bottom of each list": "\u5C07\u6BCF\u500B\u6E05\u55AE\u4E2D\u5DF2\u5B8C\u6210\u7684\u5F85\u8FA6\u79FB\u5230\u5E95\u90E8\uFF0C\u4E26\u4FDD\u6301\u539F\u6709\u9806\u5E8F",
     "Loading editor\u2026": "\u6B63\u5728\u8F09\u5165\u7DE8\u8F2F\u5668\u2026"
@@ -178490,6 +178496,9 @@ var editor_default = {
     "Open link": "\u30EA\u30F3\u30AF\u3092\u958B\u304F",
     "Enter a web, email, or phone link.": "\u30A6\u30A7\u30D6\u3001\u30E1\u30FC\u30EB\u3001\u307E\u305F\u306F\u96FB\u8A71\u306E\u30EA\u30F3\u30AF\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
     "Links stay within one paragraph.": "\u30EA\u30F3\u30AF\u306F\u4E00\u3064\u306E\u6BB5\u843D\u306E\u4E2D\u306B\u53CE\u3081\u3066\u304F\u3060\u3055\u3044\u3002",
+    "The note changed. Open the link again.": "\u672C\u6587\u304C\u5909\u308F\u308A\u307E\u3057\u305F\u3002\u30EA\u30F3\u30AF\u3092\u958B\u304D\u76F4\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+    "Resize column {column}": "\u5217 {column} \u306E\u5E45\u3092\u8ABF\u6574",
+    "Column {column} width {width} pixels": "\u5217 {column} \u306E\u5E45 {width} \u30D4\u30AF\u30BB\u30EB",
     "Tidy completed items": "\u5B8C\u4E86\u3057\u305F\u9805\u76EE\u3092\u6574\u7406",
     "Move completed to-dos to the bottom of each list": "\u5404\u30C1\u30A7\u30C3\u30AF\u30EA\u30B9\u30C8\u306E\u5B8C\u4E86\u9805\u76EE\u3092\u3001\u9806\u5E8F\u3092\u4FDD\u3063\u305F\u307E\u307E\u672B\u5C3E\u3078\u79FB\u3057\u307E\u3059",
     "Loading editor\u2026": "\u30A8\u30C7\u30A3\u30BF\u30FC\u3092\u8AAD\u307F\u8FBC\u307F\u4E2D\u2026"
@@ -178584,6 +178593,9 @@ var editor_default = {
     "Open link": "\u0641\u062A\u062D \u0627\u0644\u0631\u0627\u0628\u0637",
     "Enter a web, email, or phone link.": "\u0623\u062F\u062E\u0644 \u0631\u0627\u0628\u0637 \u0648\u064A\u0628 \u0623\u0648 \u0628\u0631\u064A\u062F \u0623\u0648 \u0647\u0627\u062A\u0641.",
     "Links stay within one paragraph.": "\u064A\u062C\u0628 \u0623\u0646 \u064A\u0628\u0642\u0649 \u0627\u0644\u0631\u0627\u0628\u0637 \u0636\u0645\u0646 \u0641\u0642\u0631\u0629 \u0648\u0627\u062D\u062F\u0629.",
+    "The note changed. Open the link again.": "\u062A\u063A\u064A\u0651\u0631\u062A \u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0629. \u0627\u0641\u062A\u062D \u0627\u0644\u0631\u0627\u0628\u0637 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.",
+    "Resize column {column}": "\u062A\u063A\u064A\u064A\u0631 \u0639\u0631\u0636 \u0627\u0644\u0639\u0645\u0648\u062F {column}",
+    "Column {column} width {width} pixels": "\u0639\u0631\u0636 \u0627\u0644\u0639\u0645\u0648\u062F {column} \u0647\u0648 {width} \u0628\u0643\u0633\u0644",
     "Tidy completed items": "\u062A\u0631\u062A\u064A\u0628 \u0627\u0644\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0645\u0643\u062A\u0645\u0644\u0629",
     "Move completed to-dos to the bottom of each list": "\u0627\u0646\u0642\u0644 \u0627\u0644\u0645\u0647\u0627\u0645 \u0627\u0644\u0645\u0643\u062A\u0645\u0644\u0629 \u0625\u0644\u0649 \u0623\u0633\u0641\u0644 \u0643\u0644 \u0642\u0627\u0626\u0645\u0629 \u0645\u0639 \u0627\u0644\u0625\u0628\u0642\u0627\u0621 \u0639\u0644\u0649 \u062A\u0631\u062A\u064A\u0628\u0647\u0627",
     "Loading editor\u2026": "\u062C\u0627\u0631\u064D \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0645\u062D\u0631\u0631\u2026"
@@ -178678,6 +178690,9 @@ var editor_default = {
     "Open link": "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0443",
     "Enter a web, email, or phone link.": "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0441\u0441\u044B\u043B\u043A\u0443 \u043D\u0430 \u0441\u0430\u0439\u0442, \u043F\u043E\u0447\u0442\u0443 \u0438\u043B\u0438 \u0442\u0435\u043B\u0435\u0444\u043E\u043D.",
     "Links stay within one paragraph.": "\u0421\u0441\u044B\u043B\u043A\u0430 \u0434\u043E\u043B\u0436\u043D\u0430 \u043E\u0441\u0442\u0430\u0432\u0430\u0442\u044C\u0441\u044F \u0432 \u043E\u0434\u043D\u043E\u043C \u0430\u0431\u0437\u0430\u0446\u0435.",
+    "The note changed. Open the link again.": "\u0417\u0430\u043C\u0435\u0442\u043A\u0430 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C. \u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0441\u0441\u044B\u043B\u043A\u0443 \u0441\u043D\u043E\u0432\u0430.",
+    "Resize column {column}": "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0448\u0438\u0440\u0438\u043D\u0443 \u0441\u0442\u043E\u043B\u0431\u0446\u0430 {column}",
+    "Column {column} width {width} pixels": "\u0428\u0438\u0440\u0438\u043D\u0430 \u0441\u0442\u043E\u043B\u0431\u0446\u0430 {column}: {width} \u043F\u0438\u043A\u0441.",
     "Tidy completed items": "\u0423\u0431\u0440\u0430\u0442\u044C \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435 \u043F\u0443\u043D\u043A\u0442\u044B \u0432\u043D\u0438\u0437",
     "Move completed to-dos to the bottom of each list": "\u041F\u0435\u0440\u0435\u043C\u0435\u0441\u0442\u0438\u0442\u044C \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435 \u043F\u0443\u043D\u043A\u0442\u044B \u0432\u043D\u0438\u0437 \u043A\u0430\u0436\u0434\u043E\u0433\u043E \u0441\u043F\u0438\u0441\u043A\u0430, \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0432 \u043F\u043E\u0440\u044F\u0434\u043E\u043A",
     "Loading editor\u2026": "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430\u2026"
@@ -178772,6 +178787,9 @@ var editor_default = {
     "Open link": "Ouvrir le lien",
     "Enter a web, email, or phone link.": "Saisissez un lien web, e-mail ou t\xE9l\xE9phone.",
     "Links stay within one paragraph.": "Le lien doit rester dans un seul paragraphe.",
+    "The note changed. Open the link again.": "La note a chang\xE9. Rouvrez le lien.",
+    "Resize column {column}": "Redimensionner la colonne {column}",
+    "Column {column} width {width} pixels": "Largeur de la colonne {column} : {width} pixels",
     "Tidy completed items": "Ranger les \xE9l\xE9ments termin\xE9s",
     "Move completed to-dos to the bottom of each list": "D\xE9place les t\xE2ches termin\xE9es en bas de chaque liste, dans le m\xEAme ordre",
     "Loading editor\u2026": "Chargement de l'\xE9diteur\u2026"
@@ -178866,6 +178884,9 @@ var editor_default = {
     "Open link": "Link \xF6ffnen",
     "Enter a web, email, or phone link.": "Geben Sie einen Web-, E-Mail- oder Telefonlink ein.",
     "Links stay within one paragraph.": "Der Link muss in einem Absatz bleiben.",
+    "The note changed. Open the link again.": "Die Notiz hat sich ge\xE4ndert. \xD6ffnen Sie den Link erneut.",
+    "Resize column {column}": "Spalte {column} in der Breite \xE4ndern",
+    "Column {column} width {width} pixels": "Breite von Spalte {column}: {width} Pixel",
     "Tidy completed items": "Erledigte Eintr\xE4ge nach unten",
     "Move completed to-dos to the bottom of each list": "Erledigte Eintr\xE4ge jeder Liste nach unten verschieben, die Reihenfolge bleibt",
     "Loading editor\u2026": "Editor wird geladen\u2026"
@@ -178960,6 +178981,9 @@ var editor_default = {
     "Open link": "Abrir enlace",
     "Enter a web, email, or phone link.": "Introduce un enlace web, de correo o de tel\xE9fono.",
     "Links stay within one paragraph.": "El enlace debe quedarse en un solo p\xE1rrafo.",
+    "The note changed. Open the link again.": "La nota cambi\xF3. Vuelve a abrir el enlace.",
+    "Resize column {column}": "Cambiar el ancho de la columna {column}",
+    "Column {column} width {width} pixels": "Ancho de la columna {column}: {width} p\xEDxeles",
     "Tidy completed items": "Ordenar los elementos completados",
     "Move completed to-dos to the bottom of each list": "Mueve las tareas completadas al final de cada lista, conservando el orden",
     "Loading editor\u2026": "Cargando el editor\u2026"

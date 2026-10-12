@@ -14,8 +14,12 @@ export interface EmbeddedEditorProps extends RichEditorProps {
   documentId?: string
   /** 当前这篇笔记已经发出去的代次和修订号。代次对不上时按 0 回传，避免旧代次的数字盖掉新编辑。 */
   editorRevision?: EditorGenerationRevision
-  /** 离开这篇笔记的正文已经发出，空的新建笔记这时才可以删除。 */
-  onFlushSettled?: (documentId: string) => void
+  /** 离开这篇笔记的正文已经发出，空的新建笔记这时才可以删除。带上当时的挂载和代次。 */
+  onFlushSettled?: (documentId: string, generation: number, mount: number) => void
+  /** 这一次 iframe 的挂载编号。重开后必须比上次更大。 */
+  claimEditorMount?: () => number
+  /** 当前发给访客的代次，离开笔记时用它核对 flush。 */
+  onFrameStamp?: (stamp: EditorFrameStamp) => void
   loadEditor?: () => Promise<string>
   onSave?: () => void
   onPreviewAttachment?: (id: string) => void
@@ -25,6 +29,11 @@ export interface EmbeddedEditorProps extends RichEditorProps {
 }
 
 const THEME_KEYS = Object.keys(HOST_THEME_PROPERTIES)
+let fallbackMount = 0
+function claimFallback(): number {
+  fallbackMount += 1
+  return fallbackMount
+}
 
 /** Only the rich editor runs in the opaque frame; credentials and host APIs never enter it. */
 export function RichEditor(props: EmbeddedEditorProps) {
@@ -35,8 +44,10 @@ export function RichEditor(props: EmbeddedEditorProps) {
   const callbacks = useRef(props)
   callbacks.current = props
   const token = useMemo(() => crypto.randomUUID(), [])
-  // 代次只在真正把属性发给访客时递增，不在渲染期间改。
+  // 代次只在真正把属性发给访客时递增，不在渲染期间改。iframe 换成新窗口时挂载编号也换，代次从 0 再计。
   const frameStamp = useRef<EditorFrameStamp | null>(null)
+  const mountId = useRef<number | null>(null)
+  const frameWindow = useRef<Window | null>(null)
   const recentStamps = useRef<EditorFrameStamp[]>([])
   const [load, setLoad] = useState<EditorLoadState>(initialEditorLoad)
   const [height, setHeight] = useState(430)
@@ -52,13 +63,21 @@ export function RichEditor(props: EmbeddedEditorProps) {
   })
   const sync = () => {
     if (!root.current) return
+    const win = frame.current?.contentWindow ?? null
+    if (win && win !== frameWindow.current) {
+      frameWindow.current = win
+      mountId.current = callbacks.current.claimEditorMount?.() ?? claimFallback()
+      frameStamp.current = null
+    }
+    if (mountId.current == null) return
     const id = callbacks.current.documentId ?? ''
-    const next = frameStamp.current ? advanceEditorFrame(frameStamp.current, id) : initialEditorFrame(id)
+    const next = frameStamp.current ? advanceEditorFrame(frameStamp.current, id) : initialEditorFrame(id, mountId.current)
     if (frameStamp.current && next !== frameStamp.current) {
       recentStamps.current = rememberEditorStamp(recentStamps.current, frameStamp.current)
       callbacks.current.onSelectionChange?.(null)
     }
     frameStamp.current = next
+    callbacks.current.onFrameStamp?.(next)
     const style = getComputedStyle(root.current)
     const size = Number.parseFloat(style.fontSize)
     const fonts = Number.isFinite(size) ? {
@@ -70,8 +89,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
       '--dsw-font-xxs-12': `400 ${size * 11 / 13}px/1.5 ${style.fontFamily}`,
     } : {}
     const recorded = callbacks.current.editorRevision
-    const acknowledgedRevision = recorded && recorded.generation === next.generation ? recorded.revision : 0
-    post('props', { value: callbacks.current.value, acknowledgedRevision, acknowledgedGeneration: next.generation, locale: callbacks.current.locale,
+    const acknowledgedRevision = recorded && recorded.mount === next.mount && recorded.generation === next.generation ? recorded.revision : 0
+    post('props', { value: callbacks.current.value, acknowledgedRevision, acknowledgedGeneration: next.generation, mount: next.mount, locale: callbacks.current.locale,
       protocol: EDITOR_FRAME_PROTOCOL, documentId: next.documentId, generation: next.generation,
       readOnly: callbacks.current.readOnly, dark: (theme.renderedMode ?? theme.resolvedMode) === 'dark',
       theme: { ...Object.fromEntries(THEME_KEYS.map(key => [key, style.getPropertyValue(key)])), ...fonts } })
@@ -100,8 +119,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
       if (event.data?.token !== token) return
       const { kind, data, id } = event.data
       const framed = guestEditorAction(frameStamp.current ?? initialEditorFrame(callbacks.current.documentId ?? ''), kind, data, recentStamps.current)
-      if (framed.type === 'change') callbacks.current.onChange(framed.content, framed.revision, framed.documentId, framed.generation)
-      else if (framed.type === 'flushed') callbacks.current.onFlushSettled?.(framed.documentId)
+      if (framed.type === 'change') callbacks.current.onChange(framed.content, framed.revision, framed.documentId, framed.generation, framed.mount)
+      else if (framed.type === 'flushed') callbacks.current.onFlushSettled?.(framed.documentId, framed.generation, framed.mount)
       else if (framed.type === 'selection') callbacks.current.onSelectionChange?.(framed.text)
       else if (framed.type === 'drop' && kind === 'change') reportDroppedEdit(framed.reason, data)
       else if (kind === 'inserted' && Number.isSafeInteger(data?.id)) {

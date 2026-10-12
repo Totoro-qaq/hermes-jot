@@ -6,7 +6,7 @@ import { test, type TestContext } from 'node:test'
 import { JotStore, StoreError } from '../src/store.js'
 import { docFromText, validateRichDoc } from '../src/model.js'
 import { draftFromNote } from '../src/client/drafts.js'
-import { editHumanDraft, parkedDraftForLateEdit, parkedEditorChange, planFreshNoteRelease, takeUntouchedFreshNote } from '../src/client/draft-lifecycle.js'
+import { editHumanDraft, freshFlushSettlement, parkedDraftForLateEdit, parkedEditorChange, planFreshNoteRelease, takeUntouchedFreshNote } from '../src/client/draft-lifecycle.js'
 
 async function storeFor(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'dsh-jot-draft-lifecycle-'))
@@ -84,6 +84,16 @@ test('a new note is not purged until its editor flush settles, and a late edit p
   const untouched = new Set(['note-b'])
   assert.equal(planFreshNoteRelease('note-b', untouched, false), 'ready')
   assert.equal(takeUntouchedFreshNote('note-b', untouched, { note: { ...note, id: 'note-b' }, draft: draftFromNote({ ...note, id: 'note-b' }), saving: false, keptDrafts: false }), true)
+})
+
+test('a late flush settles the leave that is still waiting and never the note that is open again', () => {
+  const leaveA = { mount: 1, generation: 0 }
+  assert.equal(freshFlushSettlement('note-b', leaveA, { noteId: 'note-a', mount: 1, generation: 0 }), 'settle')
+  assert.equal(freshFlushSettlement('note-a', leaveA, { noteId: 'note-a', mount: 1, generation: 0 }), 'ignore')
+  const leaveAgain = { mount: 1, generation: 2 }
+  assert.equal(freshFlushSettlement('note-c', leaveAgain, { noteId: 'note-a', mount: 1, generation: 0 }), 'ignore')
+  assert.equal(freshFlushSettlement('note-c', leaveAgain, { noteId: 'note-a', mount: 1, generation: 2 }), 'settle')
+  assert.equal(freshFlushSettlement('note-c', undefined, { noteId: 'note-a', mount: 1, generation: 2 }), 'ignore')
 })
 
 test('leaving a genuinely untouched empty note still cleans it up exactly once', async t => {

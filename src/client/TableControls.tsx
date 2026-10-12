@@ -7,7 +7,7 @@ import { closeHistory } from '@tiptap/pm/history'
 import { ActionMenu, type ActionMenuItem } from './ActionMenu.js'
 import { JotActionIcon } from './icons.js'
 import { translator, type JotLocale } from './i18n.js'
-import { selectedTable, tableActionAllowed, tableActionTransaction, type TableAction, type TableTarget } from './table-actions.js'
+import { columnDividerDelta, columnWidthChange, explicitColumnWidth, flushWidthAnnouncement, nudgeTableColumn, planWidthAnnouncement, selectedTable, TABLE_CELL_MAX_WIDTH, TABLE_CELL_MIN_WIDTH, TABLE_COLUMN_NUDGE, tableActionAllowed, tableActionTransaction, type ColumnWidthSample, type TableAction, type TableTarget, type WidthAnnouncementClock } from './table-actions.js'
 
 interface ChromeGeometry {
   /** The table's end edge, where the append-column button and table options sit: left of the table in RTL. */
@@ -36,6 +36,41 @@ export function TableControls({ editor, readOnly, locale }: { editor: Editor; re
   const menuKey = `${documentVersion.current.version}:${target?.tablePos}:${target?.top}:${target?.bottom}:${target?.left}:${target?.right}`
   const [chrome, setChrome] = useState<TableChrome | null>(null)
   const [notice, setNotice] = useState('')
+  const [columnWidth, setColumnWidth] = useState(TABLE_CELL_MIN_WIDTH)
+  const [widthMessage, setWidthMessage] = useState('')
+  const seenWidth = useRef<ColumnWidthSample | null>(null)
+  const announceClock = useRef<WidthAnnouncementClock | null>(null)
+  const announceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const widthSample: ColumnWidthSample | null = target
+    ? { key: `${target.tablePos}:${target.right}`, width: explicitColumnWidth(target.table, target.right - 1) }
+    : null
+  const widthText = (width: number) => t('Column {column} width {width} pixels', { column: target?.right ?? '', width })
+  useEffect(() => {
+    if (!widthSample) return
+    const next = columnWidthChange(seenWidth.current, widthSample)
+    const switched = Boolean(seenWidth.current && seenWidth.current.key !== widthSample.key)
+    seenWidth.current = widthSample
+    if (switched) {
+      if (announceTimer.current) clearTimeout(announceTimer.current)
+      announceTimer.current = null
+      if (announceClock.current) announceClock.current = { ...announceClock.current, pending: null }
+    }
+    if (next === null) return
+    const plan = planWidthAnnouncement(announceClock.current, next, Date.now())
+    announceClock.current = plan.clock
+    if (plan.announce !== null) setWidthMessage(widthText(plan.announce))
+    if (plan.waitMs != null) {
+      if (announceTimer.current) clearTimeout(announceTimer.current)
+      const wait = plan.waitMs
+      announceTimer.current = setTimeout(() => {
+        announceTimer.current = null
+        const flushed = flushWidthAnnouncement(announceClock.current ?? { lastAt: 0, pending: null }, Date.now())
+        announceClock.current = flushed.clock
+        if (flushed.announce !== null) setWidthMessage(widthText(flushed.announce))
+      }, wait)
+    }
+  }, [widthSample?.key, widthSample?.width, locale, target?.right])
+  useEffect(() => () => { if (announceTimer.current) clearTimeout(announceTimer.current) }, [])
 
   useEffect(() => { setNotice('') }, [target?.tablePos, target?.table])
   // Also measured again when the locale changes: its direction mirrors the table without resizing it.
@@ -63,6 +98,11 @@ export function TableControls({ editor, readOnly, locale }: { editor: Editor; re
       const visibleRight = Math.min(tableBounds.right, area.right)
       const clampX = (x: number) => Math.max(gutter, Math.min(bounds.width - gutter - 28, x))
       const rtl = shell.ownerDocument.defaultView?.getComputedStyle(shell).direction === 'rtl'
+      const explicit = explicitColumnWidth(selected.table, selected.right - 1)
+      const columnElement = table.querySelectorAll('col')[selected.right - 1] as HTMLElement | undefined
+      const raw = columnElement?.offsetWidth || cell.offsetWidth || TABLE_CELL_MIN_WIDTH
+      const measured = explicit ?? Math.max(TABLE_CELL_MIN_WIDTH, Math.round(raw))
+      setColumnWidth(previous => previous === measured ? previous : measured)
       const geometry: ChromeGeometry = {
         rtl,
         column: clampX(cellBounds.left + cellBounds.width / 2 - bounds.left - 14),
@@ -118,10 +158,30 @@ export function TableControls({ editor, readOnly, locale }: { editor: Editor; re
   const canColumn = tableActionAllowed(editor.state, target, 'append-column')
   const disabledTitle = t('Table or note capacity limit reached')
   const geometry = chrome.geometry
+  const nudgeColumn = (delta: number) => {
+    if (readOnly || !editor.isEditable) return
+    const transaction = nudgeTableColumn(editor.state, target, target.right - 1, delta, columnWidth)
+    if (!transaction) return
+    editor.view.dispatch(closeHistory(transaction))
+    editor.view.dispatch(closeHistory(editor.state.tr))
+  }
+  const shownWidth = Math.min(TABLE_CELL_MAX_WIDTH, Math.max(TABLE_CELL_MIN_WIDTH, columnWidth))
   // The stylesheet places the row controls at the physical left; in RTL the table starts at the right.
   const rowSide = geometry.rtl ? { left: 'auto', right: 0 } : {}
   return createPortal(<div className="jot-table-chrome" role="group" aria-label={t('Edit table')}>
     <span className="jot-table-column-indicator" aria-hidden="true" style={{ left: geometry.columnStart, width: geometry.columnWidth }} />
+    {/* pointer-events:none：这条 8 像素分隔条盖在列边上，鼠标拖动要落到单元格边框上。 */}
+    <div className="jot-table-column-resize" role="separator" aria-orientation="vertical" tabIndex={0}
+      aria-label={t('Resize column {column}', { column: target.right })}
+      aria-valuemin={TABLE_CELL_MIN_WIDTH} aria-valuemax={TABLE_CELL_MAX_WIDTH} aria-valuenow={shownWidth}
+      style={{ left: geometry.columnStart + geometry.columnWidth }}
+      onKeyDown={event => {
+        const direction = columnDividerDelta(event)
+        if (direction == null) return
+        event.preventDefault()
+        event.stopPropagation()
+        nudgeColumn(direction * TABLE_COLUMN_NUDGE)
+      }} />
     <span className="jot-table-row-indicator" aria-hidden="true" style={{ top: geometry.rowStart, height: geometry.rowHeight,
       ...geometry.rtl ? { left: 'auto', right: 'calc(var(--jot-table-gutter) - 2px)' } : {} }} />
     <span className="jot-table-column-menu" style={{ left: geometry.column }}>
@@ -155,5 +215,6 @@ export function TableControls({ editor, readOnly, locale }: { editor: Editor; re
       <JotActionIcon name="plus" />
     </button>
     {notice && <span className="jot-table-notice" role="status">{notice}</span>}
+    <span className="jot-table-width-status" role="status" aria-live="polite">{widthMessage}</span>
   </div>, chrome.mount)
 }

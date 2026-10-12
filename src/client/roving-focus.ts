@@ -11,6 +11,16 @@ export function styleMenuArmsClickDedupe(key: string): boolean {
   return key === 'Enter' || key === ' '
 }
 
+/**
+ * Enter 和空格的 keydown 会 preventDefault，激活用的 click 不会来，标记不能只靠 click 清掉。
+ * 下一拍一定清。keyup 再排到下一拍，这样 keyup 末尾补发的 click 仍能看见这次按键。
+ * 方向键的 keyup 不清，避免把后来的 Enter 标记提前抹掉。
+ */
+export function styleMenuDedupeShouldRelease(phase: 'tick' | 'keyup', key: string): boolean {
+  if (phase === 'tick') return true
+  return key === 'Enter' || key === ' '
+}
+
 /** Escape 关掉样式菜单后，焦点回到「样式」按钮。 */
 export function styleMenuDismissFocus(): 'trigger' {
   return 'trigger'

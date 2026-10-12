@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { nextRovingIndex, styleMenuActivationIsDuplicate, styleMenuArmsClickDedupe, styleMenuDismissFocus, styleMenuKeyboardEdge } from '../src/client/roving-focus.js'
+import { nextRovingIndex, styleMenuActivationIsDuplicate, styleMenuArmsClickDedupe, styleMenuDedupeShouldRelease, styleMenuDismissFocus, styleMenuKeyboardEdge } from '../src/client/roving-focus.js'
 
 test('arrow keys wrap through a menu, Home and End jump to the ends, and left and right follow direction', () => {
   assert.equal(nextRovingIndex(3, -1, 'ArrowDown'), 0)
@@ -33,4 +33,10 @@ test('Enter, Space, and the arrow keys choose which end of the style menu receiv
   assert.equal(styleMenuArmsClickDedupe('ArrowDown'), false)
   assert.equal(styleMenuArmsClickDedupe('ArrowUp'), false)
   assert.equal(styleMenuDismissFocus(), 'trigger')
+  assert.equal(styleMenuDedupeShouldRelease('tick', 'Enter'), true)
+  assert.equal(styleMenuDedupeShouldRelease('tick', 'ArrowDown'), true)
+  assert.equal(styleMenuDedupeShouldRelease('keyup', 'Enter'), true)
+  assert.equal(styleMenuDedupeShouldRelease('keyup', ' '), true)
+  assert.equal(styleMenuDedupeShouldRelease('keyup', 'ArrowDown'), false)
+  assert.equal(styleMenuDedupeShouldRelease('keyup', 'ArrowUp'), false)
 })
