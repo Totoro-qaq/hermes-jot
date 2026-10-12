@@ -2,6 +2,16 @@
 
 These are separate evidence levels, not a blanket completion claim.
 
+## 0.4.0
+
+Date: 2026-10-12, Asia/Shanghai. This release adds link editing, checklist tidy and editor keyboard access. It does not change the six agent tools or the collaboration default.
+
+- TypeScript, all 354 Node tests, the full build, and the compiled Desktop-module check passed. All 32 Python/API tests passed (one real-host case skipped outside Hermes).
+- The isolated archive passed Chinese rich-note persistence, TXT/Markdown/PDF/DOCX exports, Markdown/ZIP imports, and packaged-documentation link checks. Linux, macOS and Windows CI on the release commit is the remaining hosted gate.
+- Credential links already stored in a note stay in the document, render without an href, and exports omit the username and password. `javascript:` links stay rejected.
+
+These are local automated checks, not a new Hermes admission run or native Desktop acceptance. Earlier native checks below retain their recorded version and scope. Catalog acceptance stays a separate maintainer review.
+
 ## 0.3.1
 
 Date: 2026-10-11, Asia/Shanghai. This patch release completes bundled license notices and gives the agent explicit recovery guidance for rejected stale-revision writes.

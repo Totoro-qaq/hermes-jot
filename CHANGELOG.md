@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - The editor can add, edit, open, and remove a link from the toolbar or with Ctrl/⌘K. Addresses can be a web page, email, or phone number, and the popover works from the keyboard. Adding a link keeps the selected words, spaces, and formatting, and a partly linked selection or a link across a line break is linked all the way through. Saving or removing a link asks you to open it again when the note changed after the popover opened. A click, a middle-click, or Enter on a focused link in a read-only note opens it once through Hermes; right-click stays with the browser.
 - Web addresses that include a username or password are refused when they are created or opened. A note that already contains one still opens and keeps the link, shows it without an href, and exports leave the username and password out.
