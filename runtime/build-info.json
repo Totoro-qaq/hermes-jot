@@ -122,7 +122,7 @@
     "src/export-formats.ts": "664209dfb188f281dfde8299339e9ce1d4736a72ec7332a648695b28ed882858",
     "src/exports.ts": "27cfa8c291fd99eb68b66b8f1946b41e9f11b6000104cd2e81bf54b980b8f96e",
     "src/file-lock.ts": "ddbef9d961e6375ca34220500254d963f6c0a78affe675c14cfd2e9b04e76f83",
-    "src/hermes/EmbeddedEditor.tsx": "235e5294137ed890a554a4a9e1201e70b6cd12c919f1471d5262b0fbbb1941d7",
+    "src/hermes/EmbeddedEditor.tsx": "a89ac316c3bacdbfc3c29ec32928fa87800e71eea427681d30dd6464100c0bd8",
     "src/hermes/api.ts": "f0a1e1ab5f3f6a0645a97f18112c5c15901aa1e94892d9a5473b97317bdd52a1",
     "src/hermes/controllers.ts": "bd66fce694bbb72a91b0e7218f82e572519d0f6c584d6810544151ca3618401d",
     "src/hermes/editor-frame.ts": "15836af3d32d3703c166ce85d46be08017207d4497403ea07daa2c91ddcc4af6",

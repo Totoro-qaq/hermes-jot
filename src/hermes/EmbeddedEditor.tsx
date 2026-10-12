@@ -36,9 +36,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
   const callbacks = useRef(props)
   callbacks.current = props
   const token = useMemo(() => crypto.randomUUID(), [])
-  // 代次只在真正把属性发给访客时领，不在渲染期间改。换笔记或 iframe 换成新窗口时领新代次。
+  // 代次只在真正把属性发给访客时领，不在渲染期间改。换笔记或访客重新载入时领新代次。
   const frameStamp = useRef<EditorFrameStamp | null>(null)
-  const frameWindow = useRef<Window | null>(null)
   const recentStamps = useRef<EditorFrameStamp[]>([])
   const [source, setSource] = useState('')
   const [error, setError] = useState<'' | 'unavailable' | 'failed'>('')
@@ -56,11 +55,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
   })
   const sync = () => {
     if (!root.current) return
-    const win = frame.current?.contentWindow
-    if (!win) return
-    // 新窗口里的编辑器从头数修订号，上一扇窗口的代次不再沿用，也不留在名单里。
-    let stamp = win === frameWindow.current ? frameStamp.current : null
-    frameWindow.current = win
+    if (!frame.current?.contentWindow) return
+    let stamp = frameStamp.current
     const id = callbacks.current.documentId ?? ''
     if (!stamp || stamp.documentId !== id) {
       if (stamp) {
@@ -105,7 +101,9 @@ export function RichEditor(props: EmbeddedEditorProps) {
     let live = true
     const receive = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow || event.data?.channel !== 'jot-editor') return
-      if (event.data.kind === 'hello') { sync(); return }
+      // 每个新载入的访客文档只发一次 hello，并从 1 数修订号。iframe 原地重载时 contentWindow 不变，所以按 hello 领新代次。
+      // 上一个文档已经没了，它的代次不留在名单里。
+      if (event.data.kind === 'hello') { frameStamp.current = null; sync(); return }
       if (event.data?.token !== token) return
       const { kind, data, id } = event.data
       const framed = guestEditorAction(frameStamp.current, kind, data, recentStamps.current)
