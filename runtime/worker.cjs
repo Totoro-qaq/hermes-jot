@@ -209,9 +209,9 @@ function validateRichDoc(value) {
       result.text = text;
       if (data.marks !== void 0) {
         if (!Array.isArray(data.marks) || data.marks.length > MARKS.size) invalid("Invalid marks");
-        const validated = data.marks.map(mark).filter((item) => item !== null);
+        const validated = data.marks.map(mark);
         if (new Set(validated.map((item) => item.type)).size !== validated.length) invalid("Duplicate marks");
-        if (validated.length) result.marks = validated;
+        result.marks = validated;
       }
       return result;
     }
