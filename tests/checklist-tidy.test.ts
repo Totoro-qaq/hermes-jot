@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Editor } from '@tiptap/core'
 import { history } from '@tiptap/pm/history'
+import { EditorState } from '@tiptap/pm/state'
 import { createJotExtensions } from '../src/client/editor-extensions.js'
 import { taskListsNeedTidy, tidyCompletedTasks, toggleTaskAtSelection } from '../src/client/list-commands.js'
 import type { RichNode } from '../src/client/types.js'
@@ -71,4 +72,22 @@ test('tidy is a separate undo step and leaves the cursor on the same item', t =>
   assert.deepEqual(editor.getJSON(), toggled)
   assert.equal(editor.commands.undo(), true)
   assert.deepEqual(labels(editor), [' :open', 'x:done', ' :later'])
+})
+
+test('a character typed immediately after tidy is its own undo', t => {
+  const editor = new Editor({ element: null, extensions: createJotExtensions(), content: {
+    type: 'doc', content: [list(item('done', true), item('open', false))],
+  } })
+  // A headless editor does not install extension plugins until it is mounted.
+  editor.view.updateState(EditorState.create({ doc: editor.state.doc, plugins: editor.extensionManager.plugins }))
+  t.after(() => editor.destroy())
+  assert.equal(tidyCompletedTasks(editor.state, editor.view.dispatch), true)
+  assert.deepEqual(labels(editor), [' :open', 'x:done'])
+  editor.view.dispatch(editor.state.tr.insertText('Z'))
+  assert.match(editor.getText(), /Z/u)
+  assert.equal(editor.commands.undo(), true)
+  assert.doesNotMatch(editor.getText(), /Z/u)
+  assert.deepEqual(labels(editor), [' :open', 'x:done'])
+  assert.equal(editor.commands.undo(), true)
+  assert.deepEqual(labels(editor), ['x:done', ' :open'])
 })

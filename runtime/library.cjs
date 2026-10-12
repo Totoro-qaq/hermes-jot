@@ -176530,7 +176530,8 @@ function mark(value) {
   const attrs = record(data.attrs, "link attrs");
   onlyKeys(attrs, ["href", "target", "rel", "class", "title"], "link attrs");
   const href = boundedString(attrs.href, 2048, "link href", false);
-  if (!/^(https?:\/\/|mailto:|tel:|#)/i.test(href) || /[\u0000-\u0020]/.test(href) || httpHrefHasCredentials(href)) invalid("Unsafe link href");
+  if (!/^(https?:\/\/|mailto:|tel:|#)/i.test(href) || /[\u0000-\u0020]/.test(href)) invalid("Unsafe link href");
+  if (httpHrefHasCredentials(href)) return null;
   const result = { href };
   if (attrs.target !== void 0) {
     if (attrs.target !== null && attrs.target !== "_blank" && attrs.target !== "_self") invalid("Invalid link target");
@@ -176564,9 +176565,9 @@ function validateRichDoc(value) {
       result.text = text2;
       if (data.marks !== void 0) {
         if (!Array.isArray(data.marks) || data.marks.length > MARKS.size) invalid("Invalid marks");
-        const validated = data.marks.map(mark);
+        const validated = data.marks.map(mark).filter((item) => item !== null);
         if (new Set(validated.map((item) => item.type)).size !== validated.length) invalid("Duplicate marks");
-        result.marks = validated;
+        if (validated.length) result.marks = validated;
       }
       return result;
     }

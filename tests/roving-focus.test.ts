@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { nextRovingIndex } from '../src/client/roving-focus.js'
+import { nextRovingIndex, styleMenuKeyboardEdge } from '../src/client/roving-focus.js'
 
 test('arrow keys wrap through a menu, Home and End jump to the ends, and left and right follow direction', () => {
   assert.equal(nextRovingIndex(3, -1, 'ArrowDown'), 0)
@@ -15,4 +15,13 @@ test('arrow keys wrap through a menu, Home and End jump to the ends, and left an
   assert.equal(nextRovingIndex(3, 0, 'ArrowLeft', 'rtl'), 1)
   assert.equal(nextRovingIndex(3, 1, 'ArrowRight', 'rtl'), 0)
   assert.equal(nextRovingIndex(3, 0, 'ArrowDown', 'rtl'), 1)
+})
+
+test('Enter, Space, and the arrow keys choose which end of the style menu receives focus', () => {
+  assert.equal(styleMenuKeyboardEdge('Enter'), 'first')
+  assert.equal(styleMenuKeyboardEdge(' '), 'first')
+  assert.equal(styleMenuKeyboardEdge('ArrowDown'), 'first')
+  assert.equal(styleMenuKeyboardEdge('ArrowUp'), 'last')
+  assert.equal(styleMenuKeyboardEdge('a'), null)
+  assert.equal(styleMenuKeyboardEdge('Escape'), null)
 })

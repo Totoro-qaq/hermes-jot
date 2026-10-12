@@ -178,10 +178,17 @@ test('link titles accept null or bounded text without widening URL and attribute
   assert.doesNotThrow(() => validateRichDoc(linked({ href: 'https://example.org', title: 'A source page' })))
   for (const attrs of [{ href: 'javascript:alert(1)', title: 'Harmless-looking title' },
     { href: 'https://example.org', title: 'x'.repeat(1_001) },
-    { href: 'https://example.org', onclick: 'alert(1)' },
-    { href: 'https://user:secret@example.org/a' },
-    { href: 'https://user@example.org/a' },
-    { href: 'http://:secret@example.org/' }]) assert.throws(() => validateRichDoc(linked(attrs)), rejected)
+    { href: 'https://example.org', onclick: 'alert(1)' }]) assert.throws(() => validateRichDoc(linked(attrs)), rejected)
+  for (const href of ['https://user:secret@example.org/a', 'https://user@example.org/a', 'http://:secret@example.org/']) {
+    const stored = validateRichDoc(linked({ href }))
+    assert.equal(stored.content[0]!.content![0]!.text, 'Link')
+    assert.equal(stored.content[0]!.content![0]!.marks, undefined)
+  }
+  const mixed = validateRichDoc({ type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'Link', marks: [{ type: 'bold' }, { type: 'link', attrs: { href: 'https://user:secret@example.org/a' } }] },
+  ] }] })
+  assert.equal(mixed.content[0]!.content![0]!.text, 'Link')
+  assert.deepEqual(mixed.content[0]!.content![0]!.marks, [{ type: 'bold' }])
   assert.doesNotThrow(() => validateRichDoc(linked({ href: 'https://example.org/@user' })))
   assert.doesNotThrow(() => validateRichDoc(linked({ href: 'mailto:ada@example.org' })))
 })

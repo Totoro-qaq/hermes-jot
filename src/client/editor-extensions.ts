@@ -8,7 +8,7 @@ import Highlight from '@tiptap/extension-highlight'
 import { HIGHLIGHT_COLORS, TEXT_COLORS, normalizePaletteColor } from '../model.js'
 import { JotTable, JotTableView, PersistableTableWidths } from './table-view.js'
 import { TABLE_CELL_MIN_WIDTH } from './table-actions.js'
-import { JotHeadingKeys, JotListKeys } from './list-commands.js'
+import { JotCloseHistoryAfter, JotHeadingKeys, JotListKeys } from './list-commands.js'
 import { translator, type JotLocale } from './i18n.js'
 
 export const managedAttachmentUrl = (id: string) => `/jot/api/attachments/${encodeURIComponent(id)}/content`
@@ -192,7 +192,7 @@ function managedNode(name: 'image' | 'attachment', resolve: (id: string) => stri
 export function createJotExtensions(options: JotExtensionOptions = {}): Extensions {
   const resolve = options.resolveAttachmentUrl ?? managedAttachmentUrl
   const locale = options.locale ?? (() => 'zh' as const)
-  return [StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }), JotHeadingKeys, JotListKeys,
+  return [StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }), JotHeadingKeys, JotListKeys, JotCloseHistoryAfter,
     TaskList, JotTaskItem.configure({ nested: true, a11y: { checkboxLabel: node => taskCheckboxLabel(node.textContent, locale()) } }),
     JotTable.configure({ resizable: true, renderWrapper: true, cellMinWidth: TABLE_CELL_MIN_WIDTH,
       handleWidth: 6, View: JotTableView }), TableRow, TableHeader, TableCell, PersistableTableWidths,

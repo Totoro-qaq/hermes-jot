@@ -1,3 +1,10 @@
+/** 键盘打开样式菜单时，焦点进入哪一端。鼠标点击不使用这个结果。 */
+export function styleMenuKeyboardEdge(key: string): 'first' | 'last' | null {
+  if (key === 'ArrowUp') return 'last'
+  if (key === 'ArrowDown' || key === 'Enter' || key === ' ') return 'first'
+  return null
+}
+
 /** 菜单内方向键移动。index 为 -1 表示焦点还不在任何一项上。从右向左时左右键对调。 */
 export function nextRovingIndex(count: number, index: number, key: string, direction: 'ltr' | 'rtl' = 'ltr'): number | null {
   if (count <= 0) return null

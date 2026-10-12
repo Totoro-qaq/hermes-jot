@@ -123,7 +123,7 @@ export function validateActor(actor: unknown): Actor {
   return actor
 }
 
-function mark(value: unknown): RichMark {
+function mark(value: unknown): RichMark | null {
   const data = record(value, 'mark')
   onlyKeys(data, ['type', 'attrs'], 'mark')
   if (typeof data.type !== 'string' || !MARKS.has(data.type)) invalid('Unsupported mark type')
@@ -143,7 +143,10 @@ function mark(value: unknown): RichMark {
   const attrs = record(data.attrs, 'link attrs')
   onlyKeys(attrs, ['href', 'target', 'rel', 'class', 'title'], 'link attrs')
   const href = boundedString(attrs.href, 2_048, 'link href', false)
-  if (!/^(https?:\/\/|mailto:|tel:|#)/i.test(href) || /[\u0000-\u0020]/.test(href) || httpHrefHasCredentials(href)) invalid('Unsafe link href')
+  if (!/^(https?:\/\/|mailto:|tel:|#)/i.test(href) || /[\u0000-\u0020]/.test(href)) invalid('Unsafe link href')
+  // 旧笔记里可能已经有带账号密码的链接。打开库时留下文字、去掉链接，避免整本笔记变成损坏状态。
+  // 新建和打开这类地址仍由链接命令拒绝。
+  if (httpHrefHasCredentials(href)) return null
   const result: RichAttrs = { href }
   if (attrs.target !== undefined) {
     if (attrs.target !== null && attrs.target !== '_blank' && attrs.target !== '_self') invalid('Invalid link target')
@@ -179,9 +182,9 @@ export function validateRichDoc(value: unknown): RichDoc {
       result.text = text
       if (data.marks !== undefined) {
         if (!Array.isArray(data.marks) || data.marks.length > MARKS.size) invalid('Invalid marks')
-        const validated = data.marks.map(mark)
+        const validated = data.marks.map(mark).filter((item): item is RichMark => item !== null)
         if (new Set(validated.map(item => item.type)).size !== validated.length) invalid('Duplicate marks')
-        result.marks = validated
+        if (validated.length) result.marks = validated
       }
       return result
     }

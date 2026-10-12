@@ -1282,9 +1282,20 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
                 const remote = actions ? snapshotRef.current?.notes.find(note => note.id === draft.noteId) : undefined
                 if (remote) followRemote(remote)
               }}
-              onChange={(content, revision) => {
-                if (revision !== undefined) setEditorRevisions(previous => ({ ...previous, [draft.noteId]: revision }))
-                patchDraft({ content })
+              onChange={(content, revision, editedNoteId) => {
+                const id = editedNoteId || draft.noteId
+                if (revision !== undefined) setEditorRevisions(previous => ({ ...previous, [id]: revision }))
+                if (id === draftRef.current?.noteId) { patchDraft({ content }); return }
+                // 切换之后才到的最后一次按键仍属于上一篇，写回那篇草稿，不写进当前笔记。
+                const parked = drafts.current.get(id)
+                if (!parked || statusesRef.current[id]?.phase === 'conflict') return
+                if (JSON.stringify(parked.content) === JSON.stringify(content)) return
+                const next = persistDraft(editHumanDraft(parked, { content }, freshNotes.current))
+                drafts.current.set(id, next)
+                setStatus(id, { phase: 'dirty' })
+                const pending = inFlight.current.get(id)
+                if (pending) void pending.then(() => { if (drafts.current.get(id)?.dirty) void saveDraft(id) })
+                else void saveDraft(id)
               }} />
           </div>
         </div>

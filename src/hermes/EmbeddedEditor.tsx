@@ -3,7 +3,7 @@ import * as sdk from '@hermes/plugin-sdk'
 import { openableLinkHref } from '../link-href.js'
 import { translator } from '../client/i18n.js'
 import type { RichEditorActions, RichEditorProps } from '../client/RichEditor.js'
-import { advanceEditorFrame, guestEditorAction, initialEditorFrame } from './editor-frame.js'
+import { EDITOR_FRAME_PROTOCOL, advanceEditorFrame, guestEditorAction, initialEditorFrame, reportDroppedEdit, type EditorFrameStamp } from './editor-frame.js'
 import { editorLoadOffersRetry, initialEditorLoad, reduceEditorLoad, type EditorLoadState } from './editor-load.js'
 import { HOST_THEME_PROPERTIES } from './theme.js'
 
@@ -32,10 +32,9 @@ export function RichEditor(props: EmbeddedEditorProps) {
   const callbacks = useRef(props)
   callbacks.current = props
   const token = useMemo(() => crypto.randomUUID(), [])
-  const frameStamp = useRef(initialEditorFrame(props.documentId ?? ''))
-  const documentId = props.documentId ?? ''
-  const stamped = advanceEditorFrame(frameStamp.current, documentId)
-  if (stamped !== frameStamp.current) frameStamp.current = stamped
+  // 代次只在真正把属性发给访客时递增，不在渲染期间改。
+  const frameStamp = useRef<EditorFrameStamp | null>(null)
+  const previousStamp = useRef<EditorFrameStamp | null>(null)
   const [load, setLoad] = useState<EditorLoadState>(initialEditorLoad)
   const [height, setHeight] = useState(430)
   const theme = useTheme()
@@ -50,6 +49,13 @@ export function RichEditor(props: EmbeddedEditorProps) {
   })
   const sync = () => {
     if (!root.current) return
+    const id = callbacks.current.documentId ?? ''
+    const next = frameStamp.current ? advanceEditorFrame(frameStamp.current, id) : initialEditorFrame(id)
+    if (frameStamp.current && next !== frameStamp.current) {
+      previousStamp.current = frameStamp.current
+      callbacks.current.onSelectionChange?.(null)
+    }
+    frameStamp.current = next
     const style = getComputedStyle(root.current)
     const size = Number.parseFloat(style.fontSize)
     const fonts = Number.isFinite(size) ? {
@@ -61,7 +67,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
       '--dsw-font-xxs-12': `400 ${size * 11 / 13}px/1.5 ${style.fontFamily}`,
     } : {}
     post('props', { value: callbacks.current.value, acknowledgedRevision: callbacks.current.acknowledgedRevision ?? 0, locale: callbacks.current.locale,
-      documentId: frameStamp.current.documentId, generation: frameStamp.current.generation,
+      protocol: EDITOR_FRAME_PROTOCOL, documentId: next.documentId, generation: next.generation,
       readOnly: callbacks.current.readOnly, dark: (theme.renderedMode ?? theme.resolvedMode) === 'dark',
       theme: { ...Object.fromEntries(THEME_KEYS.map(key => [key, style.getPropertyValue(key)])), ...fonts } })
   }
@@ -88,10 +94,10 @@ export function RichEditor(props: EmbeddedEditorProps) {
       if (event.data.kind === 'hello') { sync(); return }
       if (event.data?.token !== token) return
       const { kind, data, id } = event.data
-      const framed = guestEditorAction(frameStamp.current, kind, data)
-      if (framed.type === 'change') callbacks.current.onChange(framed.content, framed.revision)
+      const framed = guestEditorAction(frameStamp.current ?? initialEditorFrame(callbacks.current.documentId ?? ''), kind, data, previousStamp.current)
+      if (framed.type === 'change') callbacks.current.onChange(framed.content, framed.revision, framed.documentId)
       else if (framed.type === 'selection') callbacks.current.onSelectionChange?.(framed.text)
-      else if (framed.type === 'drop') { /* 上一篇笔记的在途编辑或选区 */ }
+      else if (framed.type === 'drop' && kind === 'change') reportDroppedEdit(framed.reason, data)
       else if (kind === 'inserted' && Number.isSafeInteger(data?.id)) {
         pendingInsert.current.get(data.id)?.(data.inserted === true)
         pendingInsert.current.delete(data.id)
@@ -119,7 +125,6 @@ export function RichEditor(props: EmbeddedEditorProps) {
     }
   }, [token])
   useEffect(sync, [props.value, props.acknowledgedRevision, props.locale, props.readOnly, props.documentId, load.source])
-  useEffect(() => { callbacks.current.onSelectionChange?.(null) }, [documentId])
   useEffect(() => {
     // Hermes paints its CSS variables in the provider's effect. Child effects
     // run first, so reading immediately can send the previous palette to the

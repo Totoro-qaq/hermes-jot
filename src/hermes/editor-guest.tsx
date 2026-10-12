@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RichEditor, type RichEditorActions } from '../client/RichEditor.js'
 import type { RichDoc } from '../client/types.js'
 import { intlLocale, isRtlLocale, normalizeLocale, type JotLocale } from '../client/i18n.js'
 import { openableLinkHref } from '../link-href.js'
-import { EditorSync } from './editor-sync.js'
+import { EDITOR_FRAME_PROTOCOL, mountEditorSession, reportDroppedEdit, type MountedEditorSession } from './editor-frame.js'
 import { jotStyles } from '../client/styles.js'
 import { HOST_THEME_PROPERTIES } from './theme.js'
 
@@ -20,12 +20,43 @@ const image = (attachmentId: string) => new Promise<string>(resolve => {
   send('image', attachmentId, id)
 })
 
+function BoundNoteEditor({ documentId, generation, value, acknowledgedRevision, locale, readOnly, sessionRef, actionsRef, selectionGate }: {
+  documentId: string
+  generation: number
+  value: RichDoc
+  acknowledgedRevision: number
+  locale: JotLocale
+  readOnly: boolean
+  sessionRef: MutableRefObject<MountedEditorSession | null>
+  actionsRef: MutableRefObject<RichEditorActions | null>
+  selectionGate: MutableRefObject<{ muted: boolean; last: string }>
+}) {
+  const session = useRef<MountedEditorSession | null>(null)
+  if (!session.current) session.current = mountEditorSession({ documentId, generation }, value, acknowledgedRevision)
+  const bound = session.current
+  useEffect(() => {
+    sessionRef.current = bound
+    return () => { if (sessionRef.current === bound) sessionRef.current = null }
+  }, [bound, sessionRef])
+  const resolveExternalValue = useMemo(() => () => bound.hostUpdate(value, acknowledgedRevision), [bound, value, acknowledgedRevision])
+  return <RichEditor value={value} resolveExternalValue={resolveExternalValue} locale={locale} readOnly={readOnly}
+    resolveAttachmentUrl={image} onChange={content => send('change', bound.change(content))} onBlur={() => send('blur')}
+    onReady={editor => {
+      actionsRef.current = editor
+      if (!editor) return
+      selectionGate.current.muted = false
+      send('ready')
+      const text = document.getSelection()?.toString() ?? ''
+      selectionGate.current.last = text
+      send('selection', bound.selection(text))
+    }} onRequestAttachment={() => send('upload')} />
+}
+
 function Editor() {
-  const [props, setProps] = useState<{ value: RichDoc; resolveExternalValue: () => RichDoc; locale: JotLocale; readOnly: boolean; documentId: string } | null>(null)
+  const [props, setProps] = useState<{ value: RichDoc; locale: JotLocale; readOnly: boolean; documentId: string; generation: number; acknowledgedRevision: number } | null>(null)
   const actions = useRef<RichEditorActions | null>(null)
-  const synchronized = useRef(new EditorSync())
   const root = useRef<HTMLDivElement>(null)
-  const frame = useRef({ documentId: '', generation: 0 })
+  const activeSession = useRef<MountedEditorSession | null>(null)
   const selectionGate = useRef({ muted: true, last: '' })
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -37,14 +68,19 @@ function Editor() {
         const locale = normalizeLocale(data.locale)
         const documentId = typeof data.documentId === 'string' ? data.documentId : ''
         const generation = Number.isSafeInteger(data.generation) && data.generation >= 0 ? data.generation : 0
-        const switched = frame.current.documentId !== documentId || frame.current.generation !== generation
-        frame.current = { documentId, generation }
-        // 先重置同步状态，再接受这篇笔记，避免上一篇的修订号把新正文丢掉。
-        synchronized.current.beginDocument(documentId)
-        if (switched) {
-          // 新文档挂上之前，选区变化还是上一篇的文字，先按住，并告诉宿主选区已空。
+        if (typeof data.protocol === 'number' && data.protocol !== EDITOR_FRAME_PROTOCOL) {
+          reportDroppedEdit('protocol', data)
+          return
+        }
+        const current = activeSession.current
+        const switched = !current || current.documentId !== documentId || current.generation !== generation
+        if (switched && current) {
+          // 外层代次还没换到这篇编辑器身上。先用挂载时记下的笔记把还没发出去的正文发出去。
+          const content = actions.current?.readDocument?.()
+          const pending = content ? current.pendingChange(content) : null
+          if (pending) send('change', pending)
           selectionGate.current = { muted: true, last: '' }
-          send('selection', { text: '', documentId, generation })
+          send('selection', { protocol: EDITOR_FRAME_PROTOCOL, text: '', documentId, generation })
         }
         // The slash menu is portaled to <body>, so the language and direction belong to the whole frame.
         document.documentElement.lang = intlLocale(locale)
@@ -55,7 +91,7 @@ function Editor() {
         for (const [key, value] of Object.entries(data.theme ?? {})) {
           if (Object.hasOwn(HOST_THEME_PROPERTIES, key) && typeof value === 'string') document.documentElement.style.setProperty(key, value)
         }
-        setProps({ ...data, locale, documentId, resolveExternalValue: synchronized.current.prepareHostUpdate(data.value, data.acknowledgedRevision ?? 0) })
+        setProps({ value: data.value, locale, readOnly: Boolean(data.readOnly), documentId, generation, acknowledgedRevision: Number.isSafeInteger(data.acknowledgedRevision) ? data.acknowledgedRevision : 0 })
       } else if (event.data.token === token) {
         if (kind === 'focus') actions.current?.focus()
         if (kind === 'insert-image' || kind === 'insert-attachment') {
@@ -125,10 +161,11 @@ function Editor() {
       }
     }
     const publishSelection = (text: string, force = false) => {
-      if (selectionGate.current.muted) return
+      const session = activeSession.current
+      if (!session || selectionGate.current.muted) return
       if (!force && text === selectionGate.current.last) return
       selectionGate.current.last = text
-      send('selection', { text, documentId: frame.current.documentId, generation: frame.current.generation })
+      send('selection', session.selection(text))
     }
     const selection = () => {
       if (!document.hasFocus()) return
@@ -162,17 +199,9 @@ function Editor() {
   }, [Boolean(props)])
   return props && <div ref={root} lang={intlLocale(props.locale)} dir={isRtlLocale(props.locale) ? 'rtl' : 'ltr'} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
     <style>{jotStyles}</style>
-    <RichEditor key={props.documentId || 'default'} value={props.value} resolveExternalValue={props.resolveExternalValue} locale={props.locale} readOnly={props.readOnly}
-      resolveAttachmentUrl={image} onChange={value => send('change', { ...synchronized.current.edited(value), documentId: frame.current.documentId, generation: frame.current.generation })} onBlur={() => send('blur')}
-      onReady={value => {
-        actions.current = value
-        if (!value) return
-        selectionGate.current.muted = false
-        send('ready')
-        const text = document.getSelection()?.toString() ?? ''
-        selectionGate.current.last = text
-        send('selection', { text, documentId: frame.current.documentId, generation: frame.current.generation })
-      }} onRequestAttachment={() => send('upload')} />
+    <BoundNoteEditor key={`${props.documentId}:${props.generation}`} documentId={props.documentId} generation={props.generation}
+      value={props.value} acknowledgedRevision={props.acknowledgedRevision} locale={props.locale} readOnly={props.readOnly}
+      sessionRef={activeSession} actionsRef={actions} selectionGate={selectionGate} />
   </div>
 }
 createRoot(document.getElementById('jot-editor-root')!).render(<Editor />)

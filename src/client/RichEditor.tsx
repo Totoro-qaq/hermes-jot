@@ -10,7 +10,7 @@ import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
 import { applyLinkEdit, normalizeLinkHref, openableLinkHref, readLinkDraft, removeLink } from './link-commands.js'
 import { taskListsNeedTidy, tidyCompletedTasks } from './list-commands.js'
-import { nextRovingIndex } from './roving-focus.js'
+import { nextRovingIndex, styleMenuKeyboardEdge } from './roving-focus.js'
 import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
 import { insertManagedAttachment } from './editor-attachments.js'
@@ -29,7 +29,7 @@ export interface RichEditorProps {
   value: RichDoc
   /** Resolve a delayed host update against edits made before this React effect. */
   resolveExternalValue?: () => RichDoc
-  onChange: (content: RichDoc, editorRevision?: number) => void
+  onChange: (content: RichDoc, editorRevision?: number, documentId?: string) => void
   onBlur?: () => void
   readOnly?: boolean
   locale?: JotLocale
@@ -50,6 +50,8 @@ export interface RichEditorActions {
   appendBlocks?: (blocks: RichNode[]) => boolean | Promise<boolean>
   /** Move the caret into the body, for example after Enter in the title. */
   focus: () => void
+  /** 换笔记前读出当前正文，用这篇笔记挂载时的代次发出去。 */
+  readDocument?: () => RichDoc | null
 }
 
 function EditorControlIcon({ name }: { name: 'format' | 'chevron' | 'todo' | 'find' | 'previous' | 'next' | 'close' | 'table' }) {
@@ -229,7 +231,8 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       insertImage: (id, alt) => insertAttachment('image', id, alt),
       insertAttachment: (id, caption) => insertAttachment('attachment', id, caption),
       appendBlocks,
-      focus: () => { instance.current?.commands.focus('start') } })
+      focus: () => { instance.current?.commands.focus('start') },
+      readDocument: () => instance.current ? instance.current.getJSON() as RichDoc : null })
     editor.view.dom.setAttribute('data-empty', editor.getText().trim() ? 'false' : 'true')
     render(version => version + 1)
     return () => { callbacks.current.onReady?.(null); instance.current = null; editor.destroy() }
@@ -483,16 +486,22 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
           aria-label={t('Text styles')} title={t('Headings, lists, quotes, colors')}
           onMouseDown={event => event.preventDefault()}
           onKeyDown={event => {
-            if ((event.key !== 'ArrowDown' && event.key !== 'ArrowUp') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+            const edge = styleMenuKeyboardEdge(event.key)
+            if (!edge || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
             event.preventDefault(); event.stopPropagation()
-            const edge = event.key === 'ArrowUp' ? 'last' : 'first'
             formatFocus.current = edge
-            if (!formatOpen) { setFormatOpen(true); setPaletteOpen(null); setLinkOpen(false); return }
+            setLinkOpen(false); setPaletteOpen(null)
+            if (!formatOpen) { setFormatOpen(true); return }
             const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
             ;(edge === 'last' ? buttons.at(-1) : buttons[0])?.focus()
             formatFocus.current = null
           }}
-          onClick={() => { setLinkOpen(false); setFormatOpen(open => !open); setPaletteOpen(null) }}>
+          onClick={event => {
+            // Enter 和空格会再派发一次 detail 为 0 的 click。键盘路径已经在 keydown 里把焦点送进菜单。
+            if (event.detail === 0) return
+            formatFocus.current = null
+            setLinkOpen(false); setFormatOpen(open => !open); setPaletteOpen(null)
+          }}>
           <EditorControlIcon name="format" /><span className="jot-editor-control-label">{t('Style')}</span><EditorControlIcon name="chevron" />
         </button>
         {marks.map(tool => <button key={tool.id} type="button" className={`jot-format jot-editor-control jot-editor-control-icon-only jot-format-${tool.id}`}

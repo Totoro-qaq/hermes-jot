@@ -8,11 +8,11 @@
 - If the editor fails to load, Retry tries again. Switching notes reuses the editor frame instead of reloading it.
 - When an AI edit is rejected because the note changed, the tool card explains that in the interface language. The result still includes the error code, the revision detail, and recovery instructions.
 - Refresh, under the note list, loads notes changed in a chat or on another device without waiting for the fallback check.
-- Switching notes drops an in-flight edit or selection from the previous note, and clears the selection the host was holding.
+- Switching notes keeps the last keystrokes on the note they were typed in, drops a selection that still belongs to the previous note, and clears the selection the host was holding. A guest and host that disagree on the editor protocol drop the edit and record a debug log.
 - Adding a link keeps the selected words, including spaces and mixed formatting. A selection that is only partly linked is linked all the way through.
-- Tidying completed items is its own undo step and leaves the cursor in the same item.
-- Web addresses that include a username or password are refused when they are saved, pasted, imported, or opened.
-- The style menu takes focus only when it is opened from the keyboard. In right-to-left text, the left and right arrow keys follow the reading direction.
+- Tidying completed items is its own undo step, including keystrokes typed immediately afterward, and leaves the cursor in the same item.
+- Web addresses that include a username or password are refused when they are created or opened. A library that already contains one still opens; the words stay and the link is removed.
+- The style menu takes focus when it is opened from the keyboard, including Enter and Space. A mouse click opens it without moving focus. In right-to-left text, the left and right arrow keys follow the reading direction.
 
 ## 0.3.1
 

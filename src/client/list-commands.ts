@@ -1,7 +1,7 @@
 import { Extension } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
 import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model'
-import { Selection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
+import { Plugin, Selection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
 
 type Dispatch = ((tr: Transaction) => void) | undefined
 const LIST_ITEMS = new Set(['listItem', 'taskItem'])
@@ -125,9 +125,28 @@ export function tidyCompletedTasks(state: EditorState, dispatch?: Dispatch): boo
     changed = true
   }
   if (!changed) return false
+  // 整理自己先断开上一组撤销。做完后再断开，紧接着的输入才不会并进同一次撤销。
+  tr = tr.setMeta('jot-close-history-after', true)
   dispatch?.(restoreTextblock(tr, textblockBookmark(state)).scrollIntoView())
   return true
 }
+
+/**
+ * 整理事务上的标记在其它插件追加完（例如文末空段）之后才断开撤销。
+ * 优先级放低，这样紧接着的输入不会并进整理，文末空段仍和整理同一次撤销。
+ */
+export const JotCloseHistoryAfter = Extension.create({
+  name: 'jotCloseHistoryAfter',
+  priority: 1,
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      appendTransaction(transactions, _old, next) {
+        if (!transactions.some(tr => tr.getMeta('jot-close-history-after'))) return null
+        return closeHistory(next.tr)
+      },
+    })]
+  },
+})
 
 /** Keys for checklist work; they only act inside list items, so other blocks keep their defaults. */
 export const JotListKeys = Extension.create({
