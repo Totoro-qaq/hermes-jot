@@ -205,6 +205,31 @@ test('short PDF table rows stay intact, do not leave a blank bordered continuati
   }
 })
 
+test('exports keep the words of a credential link and leave the username and password out', async () => {
+  const href = 'https://user:s3cret-token@example.com/a'
+  const content: RichDoc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Open me', marks: [{ type: 'link', attrs: { href } }] }] },
+    { type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', attrs: { colspan: 2, rowspan: 1 }, content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Cell', marks: [{ type: 'link', attrs: { href } }] }] },
+    ] }] }] },
+  ] }
+  const before = structuredClone(content)
+  const markdown = (await exportJotNote({ title: 'Links', content }, 'md')).buffer.toString('utf8')
+  assert.match(markdown, /Open me/u)
+  assert.match(markdown, /https:\/\/example\.com\/a/u)
+  assert.doesNotMatch(markdown, /s3cret-token|user:secret/u)
+  assert.match(markdown, /<a href="https:\/\/example\.com\/a">Cell<\/a>/u)
+  const word = strFromU8(Buffer.concat(Object.values(unzipSync((await exportJotNote({ title: 'Links', content }, 'docx')).buffer))))
+  assert.match(word, /Open me/u)
+  assert.match(word, /https:\/\/example\.com\/a/u)
+  assert.doesNotMatch(word, /s3cret-token/u)
+  const pdf = (await exportJotNote({ title: 'Links', content }, 'pdf')).buffer
+  const pdfText = pdf.toString('latin1') + pdfStreams(pdf).join('\n')
+  assert.match(pdfText, /https:\/\/example\.com\/a/u)
+  assert.doesNotMatch(pdfText, /s3cret-token/u)
+  assert.deepEqual(content, before)
+})
+
 test('unsupported inline image formats retain a named attachment hint in printable exports', async () => {
   const binary = Buffer.from('GIF89a')
   const result = await exportJotNote({ title: '动图', content: { type: 'doc', content: [image] } }, 'docx', {

@@ -6,6 +6,12 @@ export type NoteListRow =
   | { kind: 'header'; key: string; group: NoteDateGroup; label: string; count: number }
   | { kind: 'note'; key: string; note: Note; position: number }
 export type NavigationKey = 'ArrowDown' | 'ArrowUp' | 'Home' | 'End'
+
+/** Shift+F10 和 ContextMenu 键打开菜单；带 Alt/Ctrl/Meta 的组合留给系统。 */
+export function isContextMenuKey(event: { key: string; shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): boolean {
+  if (event.altKey || event.ctrlKey || event.metaKey) return false
+  return event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)
+}
 export type NoteDateBasis = 'modified' | 'created' | 'none'
 export interface HighlightSegment { text: string; matched: boolean }
 

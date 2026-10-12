@@ -6,7 +6,7 @@ import { CellSelection, columnResizingPluginKey, TableMap } from '@tiptap/pm/tab
 import { createJotExtensions } from '../src/client/editor-extensions.js'
 import { syncEditorContent } from '../src/client/editor-content.js'
 import { persistableTableWidthPlugin } from '../src/client/table-view.js'
-import { selectedTable, tableActionAllowed, tableActionTransaction, type TableAction } from '../src/client/table-actions.js'
+import { columnDividerDelta, explicitColumnWidth, nudgeTableColumn, selectedTable, TABLE_CELL_MAX_WIDTH, TABLE_COLUMN_NUDGE, tableActionAllowed, tableActionTransaction, type TableAction } from '../src/client/table-actions.js'
 import { docToText, MAX_DOC_BYTES, validateRichDoc } from '../src/model.js'
 
 const paragraph = (text?: string) => ({ type: 'paragraph', ...(text ? { content: [{ type: 'text', text }] } : {}) })
@@ -384,4 +384,30 @@ test('a synchronized external change keeps the caret where the user left it', t 
   assert.deepEqual(validateRichDoc(editor.getJSON()), prefixed)
   assert.equal(editor.state.selection.from, 11)
   assert.equal(updates, 0)
+})
+
+test('the column divider only moves for plain left and right arrows', () => {
+  const plain = { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false }
+  assert.equal(columnDividerDelta({ ...plain, key: 'ArrowLeft' }), -1)
+  assert.equal(columnDividerDelta({ ...plain, key: 'ArrowRight' }), 1)
+  assert.equal(columnDividerDelta({ ...plain, key: 'ArrowUp' }), null)
+  for (const extra of ['altKey', 'ctrlKey', 'metaKey', 'shiftKey'] as const) {
+    assert.equal(columnDividerDelta({ ...plain, key: 'ArrowRight', [extra]: true }), null, extra)
+  }
+})
+
+test('nudging a column writes the new width and stops at the limit', t => {
+  const editor = create([table(2, 2)])
+  t.after(() => editor.destroy())
+  const target = select(editor, 0, 0, 0)
+  const grown = nudgeTableColumn(editor.state, target, 0, TABLE_COLUMN_NUDGE, 100)
+  assert.ok(grown)
+  editor.view.dispatch(grown)
+  assert.equal(explicitColumnWidth(editor.state.doc.child(0), 0), 116)
+  const selected = selectedTable(editor.state)!
+  const capped = nudgeTableColumn(editor.state, selected, 0, TABLE_CELL_MAX_WIDTH, 116)
+  assert.ok(capped)
+  editor.view.dispatch(capped)
+  assert.equal(explicitColumnWidth(editor.state.doc.child(0), 0), TABLE_CELL_MAX_WIDTH)
+  assert.equal(nudgeTableColumn(editor.state, selectedTable(editor.state)!, 0, TABLE_COLUMN_NUDGE, TABLE_CELL_MAX_WIDTH), null)
 })

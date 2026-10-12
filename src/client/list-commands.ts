@@ -1,6 +1,7 @@
 import { Extension } from '@tiptap/core'
-import { Fragment } from '@tiptap/pm/model'
-import { Selection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
+import { closeHistory } from '@tiptap/pm/history'
+import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { Plugin, Selection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
 
 type Dispatch = ((tr: Transaction) => void) | undefined
 const LIST_ITEMS = new Set(['listItem', 'taskItem'])
@@ -54,6 +55,98 @@ export function moveListItem(direction: 'up' | 'down') {
     return true
   }
 }
+
+function listNeedsTidy(list: ProseMirrorNode): boolean {
+  let seenCompleted = false
+  for (let index = 0; index < list.childCount; index++) {
+    const completed = list.child(index).attrs.checked === true
+    if (!completed && seenCompleted) return true
+    if (completed) seenCompleted = true
+  }
+  return false
+}
+
+const tidyNeeded = new WeakMap<ProseMirrorNode, boolean>()
+
+/** 同一份文档只扫一次。按钮的禁用状态可以在每次重绘时问，不必重建事务。 */
+export function taskListsNeedTidy(doc: ProseMirrorNode): boolean {
+  const cached = tidyNeeded.get(doc)
+  if (cached !== undefined) return cached
+  let needs = false
+  doc.descendants(node => {
+    if (needs) return false
+    if (node.type.name === 'taskList' && listNeedsTidy(node)) needs = true
+  })
+  tidyNeeded.set(doc, needs)
+  return needs
+}
+
+/** 光标所在文本块。整理会挪动条目，但块节点本身还是原来那个，用来把光标放回去。 */
+function textblockBookmark(state: EditorState): { node: ProseMirrorNode; anchor: number; head: number } | null {
+  const { $anchor, $head } = state.selection
+  if (!$anchor.sameParent($head) || !$anchor.parent.isTextblock) return null
+  const pos = $anchor.before($anchor.depth)
+  return { node: $anchor.parent, anchor: state.selection.anchor - pos, head: state.selection.head - pos }
+}
+
+function restoreTextblock(tr: Transaction, bookmark: { node: ProseMirrorNode; anchor: number; head: number } | null): Transaction {
+  if (!bookmark) return tr
+  let found = -1
+  tr.doc.descendants((node, pos) => {
+    if (node === bookmark.node) { found = pos; return false }
+  })
+  if (found < 0) return tr
+  const end = found + bookmark.node.nodeSize
+  const clamp = (offset: number) => Math.min(Math.max(found + offset, found + 1), end - 1)
+  return tr.setSelection(TextSelection.create(tr.doc, clamp(bookmark.anchor), clamp(bookmark.head)))
+}
+
+/**
+ * 每个清单各自整理：未完成的保持原顺序留在上面，已完成的保持原顺序移到底部。
+ * 嵌套清单先整理，外层再重排。这次整理单独占一个撤销步骤，光标留在原来的条目上。
+ */
+export function tidyCompletedTasks(state: EditorState, dispatch?: Dispatch): boolean {
+  const lists: number[] = []
+  state.doc.descendants((node, pos) => { if (node.type.name === 'taskList') lists.push(pos) })
+  lists.sort((left, right) => right - left)
+  let tr = closeHistory(state.tr)
+  let changed = false
+  for (const pos of lists) {
+    const mapped = tr.mapping.map(pos)
+    const list = tr.doc.nodeAt(mapped)
+    if (!list || list.type.name !== 'taskList' || !listNeedsTidy(list)) continue
+    const pending: ProseMirrorNode[] = []
+    const done: ProseMirrorNode[] = []
+    for (let index = 0; index < list.childCount; index++) {
+      const child = list.child(index)
+      ;(child.attrs.checked === true ? done : pending).push(child)
+    }
+    tr = tr.replaceWith(mapped + 1, mapped + list.nodeSize - 1, Fragment.from([...pending, ...done]))
+    changed = true
+  }
+  if (!changed) return false
+  // 整理自己先断开上一组撤销。做完后再断开，紧接着的输入才不会并进同一次撤销。
+  tr = tr.setMeta('jot-close-history-after', true)
+  dispatch?.(restoreTextblock(tr, textblockBookmark(state)).scrollIntoView())
+  return true
+}
+
+/**
+ * 整理事务上的标记在其它插件追加完（例如文末空段）之后才断开撤销。
+ * 优先级放低，这样紧接着的输入不会并进整理，文末空段仍和整理同一次撤销。
+ */
+export const JotCloseHistoryAfter = Extension.create({
+  name: 'jotCloseHistoryAfter',
+  priority: 1,
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      appendTransaction(transactions, _old, next) {
+        if (!transactions.some(tr => tr.getMeta('jot-close-history-after'))) return null
+        return closeHistory(next.tr)
+      },
+    })]
+  },
+})
 
 /** Keys for checklist work; they only act inside list items, so other blocks keep their defaults. */
 export const JotListKeys = Extension.create({

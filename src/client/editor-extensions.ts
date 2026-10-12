@@ -1,14 +1,16 @@
-import { Node, type Editor, type Extensions } from '@tiptap/core'
+import { mergeAttributes, Node, type Editor, type Extensions } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
+import Link, { isAllowedUri } from '@tiptap/extension-link'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import { TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { Color, TextStyle } from '@tiptap/extension-text-style'
 import Highlight from '@tiptap/extension-highlight'
 import { HIGHLIGHT_COLORS, TEXT_COLORS, normalizePaletteColor } from '../model.js'
+import { httpHrefHasCredentials } from '../link-href.js'
 import { JotTable, JotTableView, PersistableTableWidths } from './table-view.js'
 import { TABLE_CELL_MIN_WIDTH } from './table-actions.js'
-import { JotHeadingKeys, JotListKeys } from './list-commands.js'
+import { JotCloseHistoryAfter, JotHeadingKeys, JotListKeys } from './list-commands.js'
 import { translator, type JotLocale } from './i18n.js'
 
 export const managedAttachmentUrl = (id: string) => `/jot/api/attachments/${encodeURIComponent(id)}/content`
@@ -188,11 +190,55 @@ function managedNode(name: 'image' | 'attachment', resolve: (id: string) => stri
   })
 }
 
+/**
+ * 与 Tiptap Link 的默认自动链接规则相同，但带账号口令的地址一律不链接。
+ * 只改 `isAllowedUri` 不够：选区非空时的粘贴只看 `shouldAutoLink`。
+ */
+function jotShouldAutoLink(url: string): boolean {
+  if (httpHrefHasCredentials(url)) return false
+  const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//iu.test(url)
+  const hasMaybeProtocol = /^[a-z][a-z0-9+.-]*:/iu.test(url)
+  if (hasProtocol || (hasMaybeProtocol && !url.includes('@'))) return true
+  const hostname = (url.includes('@') ? url.split('@').pop() ?? '' : url).split(/[/?#:]/u)[0] ?? ''
+  if (/^\d{1,3}(\.\d{1,3}){3}$/u.test(hostname)) return false
+  if (!hostname.includes('.')) return false
+  return true
+}
+
+/**
+ * StarterKit 的 Link 在 `isAllowedUri` 失败时仍写出 `href=""`。
+ * 空字符串会被浏览器当成当前页，左键会刷新，中键会新开当前页。这里直接不写 href。
+ */
+const JotLink = Link.extend({
+  renderHTML(props) {
+    const { HTMLAttributes } = props
+    const href = typeof HTMLAttributes.href === 'string' ? HTMLAttributes.href : ''
+    const allowed = this.options.isAllowedUri(href, {
+      defaultValidate: (url: string) => Boolean(isAllowedUri(url, this.options.protocols)),
+      protocols: this.options.protocols,
+      defaultProtocol: this.options.defaultProtocol,
+    })
+    if (!allowed) {
+      const { href: _href, ...rest } = HTMLAttributes
+      return ['a', mergeAttributes(this.options.HTMLAttributes, rest), 0]
+    }
+    return this.parent?.(props) ?? ['a', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0]
+  },
+})
+
 /** Shared by the actual editor and headless schema/command regression tests. */
 export function createJotExtensions(options: JotExtensionOptions = {}): Extensions {
   const resolve = options.resolveAttachmentUrl ?? managedAttachmentUrl
   const locale = options.locale ?? (() => 'zh' as const)
-  return [StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }), JotHeadingKeys, JotListKeys,
+  return [StarterKit.configure({
+    heading: { levels: [1, 2, 3, 4, 5, 6] },
+    link: false,
+  }), JotLink.configure({
+    // 编辑时单击只移动光标。带账号口令的地址不自动链接，渲染时也不带 href。
+    openOnClick: false,
+    isAllowedUri: (url, ctx) => ctx.defaultValidate(url) && !httpHrefHasCredentials(url),
+    shouldAutoLink: jotShouldAutoLink,
+  }), JotHeadingKeys, JotListKeys, JotCloseHistoryAfter,
     TaskList, JotTaskItem.configure({ nested: true, a11y: { checkboxLabel: node => taskCheckboxLabel(node.textContent, locale()) } }),
     JotTable.configure({ resizable: true, renderWrapper: true, cellMinWidth: TABLE_CELL_MIN_WIDTH,
       handleWidth: 6, View: JotTableView }), TableRow, TableHeader, TableCell, PersistableTableWidths,

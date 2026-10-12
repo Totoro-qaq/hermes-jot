@@ -186,6 +186,17 @@ class ChangeEvents(Base):
             "tool": "jot_read", "arguments": {"id": note["id"]},
             "instruction": "Read the latest note, reconsider the requested changes against it, and retry once. Do not merely replace the revision.",
         })
+        self.assertEqual(refused["user_summary"], "This note changed elsewhere, so that edit was not applied.")
+        self.assertEqual(refused["error"]["message"], refused["user_summary"])
+        self.assertIn("expected revision 99", refused["error"]["detail"])
+        self.assertEqual(backend.tool_display_locale("zh-HK"), "zh-hant")
+        self.assertEqual(backend.tool_display_locale("fr-FR"), "fr")
+        self.assertEqual(backend.tool_display_locale("pt-BR"), "en")
+        traditional = json.loads(backend.agent_call("jot_update", {"id": note["id"], "revision": 99, "appendText": "x"}, locale="zh-HK"))
+        self.assertEqual(traditional["error"]["message"], "這則筆記已在別處更新，因此這次修改沒有寫入。")
+        self.assertEqual(traditional["error"]["code"], "REVISION_CONFLICT")
+        self.assertEqual(traditional["user_summary"], traditional["error"]["message"])
+        self.assertIn("current revision", traditional["error"]["detail"])
         self.assertEqual(len(events.calls), 1)
         json.loads(backend.agent_call("jot_update", {"id": note["id"], "revision": read["revision"], "appendText": "- [ ] t"}))
         self.assertEqual(len(events.calls), 2)

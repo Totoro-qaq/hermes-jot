@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as sdk from '@hermes/plugin-sdk'
-import { HOST_THEME_PROPERTIES } from './theme.js'
+import { openableLinkHref } from '../link-href.js'
 import { translator } from '../client/i18n.js'
 import type { RichEditorActions, RichEditorProps } from '../client/RichEditor.js'
+import { EDITOR_FRAME_PROTOCOL, acknowledgedRevision, guestEditorAction, nextEditorFrame, rememberEditorStamp, reportDroppedEdit, type EditorFrameStamp, type EditorRevision } from './editor-frame.js'
+import { HOST_THEME_PROPERTIES } from './theme.js'
 
 const { SandboxedFrame, useTheme } = sdk
 
 export interface EmbeddedEditorProps extends RichEditorProps {
-  acknowledgedRevision?: number
+  /** 换笔记时只换文档，不重载 iframe。 */
+  documentId?: string
+  /** 当前这篇笔记已经收下的代次和修订号。 */
+  editorRevision?: EditorRevision
+  /** 离开这篇笔记的正文已经发出，空的新建笔记这时才可以删除。带上当时的代次。 */
+  onFlushSettled?: (documentId: string, generation: number) => void
+  /** 当前发给访客的代次，离开笔记时用它核对 flush。 */
+  onFrameStamp?: (stamp: EditorFrameStamp) => void
   loadEditor?: () => Promise<string>
   onSave?: () => void
   onPreviewAttachment?: (id: string) => void
@@ -27,8 +36,12 @@ export function RichEditor(props: EmbeddedEditorProps) {
   const callbacks = useRef(props)
   callbacks.current = props
   const token = useMemo(() => crypto.randomUUID(), [])
+  // 代次只在真正把属性发给访客时领，不在渲染期间改。换笔记或访客重新载入时领新代次。
+  const frameStamp = useRef<EditorFrameStamp | null>(null)
+  const recentStamps = useRef<EditorFrameStamp[]>([])
   const [source, setSource] = useState('')
   const [error, setError] = useState<'' | 'unavailable' | 'failed'>('')
+  const [attempt, setAttempt] = useState(0)
   const [height, setHeight] = useState(430)
   const theme = useTheme()
   const t = translator(props.locale ?? 'en')
@@ -42,6 +55,18 @@ export function RichEditor(props: EmbeddedEditorProps) {
   })
   const sync = () => {
     if (!root.current) return
+    if (!frame.current?.contentWindow) return
+    let stamp = frameStamp.current
+    const id = callbacks.current.documentId ?? ''
+    if (!stamp || stamp.documentId !== id) {
+      if (stamp) {
+        recentStamps.current = rememberEditorStamp(recentStamps.current, stamp)
+        callbacks.current.onSelectionChange?.(null)
+      }
+      stamp = nextEditorFrame(id)
+      frameStamp.current = stamp
+      callbacks.current.onFrameStamp?.(stamp)
+    }
     const style = getComputedStyle(root.current)
     const size = Number.parseFloat(style.fontSize)
     const fonts = Number.isFinite(size) ? {
@@ -52,7 +77,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
       '--dsw-font-xs-13': `400 ${size * 12 / 13}px/1.5 ${style.fontFamily}`,
       '--dsw-font-xxs-12': `400 ${size * 11 / 13}px/1.5 ${style.fontFamily}`,
     } : {}
-    post('props', { value: callbacks.current.value, acknowledgedRevision: callbacks.current.acknowledgedRevision ?? 0, locale: callbacks.current.locale,
+    post('props', { value: callbacks.current.value, acknowledgedRevision: acknowledgedRevision(callbacks.current.editorRevision, stamp), locale: callbacks.current.locale,
+      protocol: EDITOR_FRAME_PROTOCOL, documentId: stamp.documentId, generation: stamp.generation,
       readOnly: callbacks.current.readOnly, dark: (theme.renderedMode ?? theme.resolvedMode) === 'dark',
       theme: { ...Object.fromEntries(THEME_KEYS.map(key => [key, style.getPropertyValue(key)])), ...fonts } })
   }
@@ -60,9 +86,10 @@ export function RichEditor(props: EmbeddedEditorProps) {
     let live = true
     const load = props.loadEditor
     if (!load) { setError('unavailable'); return }
+    setError('')
     void load().then(value => { if (live) setSource(value) }, () => { if (live) setError('failed') })
     return () => { live = false }
-  }, [props.loadEditor])
+  }, [props.loadEditor, attempt])
   useEffect(() => {
     const actions: RichEditorActions = {
       focus: () => { frame.current?.focus(); post('focus') },
@@ -74,10 +101,16 @@ export function RichEditor(props: EmbeddedEditorProps) {
     let live = true
     const receive = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow || event.data?.channel !== 'jot-editor') return
-      if (event.data.kind === 'hello') { sync(); return }
+      // 每个新载入的访客文档只发一次 hello，并从 1 数修订号。iframe 原地重载时 contentWindow 不变，所以按 hello 领新代次。
+      // 上一个文档已经没了，它的代次不留在名单里。
+      if (event.data.kind === 'hello') { frameStamp.current = null; sync(); return }
       if (event.data?.token !== token) return
       const { kind, data, id } = event.data
-      if (kind === 'change' && data?.content?.type === 'doc' && Number.isSafeInteger(data.revision)) callbacks.current.onChange(data.content, data.revision)
+      const framed = guestEditorAction(frameStamp.current, kind, data, recentStamps.current)
+      if (framed.type === 'change') callbacks.current.onChange(framed.content, framed.revision, framed.documentId, framed.generation)
+      else if (framed.type === 'flushed') callbacks.current.onFlushSettled?.(framed.documentId, framed.generation)
+      else if (framed.type === 'selection') callbacks.current.onSelectionChange?.(framed.text)
+      else if (framed.type === 'drop' && kind === 'change') reportDroppedEdit(framed.reason, data)
       else if (kind === 'inserted' && Number.isSafeInteger(data?.id)) {
         pendingInsert.current.get(data.id)?.(data.inserted === true)
         pendingInsert.current.delete(data.id)
@@ -87,8 +120,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
       else if (kind === 'save') callbacks.current.onSave?.()
       else if (kind === 'upload') callbacks.current.onRequestAttachment?.()
       else if (kind === 'files' && Array.isArray(data) && data.length <= 21 && data.every(file => file instanceof File)) callbacks.current.onFiles?.(data)
-      else if (kind === 'link' && typeof data === 'string' && /^(?:https?:|mailto:)/i.test(data)) callbacks.current.onExternalLink?.(data)
-      else if (kind === 'selection' && typeof data === 'string') callbacks.current.onSelectionChange?.(data)
+      else if (kind === 'link' && typeof data === 'string') { const href = openableLinkHref(data); if (href) callbacks.current.onExternalLink?.(href) }
       else if (kind === 'preview' && typeof data === 'string' && /^[a-f0-9]{32}$/.test(data)) callbacks.current.onPreviewAttachment?.(data)
       else if (kind === 'height' && Number.isFinite(data)) setHeight(Math.max(360, Math.min(100_000, data)))
       else if (kind === 'image' && typeof data === 'string' && /^[a-f0-9]{32}$/.test(data)) {
@@ -105,7 +137,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
       callbacks.current.onSelectionChange?.(null)
     }
   }, [token])
-  useEffect(sync, [props.value, props.acknowledgedRevision, props.locale, props.readOnly, source])
+  useEffect(sync, [props.value, props.editorRevision, props.locale, props.readOnly, props.documentId, source])
   useEffect(() => {
     // Hermes paints its CSS variables in the provider's effect. Child effects
     // run first, so reading immediately can send the previous palette to the
@@ -114,8 +146,12 @@ export function RichEditor(props: EmbeddedEditorProps) {
     return () => cancelAnimationFrame(repaint)
   }, [theme.resolvedMode, theme.renderedMode, theme.themeName, theme.theme])
   return <div ref={root} className="jot-embedded-editor" style={{ minWidth: 0, width: '100%' }}>
-    {error ? <p role="alert">{error === 'unavailable' ? t('Hermes editor backend is unavailable.')
-      : t('Could not load the Jot editor. Re-enable the backend and reopen this note.')}</p> : source ? <SandboxedFrame ref={frame} src={source}
+    {error ? <div role="alert" className="jot-editor-load-error">
+      <p>{error === 'unavailable' ? t('Hermes editor backend is unavailable.')
+        : t('Could not load the Jot editor. Re-enable the backend and reopen this note.')}</p>
+      {/* 后端缺失时没有加载函数，重试也没用。 */}
+      {error === 'failed' && <button type="button" className="jot-text-btn" onClick={() => setAttempt(count => count + 1)}>{t('Retry')}</button>}
+    </div> : source ? <SandboxedFrame ref={frame} src={source}
       title={t('Jot document editor')} onLoad={sync}
       style={{ display: 'block', width: '100%', height, border: 0, background: 'transparent' }} />
       : <p role="status">{t('Loading editor…')}</p>}

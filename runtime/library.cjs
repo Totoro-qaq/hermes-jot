@@ -176686,6 +176686,29 @@ function documentAttachmentIds(doc) {
 var EXPORT_FORMATS = ["txt", "md", "pdf", "docx"];
 var LIBRARY_EXPORT_FORMATS = ["docx", "pdf", "md"];
 
+// src/link-href.ts
+function httpHrefHasCredentials(href) {
+  if (!/^https?:\/\//iu.test(href)) return false;
+  try {
+    const url = new URL(href);
+    return url.username !== "" || url.password !== "";
+  } catch {
+    return true;
+  }
+}
+function exportableLinkHref(href) {
+  if (!href) return null;
+  if (!httpHrefHasCredentials(href)) return href;
+  try {
+    const url = new URL(href);
+    url.username = "";
+    url.password = "";
+    return url.username === "" && url.password === "" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 // src/client/locales/app.ts
 var app_default = {
   en: {
@@ -176827,6 +176850,9 @@ var app_default = {
     "New note": "\u65B0\u5EFA\u7B14\u8BB0",
     "When on, AI can search, read and edit notes through Jot tools when asked; nothing is read automatically.": "\u5F00\u542F\u540E\uFF0CAI \u4F1A\u5728\u4F60\u8981\u6C42\u65F6\u901A\u8FC7\u968F\u8BB0\u5DE5\u5177\u641C\u7D22\u3001\u8BFB\u53D6\u548C\u4FEE\u6539\u7B14\u8BB0\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u8BFB\u53D6\u3002",
     "Allow AI collaboration": "\u5141\u8BB8 AI \u534F\u4F5C",
+    Refresh: "\u5237\u65B0",
+    "Refresh notes": "\u5237\u65B0\u7B14\u8BB0",
+    "Load notes changed in a chat or on another device": "\u8F7D\u5165\u5728\u5BF9\u8BDD\u6216\u5176\u4ED6\u8BBE\u5907\u4E0A\u6539\u8FC7\u7684\u7B14\u8BB0",
     "Note": "\u7B14\u8BB0",
     "Note folder": "\u6240\u5728\u6587\u4EF6\u5939",
     "This version was saved by AI through Jot tools. Select to undo the AI edits; the mark clears when you edit.": "\u8FD9\u4E00\u7248\u7531 AI \u901A\u8FC7\u968F\u8BB0\u5DE5\u5177\u4FDD\u5B58\u3002\u70B9\u51FB\u53EF\u64A4\u9500 AI \u7684\u4FEE\u6539\uFF1B\u4F60\u7F16\u8F91\u540E\u6807\u8BB0\u4F1A\u6D88\u5931\u3002",
@@ -177008,6 +177034,9 @@ var app_default = {
     "New note": "\u65B0\u589E\u7B46\u8A18",
     "When on, AI can search, read and edit notes through Jot tools when asked; nothing is read automatically.": "\u958B\u555F\u5F8C\uFF0CAI \u6703\u5728\u4F60\u8981\u6C42\u6642\u900F\u904E\u96A8\u8A18\u5DE5\u5177\u641C\u5C0B\u3001\u8B80\u53D6\u548C\u7DE8\u8F2F\u7B46\u8A18\uFF1B\u4E0D\u6703\u81EA\u52D5\u8B80\u53D6\u4EFB\u4F55\u5167\u5BB9\u3002",
     "Allow AI collaboration": "\u5141\u8A31 AI \u5354\u4F5C",
+    Refresh: "\u91CD\u65B0\u6574\u7406",
+    "Refresh notes": "\u91CD\u65B0\u6574\u7406\u7B46\u8A18",
+    "Load notes changed in a chat or on another device": "\u8F09\u5165\u5728\u5C0D\u8A71\u6216\u5176\u4ED6\u88DD\u7F6E\u4E0A\u6539\u904E\u7684\u7B46\u8A18",
     "Note": "\u7B46\u8A18",
     "Note folder": "\u7B46\u8A18\u8CC7\u6599\u593E",
     "This version was saved by AI through Jot tools. Select to undo the AI edits; the mark clears when you edit.": "\u9019\u4E00\u7248\u7531 AI \u900F\u904E\u96A8\u8A18\u5DE5\u5177\u5132\u5B58\u3002\u9EDE\u9078\u5373\u53EF\u5FA9\u539F AI \u7684\u7DE8\u8F2F\uFF1B\u4F60\u7DE8\u8F2F\u5F8C\uFF0C\u9019\u500B\u6A19\u8A18\u5C31\u6703\u6D88\u5931\u3002",
@@ -177189,6 +177218,9 @@ var app_default = {
     "New note": "\u65B0\u3057\u3044\u30CE\u30FC\u30C8",
     "When on, AI can search, read and edit notes through Jot tools when asked; nothing is read automatically.": "\u30AA\u30F3\u306B\u3059\u308B\u3068\u3001\u4F9D\u983C\u306B\u5FDC\u3058\u3066 AI \u304C Jot \u306E\u30C4\u30FC\u30EB\u3067\u30CE\u30FC\u30C8\u3092\u691C\u7D22\u3001\u8AAD\u307F\u53D6\u308A\u3001\u7DE8\u96C6\u3067\u304D\u307E\u3059\u3002\u81EA\u52D5\u3067\u8AAD\u307F\u53D6\u308B\u3053\u3068\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
     "Allow AI collaboration": "AI \u5171\u540C\u7DE8\u96C6\u3092\u8A31\u53EF",
+    Refresh: "\u66F4\u65B0",
+    "Refresh notes": "\u30CE\u30FC\u30C8\u3092\u66F4\u65B0",
+    "Load notes changed in a chat or on another device": "\u30C1\u30E3\u30C3\u30C8\u3084\u5225\u306E\u30C7\u30D0\u30A4\u30B9\u3067\u5909\u66F4\u3055\u308C\u305F\u30CE\u30FC\u30C8\u3092\u8AAD\u307F\u8FBC\u307F\u307E\u3059",
     "Note": "\u30CE\u30FC\u30C8",
     "Note folder": "\u30CE\u30FC\u30C8\u306E\u30D5\u30A9\u30EB\u30C0\u30FC",
     "This version was saved by AI through Jot tools. Select to undo the AI edits; the mark clears when you edit.": "\u3053\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u306F AI \u304C Jot \u306E\u30C4\u30FC\u30EB\u3067\u4FDD\u5B58\u3057\u307E\u3057\u305F\u3002\u9078\u629E\u3059\u308B\u3068 AI \u306E\u7DE8\u96C6\u3092\u5143\u306B\u623B\u305B\u307E\u3059\u3002\u7DE8\u96C6\u3059\u308B\u3068\u3053\u306E\u8868\u793A\u306F\u6D88\u3048\u307E\u3059\u3002",
@@ -177370,6 +177402,9 @@ var app_default = {
     "New note": "\u0645\u0644\u0627\u062D\u0638\u0629 \u062C\u062F\u064A\u062F\u0629",
     "When on, AI can search, read and edit notes through Jot tools when asked; nothing is read automatically.": "\u0639\u0646\u062F \u0627\u0644\u062A\u0634\u063A\u064A\u0644\u060C \u064A\u0645\u0643\u0646 \u0644\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064A \u0627\u0644\u0628\u062D\u062B \u0641\u064A \u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0648\u0642\u0631\u0627\u0621\u062A\u0647\u0627 \u0648\u062A\u0639\u062F\u064A\u0644\u0647\u0627 \u0639\u0628\u0631 \u0623\u062F\u0648\u0627\u062A Jot \u0639\u0646\u062F\u0645\u0627 \u062A\u0637\u0644\u0628 \u0630\u0644\u0643\u061B \u0644\u0627 \u064A\u064F\u0642\u0631\u0623 \u0623\u064A \u0634\u064A\u0621 \u062A\u0644\u0642\u0627\u0626\u064A\u064B\u0627.",
     "Allow AI collaboration": "\u0627\u0644\u0633\u0645\u0627\u062D \u0628\u0627\u0644\u062A\u0639\u0627\u0648\u0646 \u0645\u0639 \u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064A",
+    Refresh: "\u062A\u062D\u062F\u064A\u062B",
+    "Refresh notes": "\u062A\u062D\u062F\u064A\u062B \u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0627\u062A",
+    "Load notes changed in a chat or on another device": "\u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0627\u0644\u062A\u064A \u062A\u063A\u064A\u0651\u0631\u062A \u0641\u064A \u0645\u062D\u0627\u062F\u062B\u0629 \u0623\u0648 \u0639\u0644\u0649 \u062C\u0647\u0627\u0632 \u0622\u062E\u0631",
     "Note": "\u0645\u0644\u0627\u062D\u0638\u0629",
     "Note folder": "\u0645\u062C\u0644\u062F \u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0629",
     "This version was saved by AI through Jot tools. Select to undo the AI edits; the mark clears when you edit.": "\u062D\u0641\u0638 \u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064A \u0647\u0630\u0627 \u0627\u0644\u0625\u0635\u062F\u0627\u0631 \u0639\u0628\u0631 \u0623\u062F\u0648\u0627\u062A Jot. \u0627\u0646\u0642\u0631 \u0644\u0644\u062A\u0631\u0627\u062C\u0639 \u0639\u0646 \u062A\u0639\u062F\u064A\u0644\u0627\u062A \u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064A\u061B \u062A\u062E\u062A\u0641\u064A \u0627\u0644\u0639\u0644\u0627\u0645\u0629 \u0639\u0646\u062F\u0645\u0627 \u062A\u0639\u062F\u0651\u0644.",
@@ -177551,6 +177586,9 @@ var app_default = {
     "New note": "\u041D\u043E\u0432\u0430\u044F \u0437\u0430\u043C\u0435\u0442\u043A\u0430",
     "When on, AI can search, read and edit notes through Jot tools when asked; nothing is read automatically.": "\u0415\u0441\u043B\u0438 \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u043E, \u0418\u0418 \u043C\u043E\u0436\u0435\u0442 \u043F\u043E \u0432\u0430\u0448\u0435\u0439 \u043F\u0440\u043E\u0441\u044C\u0431\u0435 \u0438\u0441\u043A\u0430\u0442\u044C, \u0447\u0438\u0442\u0430\u0442\u044C \u0438 \u0438\u0437\u043C\u0435\u043D\u044F\u0442\u044C \u0437\u0430\u043C\u0435\u0442\u043A\u0438 \u0447\u0435\u0440\u0435\u0437 \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442\u044B Jot; \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F.",
     "Allow AI collaboration": "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u0441\u043E\u0432\u043C\u0435\u0441\u0442\u043D\u0443\u044E \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u0418\u0418",
+    Refresh: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C",
+    "Refresh notes": "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0437\u0430\u043C\u0435\u0442\u043A\u0438",
+    "Load notes changed in a chat or on another device": "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0437\u0430\u043C\u0435\u0442\u043A\u0438, \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0432 \u0447\u0430\u0442\u0435 \u0438\u043B\u0438 \u043D\u0430 \u0434\u0440\u0443\u0433\u043E\u043C \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0435",
     "Note": "\u0417\u0430\u043C\u0435\u0442\u043A\u0430",
     "Note folder": "\u041F\u0430\u043F\u043A\u0430 \u0437\u0430\u043C\u0435\u0442\u043A\u0438",
     "This version was saved by AI through Jot tools. Select to undo the AI edits; the mark clears when you edit.": "\u042D\u0442\u0430 \u0432\u0435\u0440\u0441\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0430 \u0418\u0418 \u0447\u0435\u0440\u0435\u0437 \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442\u044B Jot. \u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0440\u0430\u0432\u043A\u0438 \u0418\u0418; \u043E\u0442\u043C\u0435\u0442\u043A\u0430 \u0438\u0441\u0447\u0435\u0437\u043D\u0435\u0442, \u043A\u043E\u0433\u0434\u0430 \u0432\u044B \u043D\u0430\u0447\u043D\u0451\u0442\u0435 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C.",
@@ -177732,6 +177770,9 @@ var app_default = {
     "New note": "Nouvelle note",
     "When on, AI can search, read and edit notes through Jot tools when asked; nothing is read automatically.": "Si cette option est activ\xE9e, l'IA peut rechercher, lire et modifier les notes avec les outils de Jot quand vous le demandez\xA0; rien n'est lu automatiquement.",
     "Allow AI collaboration": "Autoriser la collaboration avec l'IA",
+    Refresh: "Actualiser",
+    "Refresh notes": "Actualiser les notes",
+    "Load notes changed in a chat or on another device": "Charger les notes modifi\xE9es dans une conversation ou sur un autre appareil",
     "Note": "Note",
     "Note folder": "Dossier de la note",
     "This version was saved by AI through Jot tools. Select to undo the AI edits; the mark clears when you edit.": "Cette version a \xE9t\xE9 enregistr\xE9e par l'IA avec les outils de Jot. Cliquez pour annuler les modifications de l'IA\xA0; l'indicateur dispara\xEEt d\xE8s que vous modifiez la note.",
@@ -177913,6 +177954,9 @@ var app_default = {
     "New note": "Neue Notiz",
     "When on, AI can search, read and edit notes through Jot tools when asked; nothing is read automatically.": "Wenn eingeschaltet, kann die KI auf Anfrage \xFCber Jot-Tools Notizen durchsuchen, lesen und bearbeiten. Nichts wird automatisch gelesen.",
     "Allow AI collaboration": "KI-Zusammenarbeit erlauben",
+    Refresh: "Aktualisieren",
+    "Refresh notes": "Notizen aktualisieren",
+    "Load notes changed in a chat or on another device": "Notizen laden, die in einem Chat oder auf einem anderen Ger\xE4t ge\xE4ndert wurden",
     "Note": "Notiz",
     "Note folder": "Ordner der Notiz",
     "This version was saved by AI through Jot tools. Select to undo the AI edits; the mark clears when you edit.": "Diese Version wurde von der KI \xFCber Jot-Tools gespeichert. W\xE4hlen Sie die Markierung aus, um die KI-\xC4nderungen r\xFCckg\xE4ngig zu machen. Sie verschwindet, sobald Sie die Notiz bearbeiten.",
@@ -178094,6 +178138,9 @@ var app_default = {
     "New note": "Nueva nota",
     "When on, AI can search, read and edit notes through Jot tools when asked; nothing is read automatically.": "Cuando est\xE1 activada, la IA puede buscar, leer y editar notas con las herramientas de Jot si se lo pides; no lee nada por su cuenta.",
     "Allow AI collaboration": "Permitir la colaboraci\xF3n con IA",
+    Refresh: "Actualizar",
+    "Refresh notes": "Actualizar notas",
+    "Load notes changed in a chat or on another device": "Cargar notas cambiadas en un chat o en otro dispositivo",
     "Note": "Nota",
     "Note folder": "Carpeta de la nota",
     "This version was saved by AI through Jot tools. Select to undo the AI edits; the mark clears when you edit.": "Esta versi\xF3n la guard\xF3 la IA con las herramientas de Jot. Selecciona la marca para deshacer los cambios de la IA; desaparece cuando editas la nota.",
@@ -178246,6 +178293,20 @@ var editor_default = {
     "Hermes editor backend is unavailable.": "Hermes \u7F16\u8F91\u5668\u540E\u7AEF\u4E0D\u53EF\u7528\u3002",
     "Could not load the Jot editor. Re-enable the backend and reopen this note.": "\u65E0\u6CD5\u8F7D\u5165\u968F\u8BB0\u7F16\u8F91\u5668\u3002\u8BF7\u91CD\u65B0\u542F\u7528\u540E\u7AEF\uFF0C\u7136\u540E\u91CD\u65B0\u6253\u5F00\u8FD9\u6761\u7B14\u8BB0\u3002",
     "Jot document editor": "\u968F\u8BB0\u6B63\u6587\u7F16\u8F91\u5668",
+    Link: "\u94FE\u63A5",
+    "Add or edit a link": "\u6DFB\u52A0\u6216\u7F16\u8F91\u94FE\u63A5",
+    "Link address": "\u94FE\u63A5\u5730\u5740",
+    "Link text": "\u94FE\u63A5\u6587\u5B57",
+    "Apply link": "\u5E94\u7528\u94FE\u63A5",
+    "Remove link": "\u79FB\u9664\u94FE\u63A5",
+    "Open link": "\u6253\u5F00\u94FE\u63A5",
+    "Enter a web, email, or phone link.": "\u8BF7\u8F93\u5165\u7F51\u9875\u3001\u7535\u5B50\u90AE\u7BB1\u6216\u7535\u8BDD\u94FE\u63A5\u3002",
+    "Links stay within one paragraph.": "\u94FE\u63A5\u53EA\u80FD\u4F4D\u4E8E\u540C\u4E00\u6BB5\u843D\u5185\u3002",
+    "The note changed. Open the link again.": "\u6B63\u6587\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u94FE\u63A5\u3002",
+    "Resize column {column}": "\u8C03\u6574\u7B2C {column} \u5217\u7684\u5BBD\u5EA6",
+    "Column {column} width {width} pixels": "\u7B2C {column} \u5217\u5BBD\u5EA6 {width} \u50CF\u7D20",
+    "Tidy completed items": "\u6574\u7406\u5DF2\u5B8C\u6210\u9879",
+    "Move completed to-dos to the bottom of each list": "\u628A\u6BCF\u4E2A\u6E05\u5355\u91CC\u5DF2\u5B8C\u6210\u7684\u5F85\u529E\u79FB\u5230\u5E95\u90E8\uFF0C\u5E76\u4FDD\u6301\u539F\u6709\u987A\u5E8F",
     "Loading editor\u2026": "\u6B63\u5728\u8F7D\u5165\u7F16\u8F91\u5668\u2026"
   },
   "zh-hant": {
@@ -178329,6 +178390,20 @@ var editor_default = {
     "Hermes editor backend is unavailable.": "Hermes \u7DE8\u8F2F\u5668\u5F8C\u7AEF\u7121\u6CD5\u4F7F\u7528\u3002",
     "Could not load the Jot editor. Re-enable the backend and reopen this note.": "\u7121\u6CD5\u8F09\u5165\u96A8\u8A18\u7DE8\u8F2F\u5668\u3002\u8ACB\u91CD\u65B0\u555F\u7528\u5F8C\u7AEF\uFF0C\u7136\u5F8C\u91CD\u65B0\u958B\u555F\u9019\u5247\u7B46\u8A18\u3002",
     "Jot document editor": "\u96A8\u8A18\u7B46\u8A18\u7DE8\u8F2F\u5668",
+    Link: "\u9023\u7D50",
+    "Add or edit a link": "\u65B0\u589E\u6216\u7DE8\u8F2F\u9023\u7D50",
+    "Link address": "\u9023\u7D50\u7DB2\u5740",
+    "Link text": "\u9023\u7D50\u6587\u5B57",
+    "Apply link": "\u5957\u7528\u9023\u7D50",
+    "Remove link": "\u79FB\u9664\u9023\u7D50",
+    "Open link": "\u958B\u555F\u9023\u7D50",
+    "Enter a web, email, or phone link.": "\u8ACB\u8F38\u5165\u7DB2\u9801\u3001\u96FB\u5B50\u90F5\u4EF6\u6216\u96FB\u8A71\u9023\u7D50\u3002",
+    "Links stay within one paragraph.": "\u9023\u7D50\u53EA\u80FD\u4F4D\u65BC\u540C\u4E00\u6BB5\u843D\u5167\u3002",
+    "The note changed. Open the link again.": "\u5167\u6587\u5DF2\u8B8A\u66F4\uFF0C\u8ACB\u91CD\u65B0\u958B\u555F\u9023\u7D50\u3002",
+    "Resize column {column}": "\u8ABF\u6574\u7B2C {column} \u6B04\u7684\u5BEC\u5EA6",
+    "Column {column} width {width} pixels": "\u7B2C {column} \u6B04\u5BEC\u5EA6 {width} \u50CF\u7D20",
+    "Tidy completed items": "\u6574\u7406\u5DF2\u5B8C\u6210\u9805\u76EE",
+    "Move completed to-dos to the bottom of each list": "\u5C07\u6BCF\u500B\u6E05\u55AE\u4E2D\u5DF2\u5B8C\u6210\u7684\u5F85\u8FA6\u79FB\u5230\u5E95\u90E8\uFF0C\u4E26\u4FDD\u6301\u539F\u6709\u9806\u5E8F",
     "Loading editor\u2026": "\u6B63\u5728\u8F09\u5165\u7DE8\u8F2F\u5668\u2026"
   },
   ja: {
@@ -178412,6 +178487,20 @@ var editor_default = {
     "Hermes editor backend is unavailable.": "Hermes \u306E\u30A8\u30C7\u30A3\u30BF\u30FC\u30D0\u30C3\u30AF\u30A8\u30F3\u30C9\u3092\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002",
     "Could not load the Jot editor. Re-enable the backend and reopen this note.": "Jot \u30A8\u30C7\u30A3\u30BF\u30FC\u3092\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30D0\u30C3\u30AF\u30A8\u30F3\u30C9\u3092\u518D\u5EA6\u6709\u52B9\u306B\u3057\u3066\u3001\u3053\u306E\u30CE\u30FC\u30C8\u3092\u958B\u304D\u76F4\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
     "Jot document editor": "Jot \u30C9\u30AD\u30E5\u30E1\u30F3\u30C8\u30A8\u30C7\u30A3\u30BF\u30FC",
+    Link: "\u30EA\u30F3\u30AF",
+    "Add or edit a link": "\u30EA\u30F3\u30AF\u3092\u8FFD\u52A0\u307E\u305F\u306F\u7DE8\u96C6",
+    "Link address": "\u30EA\u30F3\u30AF\u5148",
+    "Link text": "\u30EA\u30F3\u30AF\u306E\u30C6\u30AD\u30B9\u30C8",
+    "Apply link": "\u30EA\u30F3\u30AF\u3092\u9069\u7528",
+    "Remove link": "\u30EA\u30F3\u30AF\u3092\u524A\u9664",
+    "Open link": "\u30EA\u30F3\u30AF\u3092\u958B\u304F",
+    "Enter a web, email, or phone link.": "\u30A6\u30A7\u30D6\u3001\u30E1\u30FC\u30EB\u3001\u307E\u305F\u306F\u96FB\u8A71\u306E\u30EA\u30F3\u30AF\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+    "Links stay within one paragraph.": "\u30EA\u30F3\u30AF\u306F\u4E00\u3064\u306E\u6BB5\u843D\u306E\u4E2D\u306B\u53CE\u3081\u3066\u304F\u3060\u3055\u3044\u3002",
+    "The note changed. Open the link again.": "\u672C\u6587\u304C\u5909\u308F\u308A\u307E\u3057\u305F\u3002\u30EA\u30F3\u30AF\u3092\u958B\u304D\u76F4\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+    "Resize column {column}": "\u5217 {column} \u306E\u5E45\u3092\u8ABF\u6574",
+    "Column {column} width {width} pixels": "\u5217 {column} \u306E\u5E45 {width} \u30D4\u30AF\u30BB\u30EB",
+    "Tidy completed items": "\u5B8C\u4E86\u3057\u305F\u9805\u76EE\u3092\u6574\u7406",
+    "Move completed to-dos to the bottom of each list": "\u5404\u30C1\u30A7\u30C3\u30AF\u30EA\u30B9\u30C8\u306E\u5B8C\u4E86\u9805\u76EE\u3092\u3001\u9806\u5E8F\u3092\u4FDD\u3063\u305F\u307E\u307E\u672B\u5C3E\u3078\u79FB\u3057\u307E\u3059",
     "Loading editor\u2026": "\u30A8\u30C7\u30A3\u30BF\u30FC\u3092\u8AAD\u307F\u8FBC\u307F\u4E2D\u2026"
   },
   ar: {
@@ -178495,6 +178584,20 @@ var editor_default = {
     "Hermes editor backend is unavailable.": "\u0627\u0644\u0648\u0627\u062C\u0647\u0629 \u0627\u0644\u062E\u0644\u0641\u064A\u0629 \u0644\u0645\u062D\u0631\u0631 Hermes \u063A\u064A\u0631 \u0645\u062A\u0627\u062D\u0629.",
     "Could not load the Jot editor. Re-enable the backend and reopen this note.": "\u062A\u0639\u0630\u0651\u0631 \u062A\u062D\u0645\u064A\u0644 \u0645\u062D\u0631\u0631 Jot. \u0623\u0639\u062F \u062A\u0641\u0639\u064A\u0644 \u0627\u0644\u0648\u0627\u062C\u0647\u0629 \u0627\u0644\u062E\u0644\u0641\u064A\u0629 \u062B\u0645 \u0623\u0639\u062F \u0641\u062A\u062D \u0647\u0630\u0647 \u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0629.",
     "Jot document editor": "\u0645\u062D\u0631\u0631 \u0645\u0633\u062A\u0646\u062F\u0627\u062A Jot",
+    Link: "\u0631\u0627\u0628\u0637",
+    "Add or edit a link": "\u0625\u0636\u0627\u0641\u0629 \u0631\u0627\u0628\u0637 \u0623\u0648 \u062A\u0639\u062F\u064A\u0644\u0647",
+    "Link address": "\u0639\u0646\u0648\u0627\u0646 \u0627\u0644\u0631\u0627\u0628\u0637",
+    "Link text": "\u0646\u0635 \u0627\u0644\u0631\u0627\u0628\u0637",
+    "Apply link": "\u062A\u0637\u0628\u064A\u0642 \u0627\u0644\u0631\u0627\u0628\u0637",
+    "Remove link": "\u0625\u0632\u0627\u0644\u0629 \u0627\u0644\u0631\u0627\u0628\u0637",
+    "Open link": "\u0641\u062A\u062D \u0627\u0644\u0631\u0627\u0628\u0637",
+    "Enter a web, email, or phone link.": "\u0623\u062F\u062E\u0644 \u0631\u0627\u0628\u0637 \u0648\u064A\u0628 \u0623\u0648 \u0628\u0631\u064A\u062F \u0623\u0648 \u0647\u0627\u062A\u0641.",
+    "Links stay within one paragraph.": "\u064A\u062C\u0628 \u0623\u0646 \u064A\u0628\u0642\u0649 \u0627\u0644\u0631\u0627\u0628\u0637 \u0636\u0645\u0646 \u0641\u0642\u0631\u0629 \u0648\u0627\u062D\u062F\u0629.",
+    "The note changed. Open the link again.": "\u062A\u063A\u064A\u0651\u0631\u062A \u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0629. \u0627\u0641\u062A\u062D \u0627\u0644\u0631\u0627\u0628\u0637 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.",
+    "Resize column {column}": "\u062A\u063A\u064A\u064A\u0631 \u0639\u0631\u0636 \u0627\u0644\u0639\u0645\u0648\u062F {column}",
+    "Column {column} width {width} pixels": "\u0639\u0631\u0636 \u0627\u0644\u0639\u0645\u0648\u062F {column} \u0647\u0648 {width} \u0628\u0643\u0633\u0644",
+    "Tidy completed items": "\u062A\u0631\u062A\u064A\u0628 \u0627\u0644\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0645\u0643\u062A\u0645\u0644\u0629",
+    "Move completed to-dos to the bottom of each list": "\u0627\u0646\u0642\u0644 \u0627\u0644\u0645\u0647\u0627\u0645 \u0627\u0644\u0645\u0643\u062A\u0645\u0644\u0629 \u0625\u0644\u0649 \u0623\u0633\u0641\u0644 \u0643\u0644 \u0642\u0627\u0626\u0645\u0629 \u0645\u0639 \u0627\u0644\u0625\u0628\u0642\u0627\u0621 \u0639\u0644\u0649 \u062A\u0631\u062A\u064A\u0628\u0647\u0627",
     "Loading editor\u2026": "\u062C\u0627\u0631\u064D \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0645\u062D\u0631\u0631\u2026"
   },
   ru: {
@@ -178578,6 +178681,20 @@ var editor_default = {
     "Hermes editor backend is unavailable.": "\u0411\u044D\u043A\u0435\u043D\u0434 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430 Hermes \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D.",
     "Could not load the Jot editor. Re-enable the backend and reopen this note.": "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 Jot. \u0421\u043D\u043E\u0432\u0430 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u0431\u044D\u043A\u0435\u043D\u0434 \u0438 \u0437\u0430\u043D\u043E\u0432\u043E \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u044D\u0442\u0443 \u0437\u0430\u043C\u0435\u0442\u043A\u0443.",
     "Jot document editor": "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u043E\u0432 Jot",
+    Link: "\u0421\u0441\u044B\u043B\u043A\u0430",
+    "Add or edit a link": "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0438\u043B\u0438 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0443",
+    "Link address": "\u0410\u0434\u0440\u0435\u0441 \u0441\u0441\u044B\u043B\u043A\u0438",
+    "Link text": "\u0422\u0435\u043A\u0441\u0442 \u0441\u0441\u044B\u043B\u043A\u0438",
+    "Apply link": "\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0443",
+    "Remove link": "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0443",
+    "Open link": "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0443",
+    "Enter a web, email, or phone link.": "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0441\u0441\u044B\u043B\u043A\u0443 \u043D\u0430 \u0441\u0430\u0439\u0442, \u043F\u043E\u0447\u0442\u0443 \u0438\u043B\u0438 \u0442\u0435\u043B\u0435\u0444\u043E\u043D.",
+    "Links stay within one paragraph.": "\u0421\u0441\u044B\u043B\u043A\u0430 \u0434\u043E\u043B\u0436\u043D\u0430 \u043E\u0441\u0442\u0430\u0432\u0430\u0442\u044C\u0441\u044F \u0432 \u043E\u0434\u043D\u043E\u043C \u0430\u0431\u0437\u0430\u0446\u0435.",
+    "The note changed. Open the link again.": "\u0417\u0430\u043C\u0435\u0442\u043A\u0430 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C. \u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0441\u0441\u044B\u043B\u043A\u0443 \u0441\u043D\u043E\u0432\u0430.",
+    "Resize column {column}": "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0448\u0438\u0440\u0438\u043D\u0443 \u0441\u0442\u043E\u043B\u0431\u0446\u0430 {column}",
+    "Column {column} width {width} pixels": "\u0428\u0438\u0440\u0438\u043D\u0430 \u0441\u0442\u043E\u043B\u0431\u0446\u0430 {column}: {width} \u043F\u0438\u043A\u0441.",
+    "Tidy completed items": "\u0423\u0431\u0440\u0430\u0442\u044C \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435 \u043F\u0443\u043D\u043A\u0442\u044B \u0432\u043D\u0438\u0437",
+    "Move completed to-dos to the bottom of each list": "\u041F\u0435\u0440\u0435\u043C\u0435\u0441\u0442\u0438\u0442\u044C \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435 \u043F\u0443\u043D\u043A\u0442\u044B \u0432\u043D\u0438\u0437 \u043A\u0430\u0436\u0434\u043E\u0433\u043E \u0441\u043F\u0438\u0441\u043A\u0430, \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0432 \u043F\u043E\u0440\u044F\u0434\u043E\u043A",
     "Loading editor\u2026": "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430\u2026"
   },
   fr: {
@@ -178661,6 +178778,20 @@ var editor_default = {
     "Hermes editor backend is unavailable.": "Le backend de l'\xE9diteur Hermes n'est pas disponible.",
     "Could not load the Jot editor. Re-enable the backend and reopen this note.": "Impossible de charger l'\xE9diteur Jot. R\xE9activez le backend, puis rouvrez cette note.",
     "Jot document editor": "\xC9diteur de documents Jot",
+    Link: "Lien",
+    "Add or edit a link": "Ajouter ou modifier un lien",
+    "Link address": "Adresse du lien",
+    "Link text": "Texte du lien",
+    "Apply link": "Appliquer le lien",
+    "Remove link": "Retirer le lien",
+    "Open link": "Ouvrir le lien",
+    "Enter a web, email, or phone link.": "Saisissez un lien web, e-mail ou t\xE9l\xE9phone.",
+    "Links stay within one paragraph.": "Le lien doit rester dans un seul paragraphe.",
+    "The note changed. Open the link again.": "La note a chang\xE9. Rouvrez le lien.",
+    "Resize column {column}": "Redimensionner la colonne {column}",
+    "Column {column} width {width} pixels": "Largeur de la colonne {column} : {width} pixels",
+    "Tidy completed items": "Ranger les \xE9l\xE9ments termin\xE9s",
+    "Move completed to-dos to the bottom of each list": "D\xE9place les t\xE2ches termin\xE9es en bas de chaque liste, dans le m\xEAme ordre",
     "Loading editor\u2026": "Chargement de l'\xE9diteur\u2026"
   },
   de: {
@@ -178744,6 +178875,20 @@ var editor_default = {
     "Hermes editor backend is unavailable.": "Das Editor-Backend von Hermes ist nicht verf\xFCgbar.",
     "Could not load the Jot editor. Re-enable the backend and reopen this note.": "Der Jot-Editor konnte nicht geladen werden. Aktivieren Sie das Backend erneut und \xF6ffnen Sie diese Notiz noch einmal.",
     "Jot document editor": "Jot-Dokumenteditor",
+    Link: "Link",
+    "Add or edit a link": "Link einf\xFCgen oder bearbeiten",
+    "Link address": "Linkadresse",
+    "Link text": "Linktext",
+    "Apply link": "Link \xFCbernehmen",
+    "Remove link": "Link entfernen",
+    "Open link": "Link \xF6ffnen",
+    "Enter a web, email, or phone link.": "Geben Sie einen Web-, E-Mail- oder Telefonlink ein.",
+    "Links stay within one paragraph.": "Der Link muss in einem Absatz bleiben.",
+    "The note changed. Open the link again.": "Die Notiz hat sich ge\xE4ndert. \xD6ffnen Sie den Link erneut.",
+    "Resize column {column}": "Spalte {column} in der Breite \xE4ndern",
+    "Column {column} width {width} pixels": "Breite von Spalte {column}: {width} Pixel",
+    "Tidy completed items": "Erledigte Eintr\xE4ge nach unten",
+    "Move completed to-dos to the bottom of each list": "Erledigte Eintr\xE4ge jeder Liste nach unten verschieben, die Reihenfolge bleibt",
     "Loading editor\u2026": "Editor wird geladen\u2026"
   },
   es: {
@@ -178827,6 +178972,20 @@ var editor_default = {
     "Hermes editor backend is unavailable.": "El backend del editor de Hermes no est\xE1 disponible.",
     "Could not load the Jot editor. Re-enable the backend and reopen this note.": "No se pudo cargar el editor de Jot. Vuelve a activar el backend y abre de nuevo esta nota.",
     "Jot document editor": "Editor de documentos de Jot",
+    Link: "Enlace",
+    "Add or edit a link": "A\xF1adir o editar un enlace",
+    "Link address": "Direcci\xF3n del enlace",
+    "Link text": "Texto del enlace",
+    "Apply link": "Aplicar enlace",
+    "Remove link": "Quitar enlace",
+    "Open link": "Abrir enlace",
+    "Enter a web, email, or phone link.": "Introduce un enlace web, de correo o de tel\xE9fono.",
+    "Links stay within one paragraph.": "El enlace debe quedarse en un solo p\xE1rrafo.",
+    "The note changed. Open the link again.": "La nota cambi\xF3. Vuelve a abrir el enlace.",
+    "Resize column {column}": "Cambiar el ancho de la columna {column}",
+    "Column {column} width {width} pixels": "Ancho de la columna {column}: {width} p\xEDxeles",
+    "Tidy completed items": "Ordenar los elementos completados",
+    "Move completed to-dos to the bottom of each list": "Mueve las tareas completadas al final de cada lista, conservando el orden",
     "Loading editor\u2026": "Cargando el editor\u2026"
   }
 };
@@ -180447,8 +180606,10 @@ function markedHtml(node) {
   for (const mark2 of node.marks ?? []) {
     const tag = { bold: "strong", italic: "em", underline: "u", strike: "s", code: "code" }[mark2.type];
     if (tag) text2 = `<${tag}>${text2}</${tag}>`;
-    else if (mark2.type === "link") text2 = `<a href="${htmlEscape(String(mark2.attrs?.href))}">${text2}</a>`;
-    else if (mark2.attrs?.color) text2 = `<span style="${mark2.type === "highlight" ? "background-color" : "color"}:${mark2.attrs.color}">${text2}</span>`;
+    else if (mark2.type === "link") {
+      const href = exportableLinkHref(String(mark2.attrs?.href ?? ""));
+      if (href) text2 = `<a href="${htmlEscape(href)}">${text2}</a>`;
+    } else if (mark2.attrs?.color) text2 = `<span style="${mark2.type === "highlight" ? "background-color" : "color"}:${mark2.attrs.color}">${text2}</span>`;
   }
   return text2;
 }
@@ -180485,8 +180646,10 @@ function inlineMarkdown(node) {
   for (const mark2 of marks) {
     if (EMPHASIS[mark2.type]) continue;
     else if (mark2.type === "underline") text2 = `<u>${text2}</u>`;
-    else if (mark2.type === "link") text2 = `[${text2}](<${String(mark2.attrs?.href).replace(/</gu, "%3C").replace(/>/gu, "%3E")}>)`;
-    else if (mark2.attrs?.color) text2 = `<span style="${mark2.type === "highlight" ? "background-color" : "color"}:${mark2.attrs.color}">${text2}</span>`;
+    else if (mark2.type === "link") {
+      const href = exportableLinkHref(String(mark2.attrs?.href ?? ""));
+      if (href) text2 = `[${text2}](<${href.replace(/</gu, "%3C").replace(/>/gu, "%3E")}>)`;
+    } else if (mark2.attrs?.color) text2 = `<span style="${mark2.type === "highlight" ? "background-color" : "color"}:${mark2.attrs.color}">${text2}</span>`;
   }
   return text2;
 }
@@ -180591,7 +180754,8 @@ function docxInline(node) {
   if (node.type === "hardBreak") return [new TextRun({ break: 1 })];
   const run = new TextRun({ text: node.text ?? "", ...markOptions(node.marks) });
   const link2 = node.marks?.find((mark2) => mark2.type === "link");
-  return [link2 ? new ExternalHyperlink({ link: String(link2.attrs?.href), children: [run] }) : run];
+  const href = link2 ? exportableLinkHref(String(link2.attrs?.href ?? "")) : null;
+  return [href ? new ExternalHyperlink({ link: href, children: [run] }) : run];
 }
 async function wordDocument(input, assets) {
   let counter = 0;
@@ -180756,7 +180920,8 @@ async function pdfDocument(input, assets, fontDirectory) {
           if (marks.some((value) => value.type === mark2)) doc.save().strokeColor(color || "#111827").lineWidth(0.6).moveTo(x, y + size * baseline).lineTo(x + fragment.width, y + size * baseline).stroke().restore();
         }
         const link2 = marks.find((mark2) => mark2.type === "link");
-        if (link2) doc.link(x, y, fragment.width, size * 1.5, String(link2.attrs?.href));
+        const href = link2 ? exportableLinkHref(String(link2.attrs?.href ?? "")) : null;
+        if (href) doc.link(x, y, fragment.width, size * 1.5, href);
         x += fragment.width;
       }
     };

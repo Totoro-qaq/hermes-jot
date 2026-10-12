@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- The editor can add, edit, open, and remove a link from the toolbar or with Ctrl/⌘K. Addresses can be a web page, email, or phone number, and the popover works from the keyboard. Adding a link keeps the selected words, spaces, and formatting, and a partly linked selection or a link across a line break is linked all the way through. Saving or removing a link asks you to open it again when the note changed after the popover opened. A click, a middle-click, or Enter on a focused link in a read-only note opens it once through Hermes; right-click stays with the browser.
+- Web addresses that include a username or password are refused when they are created or opened. A note that already contains one still opens and keeps the link, shows it without an href, and exports leave the username and password out.
+- “Tidy completed items” moves checked to-dos to the bottom of each checklist, keeps their relative order, is its own undo step, and leaves the cursor in the same item.
+- The style menu opens and moves with Enter, Space, and the arrow keys, follows the reading direction in right-to-left text, and Escape returns focus to the Style button. A note’s menu opens with Shift+F10 or the Context Menu key. The title and the note body show a focus ring. The column-width control ignores arrow keys with Shift, Alt, Ctrl, or Command, and announces the width about once a second.
+- If the editor fails to load, Retry tries again. Switching notes reuses the editor frame instead of reloading it.
+- Switching notes keeps the last keystrokes on the note they were typed in, including when another note is opened before that edit arrives and when that note is in a conflict. Reopening a note accepts the new editor’s edits, and a late echo from an earlier visit never replaces them. A new note is not deleted as empty while its last keystrokes are on the way or once it is open again. Opening a note does not save it just because the editor filled in default attributes, list numbering, or mark order. A guest and host that disagree on the editor protocol drop the edit and record a debug log.
+- When an AI edit is rejected because the note changed, the tool card explains that in the interface language. The result still includes the error code, the revision detail, and recovery instructions.
+- Refresh, under the note list, loads notes changed in a chat or on another device without waiting for the fallback check.
+- An undo notice pauses while an action is running; an ordinary notice keeps its timer.
+
 ## 0.3.1
 
 - Bundled third-party notices now include docx's prebuilt dependencies and the vendored Lucide SVG paths, with the ISC and Feather MIT copyright and license texts. Versioned license sources are fingerprinted, and packaging refuses sources changed after the last build.

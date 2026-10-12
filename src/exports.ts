@@ -13,6 +13,7 @@ import {
   type RichDoc, type RichMark, type RichNode,
 } from './model.js'
 import { EXPORT_FORMATS, LIBRARY_EXPORT_FORMATS, type ExportFormat, type LibraryExportFormat } from './export-formats.js'
+import { exportableLinkHref } from './link-href.js'
 import { normalizeLocale, translator, type JotLocale } from './client/i18n.js'
 
 export { EXPORT_FORMATS, LIBRARY_EXPORT_FORMATS, type ExportFormat, type LibraryExportFormat } from './export-formats.js'
@@ -132,7 +133,10 @@ function markedHtml(node: RichNode): string {
   for (const mark of node.marks ?? []) {
     const tag = ({ bold: 'strong', italic: 'em', underline: 'u', strike: 's', code: 'code' } as Record<string, string>)[mark.type]
     if (tag) text = `<${tag}>${text}</${tag}>`
-    else if (mark.type === 'link') text = `<a href="${htmlEscape(String(mark.attrs?.href))}">${text}</a>`
+    else if (mark.type === 'link') {
+      const href = exportableLinkHref(String(mark.attrs?.href ?? ''))
+      if (href) text = `<a href="${htmlEscape(href)}">${text}</a>`
+    }
     else if (mark.attrs?.color) text = `<span style="${mark.type === 'highlight' ? 'background-color' : 'color'}:${mark.attrs.color}">${text}</span>`
   }
   return text
@@ -171,7 +175,10 @@ function inlineMarkdown(node: RichNode): string {
   for (const mark of marks) {
     if (EMPHASIS[mark.type]) continue
     else if (mark.type === 'underline') text = `<u>${text}</u>`
-    else if (mark.type === 'link') text = `[${text}](<${String(mark.attrs?.href).replace(/</gu, '%3C').replace(/>/gu, '%3E')}>)`
+    else if (mark.type === 'link') {
+      const href = exportableLinkHref(String(mark.attrs?.href ?? ''))
+      if (href) text = `[${text}](<${href.replace(/</gu, '%3C').replace(/>/gu, '%3E')}>)`
+    }
     else if (mark.attrs?.color) text = `<span style="${mark.type === 'highlight' ? 'background-color' : 'color'}:${mark.attrs.color}">${text}</span>`
   }
   return text
@@ -288,7 +295,8 @@ function docxInline(node: RichNode): ParagraphChild[] {
   if (node.type === 'hardBreak') return [new TextRun({ break: 1 })]
   const run = new TextRun({ text: node.text ?? '', ...markOptions(node.marks) })
   const link = node.marks?.find(mark => mark.type === 'link')
-  return [link ? new ExternalHyperlink({ link: String(link.attrs?.href), children: [run] }) : run]
+  const href = link ? exportableLinkHref(String(link.attrs?.href ?? '')) : null
+  return [href ? new ExternalHyperlink({ link: href, children: [run] }) : run]
 }
 async function wordDocument(input: Titled, assets: Assets): Promise<Buffer> {
   let counter = 0
@@ -432,7 +440,8 @@ async function pdfDocument(input: Titled, assets: Assets, fontDirectory?: string
             .moveTo(x, y + size * baseline).lineTo(x + fragment.width, y + size * baseline).stroke().restore()
         }
         const link = marks.find(mark => mark.type === 'link')
-        if (link) doc.link(x, y, fragment.width, size * 1.5, String(link.attrs?.href))
+        const href = link ? exportableLinkHref(String(link.attrs?.href ?? '')) : null
+        if (href) doc.link(x, y, fragment.width, size * 1.5, href)
         x += fragment.width
       }
     }

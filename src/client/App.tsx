@@ -5,8 +5,9 @@ import { draftFromNote, draftFingerprint, emptyDocument, receiveLatestDraft, rec
 import type { NoteDraft } from './drafts.js'
 import type { JotPersistence } from '../hermes/persistence.js'
 import type { ReactNode } from 'react'
-import { editHumanDraft, takeUntouchedFreshNote } from './draft-lifecycle.js'
+import { editHumanDraft, freshFlushSettlement, parkedDraftForLateEdit, parkedEditorChange, takeUntouchedFreshNote } from './draft-lifecycle.js'
 import { acceptRemoteAppend, planRemoteAppend, remoteBase, type RemoteBase } from './remote-append.js'
+import { acceptEditorRevision, type EditorFrameStamp, type EditorRevision } from '../hermes/editor-frame.js'
 import { RichEditor, type RichEditorActions } from '../hermes/EmbeddedEditor.js'
 import { appShortcut } from './app-shortcuts.js'
 import { ActionMenu, type ActionMenuEntry } from './ActionMenu.js'
@@ -100,7 +101,11 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const [draft, setDraft] = useState<NoteDraft | null>(null)
   const draftRef = useRef<NoteDraft | null>(null)
   const editorActions = useRef<RichEditorActions | null>(null)
-  const [editorRevisions, setEditorRevisions] = useState<Record<string, number>>({})
+  const editorRevisionsRef = useRef<Record<string, EditorRevision>>({})
+  const [editorRevisions, setEditorRevisions] = useState<Record<string, EditorRevision>>({})
+  const frameStampRef = useRef<EditorFrameStamp | null>(null)
+  /** 离开时还在等 flush 的新建笔记，值是离开那一刻的代次。 */
+  const pendingFreshFlush = useRef(new Map<string, number>())
   const editorFocusLease = useRef<(() => void) | null>(null)
   const releaseEditorFocus = useCallback(() => {
     editorFocusLease.current?.()
@@ -188,11 +193,17 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const showToast = useCallback((text: string, action?: Toast['action']) => {
     setToast({ id: ++toastSequence.current, text, action })
   }, [])
+  // 撤销提示在界面忙碌时暂停，之后接着剩下的时间走。普通通知不看 busy。
+  const toastLeft = useRef({ id: 0, ms: 0 })
+  const toastPaused = Boolean(toast?.action) && busy
   useEffect(() => {
-    if (!toast) return
-    const timer = setTimeout(() => setToast(current => current?.id === toast.id ? null : current), toast.action ? 6000 : 3500)
-    return () => clearTimeout(timer)
-  }, [toast])
+    if (!toast || toastPaused) return
+    if (toastLeft.current.id !== toast.id) toastLeft.current = { id: toast.id, ms: toast.action ? 6000 : 3500 }
+    const left = toastLeft.current
+    const started = Date.now()
+    const timer = setTimeout(() => setToast(current => current?.id === toast.id ? null : current), left.ms)
+    return () => { clearTimeout(timer); left.ms = Math.max(0, left.ms - (Date.now() - started)) }
+  }, [toast, toastPaused])
   const fileInput = useRef<HTMLInputElement>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const mounted = useRef(true)
@@ -416,8 +427,8 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     if (statusesRef.current[current.noteId]?.phase !== 'conflict') setStatus(current.noteId, { phase: 'dirty' })
   }
 
-  /** Leaving a note this panel created without writing anything removes it permanently. */
-  const releaseFreshNote = useCallback((id: string) => {
+  /** 确认这篇新建笔记仍然是空的之后才永久删除。编辑若在删除请求回来之前到达，就留下。 */
+  const purgeUntouchedFreshNote = useCallback((id: string) => {
     const note = snapshotRef.current?.notes.find(item => item.id === id)
     const local = drafts.current.get(id)
     if (!takeUntouchedFreshNote(id, freshNotes.current, {
@@ -425,8 +436,29 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     }) || !note) return
     const purge = apiRef.current.purgeNote
     if (!purge) return
-    void purge(id, note.revision).then(() => { drafts.current.delete(id); return refresh() }).catch(() => { /* an edited or moved note stays */ })
+    void purge(id, note.revision).then(() => {
+      if (drafts.current.get(id)?.dirty || freshNotes.current.has(id)) return
+      drafts.current.delete(id)
+      return refresh()
+    }).catch(() => { /* an edited or moved note stays */ })
   }, [refresh])
+
+  /** Leaving a note this panel created without writing anything removes it permanently. */
+  const releaseFreshNote = useCallback((id: string) => {
+    // 编辑器还能把这篇的正文发出来时，等 flush 落地再决定删不删。
+    if (freshNotes.current.has(id) && editorNote.current === id && editorActions.current) {
+      const stamp = frameStampRef.current
+      pendingFreshFlush.current.set(id, stamp?.documentId === id ? stamp.generation : -1)
+      return
+    }
+    purgeUntouchedFreshNote(id)
+  }, [purgeUntouchedFreshNote])
+
+  const settleFreshFlush = useCallback((id: string, generation: number) => {
+    if (freshFlushSettlement(draftRef.current?.noteId ?? null, pendingFreshFlush.current.get(id), { noteId: id, generation }) !== 'settle') return
+    pendingFreshFlush.current.delete(id)
+    purgeUntouchedFreshNote(id)
+  }, [purgeUntouchedFreshNote])
 
   const selectNote = useCallback((note: Note, handoff?: NoteOpenRequest) => {
     selectionGeneration.current++
@@ -435,6 +467,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     const previous = draftRef.current
     if (previous?.dirty && previous.noteId !== note.id && statusesRef.current[previous.noteId]?.phase !== 'conflict') void saveDraft(previous.noteId)
     if (previous && previous.noteId !== note.id) releaseFreshNote(previous.noteId)
+    pendingFreshFlush.current.delete(note.id)
     const stored = handoff ? readHandoffDraft(note, handoff.draftId, sharedDraftStorage) : readDraft(note, drafts.current.get(note.id))
     const result = reconcileDraft(stored, note)
     if (result.draft.baseRevision === note.revision) rememberBase(note)
@@ -1167,7 +1200,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       {visibleNotes.length > 0 ? <NoteList key={`${folderFilter}:${effectiveSort}`} notes={visibleNotes} selectedId={draft?.noteId} onSelect={selectNote}
         selectMode={selectMode} selectedNoteIds={selectedIds} onToggleSelection={toggleSelection}
         hideFolderName={folderFilter !== '__all__'} agentEditedIds={agentEditedIds}
-        onContextMenu={(note, event) => { event.preventDefault(); if (!selectMode) { selectNote(note); setContextPosition({ x: event.clientX, y: event.clientY }) } }}
+        onContextMenu={(note, point) => { if (!selectMode) { selectNote(note); setContextPosition(point) } }}
         dateBasis={effectiveSort === 'title' ? 'none' : effectiveSort} query={query} folders={snapshot?.folders} locale={locale} view={view} /> : <div className="jot-note-list">
         {snapshot && <div className="jot-empty">
           <div className="jot-empty-title">{query.trim() ? t('No notes found') : view === 'trash' ? t('Trash is empty') : t('Leave a thought here')}</div>
@@ -1187,8 +1220,13 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       <div className="jot-agent-line">
         <span className="jot-agent-label" title={t('When on, AI can search, read and edit notes through Jot tools when asked; nothing is read automatically.')}>
           <JotActionIcon name="sparkle" size={14} />{t('Allow AI collaboration')}</span>
-        <button type="button" className="jot-switch" role="switch" aria-checked={snapshot?.agentEnabled ?? false} disabled={busy || !snapshot}
-          aria-label={t('Allow AI collaboration')} onClick={toggleAgent} />
+        <div className="jot-agent-actions">
+          <button type="button" className="jot-text-btn jot-agent-refresh" aria-label={t('Refresh notes')}
+            title={t('Load notes changed in a chat or on another device')} disabled={busy || !snapshot}
+            onClick={() => { void refresh().catch(cause => setError(describeError(cause, locale))) }}>{t('Refresh')}</button>
+          <button type="button" className="jot-switch" role="switch" aria-checked={snapshot?.agentEnabled ?? false} disabled={busy || !snapshot}
+            aria-label={t('Allow AI collaboration')} onClick={toggleAgent} />
+        </div>
       </div>
     </div>
   )
@@ -1265,11 +1303,12 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
                   event.preventDefault(); editorActions.current?.focus()
                 }
               }} />
-            <RichEditor acknowledgedRevision={editorRevisions[draft.noteId] ?? 0} loadEditor={api.loadEditor} onSave={() => void saveDraft(draft.noteId)} onPreviewAttachment={previewAttachment}
+            <RichEditor editorRevision={editorRevisions[draft.noteId]} onFlushSettled={settleFreshFlush}
+              onFrameStamp={stamp => { frameStampRef.current = stamp }} loadEditor={api.loadEditor} onSave={() => void saveDraft(draft.noteId)} onPreviewAttachment={previewAttachment}
               onSelectionChange={onEditorSelection}
               onFiles={files => { if (!selectedDeleted) void uploadFiles(files) }}
               onExternalLink={url => void perform(async () => { await api.openExternal?.(url) })}
-              resolveAttachmentUrl={api.resolveAttachmentUrl} key={draft.noteId} value={draft.content} locale={locale} readOnly={selectedDeleted}
+              resolveAttachmentUrl={api.resolveAttachmentUrl} documentId={draft.noteId} value={draft.content} locale={locale} readOnly={selectedDeleted}
               onRequestAttachment={selectedDeleted || uploadBusy ? undefined : () => fileInput.current?.click()}
               onReady={actions => {
                 releaseEditorFocus(); editorActions.current = actions; editorNote.current = actions ? draft.noteId : null
@@ -1277,9 +1316,28 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
                 const remote = actions ? snapshotRef.current?.notes.find(note => note.id === draft.noteId) : undefined
                 if (remote) followRemote(remote)
               }}
-              onChange={(content, revision) => {
-                if (revision !== undefined) setEditorRevisions(previous => ({ ...previous, [draft.noteId]: revision }))
-                patchDraft({ content })
+              onChange={(content, revision, editedNoteId, generation) => {
+                const id = editedNoteId || draft.noteId
+                if (revision !== undefined && generation !== undefined) {
+                  const incoming = { generation, revision }
+                  if (!acceptEditorRevision(editorRevisionsRef.current[id], incoming)) return
+                  editorRevisionsRef.current = { ...editorRevisionsRef.current, [id]: incoming }
+                  setEditorRevisions(editorRevisionsRef.current)
+                }
+                if (id === draftRef.current?.noteId) { patchDraft({ content }); return }
+                // 切换之后才到的最后一次按键仍属于上一篇，写回那篇草稿，不写进当前笔记。
+                const waiting = pendingFreshFlush.current.has(id)
+                const parked = parkedDraftForLateEdit(drafts.current.get(id), snapshotRef.current?.notes.find(item => item.id === id), waiting)
+                const action = parkedEditorChange(parked, content, statusesRef.current[id]?.phase === 'conflict')
+                if (action === 'unchanged' || !parked) return
+                pendingFreshFlush.current.delete(id)
+                const next = persistDraft(editHumanDraft(parked, { content }, freshNotes.current))
+                drafts.current.set(id, next)
+                if (action === 'keep-conflict') return
+                setStatus(id, { phase: 'dirty' })
+                const pending = inFlight.current.get(id)
+                if (pending) void pending.then(() => { if (drafts.current.get(id)?.dirty) void saveDraft(id) })
+                else void saveDraft(id)
               }} />
           </div>
         </div>

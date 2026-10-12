@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RichEditor, type RichEditorActions } from '../client/RichEditor.js'
 import type { RichDoc } from '../client/types.js'
 import { intlLocale, isRtlLocale, normalizeLocale, type JotLocale } from '../client/i18n.js'
-import { EditorSync } from './editor-sync.js'
+import { editorLinkEventAction } from '../link-href.js'
+import { EDITOR_FRAME_PROTOCOL, mountEditorSession, reportDroppedEdit, type MountedEditorSession } from './editor-frame.js'
 import { jotStyles } from '../client/styles.js'
 import { HOST_THEME_PROPERTIES } from './theme.js'
 
@@ -19,11 +20,44 @@ const image = (attachmentId: string) => new Promise<string>(resolve => {
   send('image', attachmentId, id)
 })
 
+function BoundNoteEditor({ documentId, generation, value, acknowledgedRevision, locale, readOnly, sessionRef, actionsRef, selectionGate }: {
+  documentId: string
+  generation: number
+  value: RichDoc
+  acknowledgedRevision: number
+  locale: JotLocale
+  readOnly: boolean
+  sessionRef: MutableRefObject<MountedEditorSession | null>
+  actionsRef: MutableRefObject<RichEditorActions | null>
+  selectionGate: MutableRefObject<{ muted: boolean; last: string }>
+}) {
+  const session = useRef<MountedEditorSession | null>(null)
+  if (!session.current) session.current = mountEditorSession({ documentId, generation }, value)
+  const bound = session.current
+  useEffect(() => {
+    sessionRef.current = bound
+    return () => { if (sessionRef.current === bound) sessionRef.current = null }
+  }, [bound, sessionRef])
+  const resolveExternalValue = useMemo(() => () => bound.hostUpdate(value, acknowledgedRevision), [bound, value, acknowledgedRevision])
+  return <RichEditor value={value} resolveExternalValue={resolveExternalValue} locale={locale} readOnly={readOnly}
+    resolveAttachmentUrl={image} onChange={content => send('change', bound.change(content))} onBlur={() => send('blur')}
+    onReady={editor => {
+      actionsRef.current = editor
+      if (!editor) return
+      selectionGate.current.muted = false
+      send('ready')
+      const text = document.getSelection()?.toString() ?? ''
+      selectionGate.current.last = text
+      send('selection', bound.selection(text))
+    }} onRequestAttachment={() => send('upload')} />
+}
+
 function Editor() {
-  const [props, setProps] = useState<{ value: RichDoc; resolveExternalValue: () => RichDoc; locale: JotLocale; readOnly: boolean } | null>(null)
+  const [props, setProps] = useState<{ value: RichDoc; locale: JotLocale; readOnly: boolean; documentId: string; generation: number; acknowledgedRevision: number } | null>(null)
   const actions = useRef<RichEditorActions | null>(null)
-  const synchronized = useRef(new EditorSync())
   const root = useRef<HTMLDivElement>(null)
+  const activeSession = useRef<MountedEditorSession | null>(null)
+  const selectionGate = useRef({ muted: true, last: '' })
   useEffect(() => {
     const receive = (event: MessageEvent) => {
       if (event.source !== parent || event.data?.channel !== 'jot-editor') return
@@ -32,6 +66,19 @@ function Editor() {
         if (token && token !== event.data.token) return
         token = event.data.token
         const locale = normalizeLocale(data.locale)
+        const documentId = typeof data.documentId === 'string' ? data.documentId : ''
+        const generation = Number.isSafeInteger(data.generation) && data.generation >= 0 ? data.generation : 0
+        if (typeof data.protocol === 'number' && data.protocol !== EDITOR_FRAME_PROTOCOL) {
+          reportDroppedEdit('protocol', data)
+          return
+        }
+        const current = activeSession.current
+        if (current && (current.documentId !== documentId || current.generation !== generation)) {
+          // 外层代次还没换到这篇编辑器身上。先用挂载时记下的笔记把还没发出去的正文发出去。
+          flushMountedNote()
+          selectionGate.current = { muted: true, last: '' }
+          send('selection', { protocol: EDITOR_FRAME_PROTOCOL, text: '', documentId, generation })
+        }
         // The slash menu is portaled to <body>, so the language and direction belong to the whole frame.
         document.documentElement.lang = intlLocale(locale)
         document.documentElement.dir = isRtlLocale(locale) ? 'rtl' : 'ltr'
@@ -41,7 +88,8 @@ function Editor() {
         for (const [key, value] of Object.entries(data.theme ?? {})) {
           if (Object.hasOwn(HOST_THEME_PROPERTIES, key) && typeof value === 'string') document.documentElement.style.setProperty(key, value)
         }
-        setProps({ ...data, locale, resolveExternalValue: synchronized.current.prepareHostUpdate(data.value, data.acknowledgedRevision ?? 0) })
+        const acknowledgedRevision = Number.isSafeInteger(data.acknowledgedRevision) ? data.acknowledgedRevision : 0
+        setProps({ value: data.value, locale, readOnly: Boolean(data.readOnly), documentId, generation, acknowledgedRevision })
       } else if (event.data.token === token) {
         if (kind === 'focus') actions.current?.focus()
         if (kind === 'insert-image' || kind === 'insert-attachment') {
@@ -82,9 +130,17 @@ function Editor() {
     }
     const click = (event: MouseEvent) => {
       const element = event.target instanceof Element ? event.target.closest('[data-jot-attachment-id]') : null
-      if (element) { event.preventDefault(); event.stopPropagation(); send('preview', element.getAttribute('data-jot-attachment-id')); return }
+      if (element) {
+        if (event.type !== 'click' || event.button !== 0) return
+        event.preventDefault(); event.stopPropagation(); send('preview', element.getAttribute('data-jot-attachment-id')); return
+      }
       const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null
-      if (link && /^(?:https?:|mailto:)/i.test(link.href)) { event.preventDefault(); event.stopPropagation(); send('link', link.href) }
+      if (link) {
+        const action = editorLinkEventAction(event, link.getAttribute('href') ?? '')
+        if (!action.preventDefault) return
+        event.preventDefault(); event.stopPropagation()
+        if (action.open) send('link', action.open)
+      }
     }
     const paste = (event: ClipboardEvent) => {
       const files = [...(event.clipboardData?.files ?? [])]
@@ -105,19 +161,31 @@ function Editor() {
         editor.setPointerCapture(event.pointerId)
       }
     }
-    let lastSelection = ''
+    const flushMountedNote = () => {
+      const current = activeSession.current
+      if (!current) return
+      const content = actions.current?.readDocument?.()
+      const pending = content ? current.pendingChange(content) : null
+      if (pending) send('change', pending)
+      send('flushed', { protocol: EDITOR_FRAME_PROTOCOL, documentId: current.documentId, generation: current.generation })
+    }
+    const publishSelection = (text: string, force = false) => {
+      const session = activeSession.current
+      if (!session || selectionGate.current.muted) return
+      if (!force && text === selectionGate.current.last) return
+      selectionGate.current.last = text
+      send('selection', session.selection(text))
+    }
     const selection = () => {
       if (!document.hasFocus()) return
-      const text = document.getSelection()?.toString() ?? ''
-      if (text !== lastSelection) { lastSelection = text; send('selection', text) }
+      publishSelection(document.getSelection()?.toString() ?? '')
     }
-    const focused = () => {
-      lastSelection = document.getSelection()?.toString() ?? ''
-      send('selection', lastSelection)
-    }
+    const focused = () => publishSelection(document.getSelection()?.toString() ?? '', true)
     window.addEventListener('message', receive)
+    window.addEventListener('pagehide', flushMountedNote)
     window.addEventListener('keydown', key, true)
     document.addEventListener('click', click, true)
+    document.addEventListener('auxclick', click, true)
     document.addEventListener('paste', paste, true)
     document.addEventListener('dragover', drag)
     document.addEventListener('drop', drop, true)
@@ -126,8 +194,9 @@ function Editor() {
     document.addEventListener('pointerdown', captureResize, true)
     parent.postMessage({ channel: 'jot-editor', kind: 'hello' }, '*')
     return () => {
-      window.removeEventListener('message', receive); window.removeEventListener('keydown', key, true)
-      document.removeEventListener('click', click, true); document.removeEventListener('paste', paste, true)
+      window.removeEventListener('message', receive); window.removeEventListener('pagehide', flushMountedNote); window.removeEventListener('keydown', key, true)
+      document.removeEventListener('click', click, true); document.removeEventListener('auxclick', click, true)
+      document.removeEventListener('paste', paste, true)
       document.removeEventListener('dragover', drag); document.removeEventListener('drop', drop, true)
       document.removeEventListener('selectionchange', selection)
       window.removeEventListener('focus', focused)
@@ -142,9 +211,9 @@ function Editor() {
   }, [Boolean(props)])
   return props && <div ref={root} lang={intlLocale(props.locale)} dir={isRtlLocale(props.locale) ? 'rtl' : 'ltr'} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
     <style>{jotStyles}</style>
-    <RichEditor value={props.value} resolveExternalValue={props.resolveExternalValue} locale={props.locale} readOnly={props.readOnly}
-      resolveAttachmentUrl={image} onChange={value => send('change', synchronized.current.edited(value))} onBlur={() => send('blur')}
-      onReady={value => { actions.current = value; send('ready') }} onRequestAttachment={() => send('upload')} />
+    <BoundNoteEditor key={`${props.documentId}:${props.generation}`} documentId={props.documentId} generation={props.generation}
+      value={props.value} acknowledgedRevision={props.acknowledgedRevision} locale={props.locale} readOnly={props.readOnly}
+      sessionRef={activeSession} actionsRef={actions} selectionGate={selectionGate} />
   </div>
 }
 createRoot(document.getElementById('jot-editor-root')!).render(<Editor />)

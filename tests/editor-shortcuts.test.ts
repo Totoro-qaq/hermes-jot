@@ -26,6 +26,9 @@ test('IME composition, AltGr, and browser clipboard/select-all chords are never 
   assert.equal(editorShortcut(chord('u', { metaKey: true }), false), null)
   for (const key of ['c', 'x', 'v', 'a']) assert.equal(editorShortcut(chord(key), false), null)
   assert.equal(editorShortcut(chord('b', { shiftKey: true }), false), null)
+  assert.equal(editorShortcut(chord('k'), false), 'link')
+  assert.equal(editorShortcut(chord('k', { shiftKey: true }), false), null)
+  assert.equal(editorShortcut(chord('k', { ctrlKey: false, metaKey: true }), true), 'link')
 })
 
 test('visible shortcut hints follow Apple and non-Apple conventions', () => {
@@ -36,4 +39,6 @@ test('visible shortcut hints follow Apple and non-Apple conventions', () => {
   assert.equal(editorShortcutLabel('underline', true), '⌘U')
   assert.equal(editorShortcutLabel('underline', false), 'Ctrl+U')
   assert.equal(editorShortcutLabel('redo', true), '⇧⌘Z')
+  assert.equal(editorShortcutLabel('link', true), '⌘K')
+  assert.equal(editorShortcutLabel('link', false), 'Ctrl+K')
 })

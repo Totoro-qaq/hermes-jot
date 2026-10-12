@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent, MouseEvent } from 'react'
+import type { KeyboardEvent } from 'react'
 import { defaultRangeExtractor, useVirtualizer } from '../hermes/virtualizer.js'
 import { translator } from './i18n.js'
 import { JotActionIcon } from './icons.js'
-import { activateNoteListItem, buildNoteListRows, formatNoteDate, highlightSegments, nextActiveNoteId, noteDateValue, noteDisplay, noteExcerpt, taskProgress } from './note-list.js'
+import { activateNoteListItem, buildNoteListRows, formatNoteDate, highlightSegments, isContextMenuKey, nextActiveNoteId, noteDateValue, noteDisplay, noteExcerpt, taskProgress } from './note-list.js'
 import type { NavigationKey, NoteDateBasis } from './note-list.js'
 import type { Folder, JotLocale, Note } from './types.js'
 
@@ -19,7 +19,7 @@ export interface NoteListProps {
   selectMode?: boolean
   selectedNoteIds?: ReadonlySet<string>
   onToggleSelection?: (note: Note) => void
-  onContextMenu?: (note: Note, event: MouseEvent) => void
+  onContextMenu?: (note: Note, point: { x: number; y: number }) => void
   dateBasis?: NoteDateBasis
   /** The current folder scope already names this metadata. */
   hideFolderName?: boolean
@@ -139,7 +139,7 @@ export function NoteList({ notes, selectedId = null, onSelect, query = '', folde
             if (!onContextMenu) return
             event.preventDefault()
             setActiveId(note.id)
-            onContextMenu(note, event)
+            onContextMenu(note, { x: event.clientX, y: event.clientY })
           }}
           style={selectMode ? { ...position, display: 'flex', alignItems: 'center', gap: 6 } : position}>
           {selectMode && <input type="checkbox" tabIndex={-1} checked={selectedNoteIds.has(note.id)}
@@ -150,6 +150,14 @@ export function NoteList({ notes, selectedId = null, onSelect, query = '', folde
             style={selectMode ? { flex: '1 1 auto', minWidth: 0 } : undefined}
             tabIndex={activeId === note.id ? 0 : -1}
             ref={element => { if (element) buttons.current.set(note.id, element); else buttons.current.delete(note.id) }}
+            onKeyDown={event => {
+              if (!onContextMenu || selectMode || !isContextMenuKey(event.nativeEvent)) return
+              event.preventDefault()
+              event.stopPropagation()
+              const rect = event.currentTarget.getBoundingClientRect()
+              const rtl = event.currentTarget.ownerDocument.defaultView?.getComputedStyle(event.currentTarget).direction === 'rtl'
+              onContextMenu(note, { x: rtl ? rect.right : rect.left, y: rect.bottom })
+            }}
             onFocus={() => setActiveId(note.id)} onClick={() => { setActiveId(note.id); activate(note) }}>
             <span className={`jot-note-title${display.title ? '' : ' is-untitled'}`}><span><Highlight text={title} query={needle} /></span>
               {note.pinned && <span className="jot-note-pin" role="img" aria-label={t('Pinned note')}><JotActionIcon name="pin" size={12} /></span>}
