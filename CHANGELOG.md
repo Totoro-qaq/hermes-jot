@@ -13,6 +13,7 @@
 - Tidying completed items is its own undo step, including keystrokes typed immediately afterward, and leaves the cursor in the same item.
 - Web addresses that include a username or password are refused when they are created or opened. A library that already contains one still opens and keeps the link. Exports leave the username and password out.
 - The style menu takes focus when it is opened from the keyboard, including Enter and Space. Arrow keys do not swallow a later screen-reader click. Escape returns focus to the Style button. A mouse click opens it without moving focus. In right-to-left text, the left and right arrow keys follow the reading direction.
+- Removing a link compares the address and the words from when the popover opened, so changing the address in the field still removes the original link. A stored web address that includes a username or password is shown without an href, and a click or middle-click does not follow it. The boundary between two links uses the link on the right. Inserting a link at the caret keeps marks such as bold. Checking a link before applying it uses the same length check as applying it. An ordinary notice does not restart its timer when another action starts or finishes.
 
 ## 0.3.1
 

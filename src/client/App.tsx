@@ -33,6 +33,7 @@ import { IMPORT_ACCEPT, importFileProblem, mergeImportResults, summarizeImport }
 import type { AttachmentInfo, ExportFormat, ImportResult, JotApi, JotLocale, JotState, LibraryExportFormat, Note, RichNode } from './types.js'
 import type { AttachmentDialogRequest } from './attachment-dialog.js'
 import { intlLocale, isRtlLocale, translator } from './i18n.js'
+import { toastDeadline, toastRemainingAfter, toastTimerDeps } from './toasts.js'
 
 export interface JotAppProps {
   readSelectedText?: () => string
@@ -191,11 +192,24 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const showToast = useCallback((text: string, action?: Toast['action']) => {
     setToast({ id: ++toastSequence.current, text, action })
   }, [])
+  const toastClock = useRef<{ id: number; remainingMs: number } | null>(null)
+  // 普通通知的 paused 一直是 false，busy 变化不会重开计时器。撤销提示才会在忙碌时暂停。
+  const toastTiming = toast ? toastTimerDeps(toast.id, Boolean(toast.action), busy) : null
   useEffect(() => {
-    if (!toast) return
-    const timer = setTimeout(() => setToast(current => current?.id === toast.id ? null : current), toast.action ? 6000 : 3500)
-    return () => clearTimeout(timer)
-  }, [toast])
+    if (!toast || !toastTiming) { toastClock.current = null; return }
+    const decision = toastDeadline({
+      id: toastTiming.id, hasAction: Boolean(toast.action), busy: toastTiming.paused, clock: toastClock.current,
+    })
+    toastClock.current = decision.clock
+    if (decision.delayMs === null) return
+    const started = Date.now()
+    const timer = setTimeout(() => setToast(current => current?.id === toast.id ? null : current), decision.delayMs)
+    return () => {
+      clearTimeout(timer)
+      if (!toastClock.current || toastClock.current.id !== toast.id) return
+      toastClock.current = { id: toast.id, remainingMs: toastRemainingAfter(toastClock.current.remainingMs, Date.now() - started) }
+    }
+  }, [toast, toastTiming?.id, toastTiming?.paused])
   const fileInput = useRef<HTMLInputElement>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const mounted = useRef(true)

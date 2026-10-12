@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from './layers.js'
 import { Editor } from '@tiptap/core'
+import type { EditorView } from '@tiptap/pm/view'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { closeHistory } from '@tiptap/pm/history'
@@ -8,7 +9,7 @@ import { columnResizingPluginKey } from '@tiptap/pm/tables'
 import { findMatches, replaceAllMatches, replaceMatch } from './document-find.js'
 import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
-import { applyLinkEdit, normalizeLinkHref, openableLinkHref, readLinkDraft, removeLink } from './link-commands.js'
+import { applyLinkEdit, blockCredentialLinkEvent, linkMarkHref, linkUnderCaret, normalizeLinkHref, openableLinkHref, openedLinkRange, removeLink } from './link-commands.js'
 import { taskListsNeedTidy, tidyCompletedTasks } from './list-commands.js'
 import { nextRovingIndex, styleMenuActivationIsDuplicate, styleMenuArmsClickDedupe, styleMenuDismissFocus, styleMenuKeyboardEdge } from './roving-focus.js'
 import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
@@ -16,7 +17,6 @@ import { syncEditorContent } from './editor-content.js'
 import { insertManagedAttachment } from './editor-attachments.js'
 import { appendEditorBlocks } from './editor-append.js'
 import { JotActionIcon, type JotActionIconName } from './icons.js'
-import { getMarkRange } from '@tiptap/core'
 import { TableControls } from './TableControls.js'
 import { HIGHLIGHT_COLORS, TEXT_COLORS } from '../model.js'
 import { applySlashItem, filterSlashItems, slashLabel, slashMatch, type SlashItem, type SlashMatch } from './slash-menu.js'
@@ -54,6 +54,22 @@ export interface RichEditorActions {
   readDocument?: () => RichDoc | null
 }
 
+/** 原生 click / auxclick 会导航。mouseup 上的 preventDefault 拦不住，所以这两处单独看文档标记。 */
+function blockCredentialNavigation(view: EditorView, event: MouseEvent): boolean {
+  const target = event.target instanceof Element ? event.target : event.target instanceof globalThis.Node ? event.target.parentElement : null
+  const anchor = target?.closest('a') ?? null
+  if (!anchor || !view.dom.contains(anchor)) return false
+  const attachment = anchor.hasAttribute('data-jot-attachment-id') || anchor.getAttribute('data-type') === 'jot-attachment'
+  const hit = view.posAtCoords({ left: event.clientX, top: event.clientY })
+  let pos = hit?.pos
+  if (pos == null) {
+    try { pos = view.posAtDOM(anchor, 0) } catch { pos = undefined }
+  }
+  // 账号口令地址渲染时不带 href。空字符串仍会打开当前页，所以属性是省略而不是写成空。
+  const href = (pos == null ? null : linkMarkHref(view.state, pos)) || anchor.getAttribute('href')
+  return blockCredentialLinkEvent(event, href, attachment)
+}
+
 function EditorControlIcon({ name }: { name: 'format' | 'chevron' | 'todo' | 'find' | 'previous' | 'next' | 'close' | 'table' }) {
   const names: Record<typeof name, JotActionIconName> = {
     format: 'format', chevron: 'chevron-down', todo: 'checklist', find: 'search',
@@ -87,6 +103,8 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   const linkTrigger = useRef<HTMLButtonElement>(null)
   const linkPopover = useRef<HTMLDivElement>(null)
   const linkUrlInput = useRef<HTMLInputElement>(null)
+  /** 浮层打开时文档里的地址和原文。之后改输入框不能拿来和文档比对。 */
+  const openedLink = useRef<{ from: number; to: number; original: string; originalHref: string | null } | null>(null)
   const [paletteOpen, setPaletteOpen] = useState<'text' | 'highlight' | null>(null)
   const [findOpen, setFindOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -144,6 +162,11 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       extensions: createJotExtensions({ resolveAttachmentUrl: id => callbacks.current.resolveAttachmentUrl?.(id) ?? managedAttachmentUrl(id),
         locale: () => callbacks.current.locale }),
       editorProps: {
+        handleDOMEvents: {
+          // mouseup 的 preventDefault 拦不住随后的 click 和中键 auxclick。
+          click: (view, event) => blockCredentialNavigation(view, event),
+          auxclick: (view, event) => blockCredentialNavigation(view, event),
+        },
         handleKeyDown: (_view, event) => {
           const menu = slashState.current
           if (menu && !event.isComposing && event.keyCode !== 229 && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -355,14 +378,22 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   const openLink = () => {
     const current = instance.current
     if (!current || callbacks.current.readOnly) return
-    const type = current.state.schema.marks.link
-    const range = type ? getMarkRange(current.state.selection.$from, type) : undefined
     const { from, to, empty } = current.state.selection
-    const inside = Boolean(range && (empty || (from >= range.from && to <= range.to)))
-    const draft = inside ? readLinkDraft(current.state) : null
-    setLinkEditing(Boolean(draft))
-    setLinkHref(draft?.href ?? '')
-    setLinkText(draft ? draft.text : empty ? '' : current.state.doc.textBetween(from, to))
+    const found = linkUnderCaret(current.state)
+    const inside = Boolean(found && (empty || (from >= found.from && to <= found.to)))
+    const editing = inside ? found : null
+    const sourceFrom = editing ? editing.from : from
+    const sourceTo = editing ? editing.to : to
+    // 删链接时要比对打开这一刻的地址和原文，不能用之后改过的输入框。
+    openedLink.current = {
+      from: sourceFrom,
+      to: sourceTo,
+      original: current.state.doc.textBetween(sourceFrom, sourceTo),
+      originalHref: editing?.href ?? null,
+    }
+    setLinkEditing(Boolean(editing))
+    setLinkHref(editing?.href ?? '')
+    setLinkText(editing ? editing.text : empty ? '' : current.state.doc.textBetween(from, to))
     setLinkError('')
     setFormatOpen(false)
     setPaletteOpen(null)
@@ -386,7 +417,9 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   }
   const clearLink = () => {
     const current = instance.current
-    if (!current || !removeLink(current.state, current.view.dispatch)) return
+    const captured = openedLink.current
+    if (!current || !captured || !removeLink(current.state, current.view.dispatch, openedLinkRange(captured))) return
+    openedLink.current = null
     setLinkOpen(false)
     current.commands.focus()
   }
