@@ -1,4 +1,3 @@
-
 /** JSON-only rich documents shared by the editor, persistence, and agent tools. */
 export type Actor = 'user' | 'agent'
 export type ErrorCode = 'INVALID_INPUT' | 'NOT_FOUND' | 'REVISION_CONFLICT' |
@@ -122,7 +121,7 @@ export function validateActor(actor: unknown): Actor {
   return actor
 }
 
-function mark(value: unknown): RichMark | null {
+function mark(value: unknown): RichMark {
   const data = record(value, 'mark')
   onlyKeys(data, ['type', 'attrs'], 'mark')
   if (typeof data.type !== 'string' || !MARKS.has(data.type)) invalid('Unsupported mark type')
@@ -143,8 +142,6 @@ function mark(value: unknown): RichMark | null {
   onlyKeys(attrs, ['href', 'target', 'rel', 'class', 'title'], 'link attrs')
   const href = boundedString(attrs.href, 2_048, 'link href', false)
   if (!/^(https?:\/\/|mailto:|tel:|#)/i.test(href) || /[\u0000-\u0020]/.test(href)) invalid('Unsafe link href')
-  // 已经写进笔记的账号密码链接留在原文里，避免下次保存时被悄悄删掉。
-  // 新建和打开仍拒绝；导出会去掉账号密码。
   const result: RichAttrs = { href }
   if (attrs.target !== undefined) {
     if (attrs.target !== null && attrs.target !== '_blank' && attrs.target !== '_self') invalid('Invalid link target')
@@ -180,9 +177,9 @@ export function validateRichDoc(value: unknown): RichDoc {
       result.text = text
       if (data.marks !== undefined) {
         if (!Array.isArray(data.marks) || data.marks.length > MARKS.size) invalid('Invalid marks')
-        const validated = data.marks.map(mark).filter((item): item is RichMark => item !== null)
+        const validated = data.marks.map(mark)
         if (new Set(validated.map(item => item.type)).size !== validated.length) invalid('Duplicate marks')
-        if (validated.length) result.marks = validated
+        result.marks = validated
       }
       return result
     }

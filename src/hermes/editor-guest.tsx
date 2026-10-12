@@ -136,7 +136,7 @@ function Editor() {
       }
       const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null
       if (link) {
-        const action = editorLinkEventAction(event, link.getAttribute('href') ?? '', link.href)
+        const action = editorLinkEventAction(event, link.getAttribute('href') ?? '')
         if (!action.preventDefault) return
         event.preventDefault(); event.stopPropagation()
         if (action.open) send('link', action.open)

@@ -1,19 +1,14 @@
 import { getMarkRange } from '@tiptap/core'
 import type { Mark, MarkType, Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
-import { httpHrefHasCredentials, normalizeLinkHref, openableLinkHref } from '../link-href.js'
+import { normalizeLinkHref } from '../link-href.js'
 import { validateRichDoc } from '../model.js'
-
-export { normalizeLinkHref, openableLinkHref }
-
-export interface LinkDraft { href: string; text: string }
 
 /**
  * 点击处文档里的链接地址。
  * 两条链接相接时，边界上的 `marks()` 会因为链接标记 inclusive 而落到左侧，所以先看右侧的 `nodeAfter`。
- * 渲染时若没有 href，仍以标记为准，避免浏览器把空地址当成当前页。
  */
-export function linkMarkHref(state: EditorState, pos: number): string | null {
+function linkMarkHref(state: EditorState, pos: number): string | null {
   const link = state.schema.marks.link
   if (!link) return null
   const $pos = state.doc.resolve(Math.max(0, Math.min(pos, state.doc.content.size)))
@@ -54,69 +49,10 @@ export function linkUnderCaret(state: EditorState): { from: number; to: number; 
   return { from: range.from, to: range.to, href: mark.attrs.href, text: state.doc.textBetween(range.from, range.to) }
 }
 
-export function readLinkDraft(state: EditorState): LinkDraft | null {
-  const found = linkUnderCaret(state)
-  return found ? { href: found.href, text: found.text } : null
-}
-
-/** 光标在链接内时改整段链接；否则只处理当前选区。选区必须落在同一个文本块里。 */
-function linkTarget(state: EditorState, type: MarkType): { from: number; to: number } | null {
-  const { selection } = state
-  const { $from, $to } = selection
-  if (!$from.sameParent($to) || !$from.parent.isTextblock) return null
-  const around = selection.empty
-    ? linkRangePreferringNext(state, selection.from, type)
-    : getMarkRange($from, type) ?? null
-  if (around && (selection.empty || (selection.from >= around.from && selection.to <= around.to))) return around
-  if (!$from.parent.type.allowsMarkType(type)) return null
-  return { from: selection.from, to: selection.to }
-}
-
-/**
- * 插入时要留下的标记。光标收起时没有字符可读，用当前存储的标记，避免丢掉刚打开的粗体。
- * 空数组表示用户清掉了标记，不能再退回到光标两侧的标记。
- * 和链接互斥的标记（例如行内代码）返回 null，调用方整次编辑都取消。
- */
-function keptMarks(state: EditorState, from: number, type: MarkType, empty: boolean): readonly Mark[] | null {
-  const node = state.doc.nodeAt(from)
-  const marks = empty
-    ? (state.storedMarks ?? state.doc.resolve(from).marks())
-    : node?.isText ? node.marks : state.storedMarks ?? state.selection.$from.marks()
-  const kept = marks.filter(mark => mark.type !== type)
-  if (kept.some(mark => mark.type.excludes(type) || type.excludes(mark.type))) return null
-  return kept
-}
-
-/** 选区里每一段文字都已经是这个 href 时，才算已经加上，不能只看开头。 */
-function rangeCarriesLink(state: EditorState, range: { from: number; to: number }, type: MarkType, href: string): boolean {
-  let carries = true
-  let sawText = false
-  state.doc.nodesBetween(range.from, range.to, (node, pos) => {
-    if (!node.isText) return
-    const start = Math.max(pos, range.from)
-    const end = Math.min(pos + node.nodeSize, range.to)
-    if (start >= end) return
-    sawText = true
-    const mark = type.isInSet(node.marks)
-    if (!mark || mark.attrs.href !== href) carries = false
-  })
-  return carries && sawText
-}
-
-/** 范围里第一段文字上的链接标记。选区从换行开始时 `nodeAt(from)` 是换行，读不到原有的链接属性。 */
-function firstLinkMark(state: EditorState, range: { from: number; to: number }, type: MarkType): Mark | undefined {
-  let first: ProseMirrorNode | null = null
-  state.doc.nodesBetween(range.from, range.to, (node, pos) => {
-    if (first || !node.isText || Math.max(pos, range.from) >= Math.min(pos + node.nodeSize, range.to)) return
-    first = node
-  })
-  return (first ?? state.doc.nodeAt(range.from))?.marks.find(mark => mark.type === type)
-}
-
 /** 选区里一段连续文字和它的链接地址。没有链接时 href 为 null。 */
 export interface LinkHrefSegment { text: string; href: string | null }
 
-/** 选区里每一段文字当时的地址。相邻且地址相同的并成一段。 */
+/** 选区里每一段文字当时的地址。相邻且地址相同的并成一段，换行等非文字节点跳过。 */
 export function linkHrefSegments(doc: ProseMirrorNode, from: number, to: number): LinkHrefSegment[] {
   const link = doc.type.schema.marks.link
   if (!link || from >= to) return []
@@ -134,61 +70,90 @@ export function linkHrefSegments(doc: ProseMirrorNode, from: number, to: number)
   return segments
 }
 
-function sameHrefSegments(left: readonly LinkHrefSegment[], right: readonly LinkHrefSegment[]): boolean {
-  return left.length === right.length && left.every((segment, index) => segment.text === right[index]?.text && segment.href === right[index]?.href)
+/**
+ * 浮层打开时记下的范围，以及其中每一段的文字和地址。
+ * 保存和删除前都要和正文对上；别人在这期间改了文字或任何一段的地址，就不写。
+ */
+export interface LinkCapture { from: number; to: number; segments: readonly LinkHrefSegment[] }
+
+/**
+ * 浮层要处理的范围。光标在链接里或选区落在一条链接之内时取整条链接，否则取选区。
+ * `href` 是正在编辑的那条链接的地址，新建时为 null。
+ */
+export function captureLink(state: EditorState): LinkCapture & { href: string | null; text: string } {
+  const { from, to, empty } = state.selection
+  const found = linkUnderCaret(state)
+  const editing = found && (empty || (from >= found.from && to <= found.to)) ? found : null
+  const range = editing ?? { from, to }
+  return {
+    from: range.from,
+    to: range.to,
+    segments: linkHrefSegments(state.doc, range.from, range.to),
+    href: editing?.href ?? null,
+    text: state.doc.textBetween(range.from, range.to),
+  }
 }
 
-/** 这一段里的链接地址。混着不同地址或有的字没有链接时返回 null。 */
-function hrefInRange(state: EditorState, from: number, to: number): string | null {
-  const segments = linkHrefSegments(state.doc, from, to)
-  return segments.length === 1 ? segments[0]!.href : null
+function captureMatches(state: EditorState, captured: LinkCapture): boolean {
+  if (captured.from < 0 || captured.to < captured.from || captured.to > state.doc.content.size) return false
+  const now = linkHrefSegments(state.doc, captured.from, captured.to)
+  return now.length === captured.segments.length
+    && now.every((segment, index) => segment.text === captured.segments[index]!.text && segment.href === captured.segments[index]!.href)
 }
 
+/**
+ * 插入时要留下的标记。光标收起时没有字符可读，用当前存储的标记，避免丢掉刚打开的粗体。
+ * 空数组表示用户清掉了标记，不能再退回到光标两侧的标记。
+ * 和链接互斥的标记（例如行内代码）返回 null，调用方整次编辑都取消。
+ */
+function keptMarks(state: EditorState, from: number, type: MarkType, empty: boolean): readonly Mark[] | null {
+  const node = state.doc.nodeAt(from)
+  const marks = empty
+    ? (state.storedMarks ?? state.doc.resolve(from).marks())
+    : node?.isText ? node.marks : state.storedMarks ?? state.selection.$from.marks()
+  const kept = marks.filter(mark => mark.type !== type)
+  if (kept.some(mark => mark.type.excludes(type) || type.excludes(mark.type))) return null
+  return kept
+}
+
+/** 范围里第一段文字上的链接标记。选区从换行开始时 `nodeAt(from)` 是换行，读不到原有的链接属性。 */
+function firstLinkMark(state: EditorState, range: { from: number; to: number }, type: MarkType): Mark | undefined {
+  let first: ProseMirrorNode | null = null
+  state.doc.nodesBetween(range.from, range.to, (node, pos) => {
+    if (first || !node.isText || Math.max(pos, range.from) >= Math.min(pos + node.nodeSize, range.to)) return
+    first = node
+  })
+  return (first ?? state.doc.nodeAt(range.from))?.marks.find(mark => mark.type === type)
+}
+
+/**
+ * 把范围改成链接。不传 `captured` 时按当前选区现取。
+ * 正文和打开浮层时对不上返回 'stale'；跨段落、和链接互斥的标记或超出笔记限制时返回 false。
+ */
 export function applyLinkEdit(
   state: EditorState,
   dispatch: ((tr: Transaction) => void) | undefined,
-  input: {
-    href: string; text: string; from?: number; to?: number; original?: string; originalHref?: string | null
-    /** 浮层打开时每一段的地址。混合选区收成一个地址时只剩 null，别人改过其中一段也看不出来。 */
-    originalSegments?: readonly LinkHrefSegment[]
-  },
+  input: { href: string; text: string; captured?: LinkCapture },
 ): boolean | 'stale' {
   const type = state.schema.marks.link
-  if (!type) return false
   const href = normalizeLinkHref(input.href)
-  if (!href) return false
-  // 浮层打开时记下的范围、原文和地址。对不上就不动，并告诉调用方正文已经变了。
-  const remembered = input.from !== undefined && input.to !== undefined && input.original !== undefined
-  let range: { from: number; to: number } | null
-  if (remembered) {
-    const size = state.doc.content.size
-    const from = input.from as number
-    const to = input.to as number
-    if (from < 0 || to < from || from > size || to > size || state.doc.textBetween(from, to) !== input.original) return 'stale'
-    if (input.originalSegments !== undefined) {
-      if (!sameHrefSegments(linkHrefSegments(state.doc, from, to), input.originalSegments)) return 'stale'
-    } else if (input.originalHref !== undefined && hrefInRange(state, from, to) !== input.originalHref) return 'stale'
-    const $from = state.doc.resolve(from)
-    const $to = state.doc.resolve(to)
-    if (!$from.sameParent($to) || !$from.parent.isTextblock || !$from.parent.type.allowsMarkType(type)) return false
-    range = { from, to }
-  } else {
-    range = linkTarget(state, type)
-  }
-  if (!range) return false
+  if (!type || !href) return false
+  if (input.captured && !captureMatches(state, input.captured)) return 'stale'
+  const range = input.captured ?? captureLink(state)
+  const $from = state.doc.resolve(range.from)
+  if (!$from.sameParent(state.doc.resolve(range.to)) || !$from.parent.isTextblock || !$from.parent.type.allowsMarkType(type)) return false
   const current = state.doc.textBetween(range.from, range.to)
   // 空白输入表示沿用选区原文。用户留下的首尾空格要保留，不能 trim 后再写回去。
-  const typed = typeof input.text === 'string' ? input.text : ''
-  const text = typed.trim() ? typed : (current || href)
-  if (!text || /[\u0000\n\r]/u.test(text)) return false
-  const existing = firstLinkMark(state, range, type)
-  if (text === current && range.from < range.to && rangeCarriesLink(state, range, type, href)) return true
-  const link = type.create({ ...(existing?.attrs ?? {}), href })
-  const empty = range.from === range.to
+  const text = input.text.trim() ? input.text : (current || href)
+  if (/[\u0000\n\r]/u.test(text)) return false
+  const unchanged = text === current && range.from < range.to
+  const segments = linkHrefSegments(state.doc, range.from, range.to)
+  if (unchanged && segments.length === 1 && segments[0]!.href === href) return true
+  const link = type.create({ ...(firstLinkMark(state, range, type)?.attrs ?? {}), href })
   let tr = state.tr
-  // 文字没改时只加链接标记，原有的加粗、斜体和空格都留在各自的文本节点上。
-  // 换行和其他行内节点不能带链接标记，只给文字段加，否则校验会把整次修改退回。
-  if (text === current && range.from < range.to) {
+  if (unchanged) {
+    // 文字没改时只加链接标记，原有的加粗、斜体和空格都留在各自的文本节点上。
+    // 换行和其他行内节点不能带链接标记，只给文字段加，否则校验会把整次修改退回。
     tr = tr.removeMark(range.from, range.to, type)
     state.doc.nodesBetween(range.from, range.to, (node, pos) => {
       if (!node.isText) return
@@ -197,6 +162,7 @@ export function applyLinkEdit(
       if (start < end) tr = tr.addMark(start, end, link)
     })
   } else {
+    const empty = range.from === range.to
     const kept = keptMarks(state, range.from, type, empty)
     if (!kept) return false
     let node
@@ -206,68 +172,19 @@ export function applyLinkEdit(
   }
   // 先建事务并做和正式提交相同的校验。干跑不能在超长文字上提前返回 true。
   try { validateRichDoc(tr.doc.toJSON()) } catch { return false }
-  if (!dispatch) return true
-  dispatch(tr.scrollIntoView())
+  dispatch?.(tr.scrollIntoView())
   return true
 }
 
 /**
- * 去掉光标所在的整段链接，不改文字。
- * 传入浮层打开时记下的地址和原文时，对不上就不动，避免选区已经滑到旁边的链接上。
+ * 去掉链接，不改文字。传入浮层打开时的 `captured` 时，正文对不上就不动，避免删到旁边已经变了的链接。
+ * 不传时去掉光标所在的整条链接。
  */
-export function removeLink(
-  state: EditorState,
-  dispatch?: (tr: Transaction) => void,
-  captured?: { from: number; to: number; href?: string | null; original?: string },
-): boolean {
+export function removeLink(state: EditorState, dispatch?: (tr: Transaction) => void, captured?: LinkCapture): boolean {
   const type = state.schema.marks.link
-  if (!type) return false
-  let from: number
-  let to: number
-  if (captured) {
-    const size = state.doc.content.size
-    if (captured.from < 0 || captured.to < captured.from || captured.from > size || captured.to > size) return false
-    from = captured.from
-    to = captured.to
-    if (from === to) {
-      const found = linkRangePreferringNext(state, from, type)
-      if (!found) return false
-      from = found.from
-      to = found.to
-    }
-  } else {
-    const range = state.selection.empty
-      ? linkRangePreferringNext(state, state.selection.from, type)
-      : getMarkRange(state.selection.$from, type) ?? null
-    if (!range) return false
-    from = range.from
-    to = range.to
-  }
-  if (from >= to || !state.doc.rangeHasMark(from, to, type)) return false
-  if (captured?.href != null && hrefInRange(state, from, to) !== captured.href) return false
-  if (captured?.original !== undefined && state.doc.textBetween(from, to) !== captured.original) return false
-  if (!dispatch) return true
-  dispatch(state.tr.removeMark(from, to, type).scrollIntoView())
+  if (!type || (captured && !captureMatches(state, captured))) return false
+  const range = captured ?? linkUnderCaret(state)
+  if (!range || range.from >= range.to || !state.doc.rangeHasMark(range.from, range.to, type)) return false
+  dispatch?.(state.tr.removeMark(range.from, range.to, type).scrollIntoView())
   return true
-}
-
-/**
- * 原生 `click` 和中键 `auxclick` 会跟着 href 导航，mouseup 上的 preventDefault 拦不住。
- * 只拦带账号口令的地址；附件卡片和普通链接仍走原来的点击处理。
- */
-export function blockCredentialLinkEvent(event: { type: string; preventDefault(): void }, href: string | null, attachment: boolean): boolean {
-  if (attachment || (event.type !== 'click' && event.type !== 'auxclick')) return false
-  if (!href || !httpHrefHasCredentials(href)) return false
-  event.preventDefault()
-  return true
-}
-
-/** 删除时只用浮层打开那一刻的地址和原文。之后改过的输入不能拿来比对，否则删除会静默失败。 */
-export function openedLinkRange(draft: {
-  from: number
-  to: number
-  original: string
-  originalHref: string | null
-}): { from: number; to: number; original: string; href: string | null } {
-  return { from: draft.from, to: draft.to, original: draft.original, href: draft.originalHref }
 }

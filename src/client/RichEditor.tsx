@@ -1,7 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from './layers.js'
 import { Editor } from '@tiptap/core'
-import type { EditorView } from '@tiptap/pm/view'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { closeHistory } from '@tiptap/pm/history'
@@ -9,9 +8,10 @@ import { columnResizingPluginKey } from '@tiptap/pm/tables'
 import { findMatches, replaceAllMatches, replaceMatch } from './document-find.js'
 import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
-import { applyLinkEdit, blockCredentialLinkEvent, linkHrefSegments, linkMarkHref, linkUnderCaret, normalizeLinkHref, openableLinkHref, openedLinkRange, removeLink, type LinkHrefSegment } from './link-commands.js'
+import { applyLinkEdit, captureLink, removeLink, type LinkCapture } from './link-commands.js'
+import { normalizeLinkHref, openableLinkHref } from '../link-href.js'
 import { taskListsNeedTidy, tidyCompletedTasks } from './list-commands.js'
-import { nextRovingIndex, styleMenuActivationIsDuplicate, styleMenuArmsClickDedupe, styleMenuDedupeShouldRelease, styleMenuDismissFocus, styleMenuKeyboardEdge } from './roving-focus.js'
+import { nextRovingIndex, styleMenuKeyboardEdge } from './roving-focus.js'
 import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
 import { insertManagedAttachment } from './editor-attachments.js'
@@ -29,7 +29,7 @@ export interface RichEditorProps {
   value: RichDoc
   /** Resolve a delayed host update against edits made before this React effect. */
   resolveExternalValue?: () => RichDoc
-  onChange: (content: RichDoc, editorRevision?: number, documentId?: string, generation?: number, mount?: number) => void
+  onChange: (content: RichDoc, editorRevision?: number, documentId?: string, generation?: number) => void
   onBlur?: () => void
   readOnly?: boolean
   locale?: JotLocale
@@ -52,22 +52,6 @@ export interface RichEditorActions {
   focus: () => void
   /** 换笔记前读出当前正文，用这篇笔记挂载时的代次发出去。 */
   readDocument?: () => RichDoc | null
-}
-
-/** 原生 click / auxclick 会导航。mouseup 上的 preventDefault 拦不住，所以这两处单独看文档标记。 */
-function blockCredentialNavigation(view: EditorView, event: MouseEvent): boolean {
-  const target = event.target instanceof Element ? event.target : event.target instanceof globalThis.Node ? event.target.parentElement : null
-  const anchor = target?.closest('a') ?? null
-  if (!anchor || !view.dom.contains(anchor)) return false
-  const attachment = anchor.hasAttribute('data-jot-attachment-id') || anchor.getAttribute('data-type') === 'jot-attachment'
-  const hit = view.posAtCoords({ left: event.clientX, top: event.clientY })
-  let pos = hit?.pos
-  if (pos == null) {
-    try { pos = view.posAtDOM(anchor, 0) } catch { pos = undefined }
-  }
-  // 账号口令地址渲染时不带 href。空字符串仍会打开当前页，所以属性是省略而不是写成空。
-  const href = (pos == null ? null : linkMarkHref(view.state, pos)) || anchor.getAttribute('href')
-  return blockCredentialLinkEvent(event, href, attachment)
 }
 
 function EditorControlIcon({ name }: { name: 'format' | 'chevron' | 'todo' | 'find' | 'previous' | 'next' | 'close' | 'table' }) {
@@ -103,8 +87,8 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   const linkTrigger = useRef<HTMLButtonElement>(null)
   const linkPopover = useRef<HTMLDivElement>(null)
   const linkUrlInput = useRef<HTMLInputElement>(null)
-  /** 浮层打开时文档里的地址和原文。之后改输入框不能拿来和文档比对。 */
-  const openedLink = useRef<{ from: number; to: number; original: string; originalHref: string | null; originalSegments: LinkHrefSegment[] } | null>(null)
+  /** 浮层打开时文档里的范围、文字和地址。之后改输入框不能拿来和文档比对。 */
+  const openedLink = useRef<LinkCapture | null>(null)
   const [paletteOpen, setPaletteOpen] = useState<'text' | 'highlight' | null>(null)
   const [findOpen, setFindOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -162,11 +146,6 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       extensions: createJotExtensions({ resolveAttachmentUrl: id => callbacks.current.resolveAttachmentUrl?.(id) ?? managedAttachmentUrl(id),
         locale: () => callbacks.current.locale }),
       editorProps: {
-        handleDOMEvents: {
-          // mouseup 的 preventDefault 拦不住随后的 click 和中键 auxclick。
-          click: (view, event) => blockCredentialNavigation(view, event),
-          auxclick: (view, event) => blockCredentialNavigation(view, event),
-        },
         handleKeyDown: (_view, event) => {
           const menu = slashState.current
           if (menu && !event.isComposing && event.keyCode !== 229 && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -306,14 +285,17 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
     page.addEventListener('pointerdown', outside, true)
     return () => page.removeEventListener('pointerdown', outside, true)
   }, [formatOpen])
+  const formatButtons = () => [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
+  const focusFormatEdge = (edge: 'first' | 'last') => {
+    const buttons = formatButtons()
+    ;(edge === 'last' ? buttons.at(-1) : buttons[0])?.focus()
+  }
   useLayoutEffect(() => {
     if (!formatOpen) return
     const edge = formatFocus.current
     formatFocus.current = null
-    // 鼠标点开菜单时焦点留在编辑器里；只有方向键才会把焦点移进菜单。
-    if (edge !== 'first' && edge !== 'last') return
-    const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
-    ;(edge === 'last' ? buttons.at(-1) : buttons[0])?.focus()
+    // 鼠标点开菜单时焦点留在编辑器里；只有键盘打开才会把焦点移进菜单。
+    if (edge) focusFormatEdge(edge)
   }, [formatOpen])
   useEffect(() => {
     if (!linkOpen) return
@@ -378,23 +360,11 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   const openLink = () => {
     const current = instance.current
     if (!current || callbacks.current.readOnly) return
-    const { from, to, empty } = current.state.selection
-    const found = linkUnderCaret(current.state)
-    const inside = Boolean(found && (empty || (from >= found.from && to <= found.to)))
-    const editing = inside ? found : null
-    const sourceFrom = editing ? editing.from : from
-    const sourceTo = editing ? editing.to : to
-    // 删链接时要比对打开这一刻的地址和原文，不能用之后改过的输入框。
-    openedLink.current = {
-      from: sourceFrom,
-      to: sourceTo,
-      original: current.state.doc.textBetween(sourceFrom, sourceTo),
-      originalHref: editing?.href ?? null,
-      originalSegments: linkHrefSegments(current.state.doc, sourceFrom, sourceTo),
-    }
-    setLinkEditing(Boolean(editing))
-    setLinkHref(editing?.href ?? '')
-    setLinkText(editing ? editing.text : empty ? '' : current.state.doc.textBetween(from, to))
+    const captured = captureLink(current.state)
+    openedLink.current = captured
+    setLinkEditing(captured.href !== null)
+    setLinkHref(captured.href ?? '')
+    setLinkText(captured.text)
     setLinkError('')
     setFormatOpen(false)
     setPaletteOpen(null)
@@ -409,12 +379,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       linkUrlInput.current?.focus()
       return
     }
-    const captured = openedLink.current
-    const result = applyLinkEdit(current.state, current.view.dispatch, {
-      href: linkHref,
-      text: linkText,
-      ...(captured ? { from: captured.from, to: captured.to, original: captured.original, originalHref: captured.originalHref, originalSegments: captured.originalSegments } : {}),
-    })
+    const result = applyLinkEdit(current.state, current.view.dispatch, { href: linkHref, text: linkText, captured: openedLink.current ?? undefined })
     if (result === 'stale') {
       setLinkError(t('The note changed. Open the link again.'))
       return
@@ -430,7 +395,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
     const current = instance.current
     const captured = openedLink.current
     if (!current || !captured) return
-    if (!removeLink(current.state, current.view.dispatch, openedLinkRange(captured))) {
+    if (!removeLink(current.state, current.view.dispatch, captured)) {
       setLinkError(t('The note changed. Open the link again.'))
       return
     }
@@ -528,7 +493,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
         if (linkOpen) { setLinkOpen(false); editor?.commands.focus() }
         else if (formatOpen) {
           setFormatOpen(false); setPaletteOpen(null)
-          if (styleMenuDismissFocus() === 'trigger') formatTrigger.current?.focus()
+          formatTrigger.current?.focus()
         }
         else closeFind()
       }
@@ -541,24 +506,16 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
             const edge = styleMenuKeyboardEdge(event.key)
             if (!edge || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
             event.preventDefault(); event.stopPropagation()
-            styleKeyActivation.current = styleMenuArmsClickDedupe(event.key)
-            const releaseKey = event.key
-            const page = event.currentTarget.ownerDocument.defaultView ?? globalThis
-            if (styleMenuDedupeShouldRelease('tick', releaseKey)) page.setTimeout(() => { styleKeyActivation.current = false }, 0)
-            formatFocus.current = edge
+            // Enter 和空格之后可能补发一次 detail 为 0 的 click，它不能把刚打开的菜单再关上。
+            // 方向键不补发。标记下一拍一定清掉，之后读屏直接发出的 click 仍然有效。
+            styleKeyActivation.current = event.key === 'Enter' || event.key === ' '
+            setTimeout(() => { styleKeyActivation.current = false }, 0)
             setLinkOpen(false); setPaletteOpen(null)
-            if (!formatOpen) { setFormatOpen(true); return }
-            const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
-            ;(edge === 'last' ? buttons.at(-1) : buttons[0])?.focus()
-            formatFocus.current = null
-          }}
-          onKeyUp={event => {
-            if (!styleMenuDedupeShouldRelease('keyup', event.key)) return
-            const page = event.currentTarget.ownerDocument.defaultView ?? globalThis
-            page.setTimeout(() => { styleKeyActivation.current = false }, 0)
+            if (formatOpen) focusFormatEdge(edge)
+            else { formatFocus.current = edge; setFormatOpen(true) }
           }}
           onClick={event => {
-            const duplicate = styleMenuActivationIsDuplicate(event.detail, styleKeyActivation.current)
+            const duplicate = event.detail === 0 && styleKeyActivation.current
             styleKeyActivation.current = false
             if (duplicate) return
             formatFocus.current = null
@@ -600,7 +557,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
         {formatOpen && <div ref={formatPopover} className="jot-format-popover" role="group" aria-label={t('Text styles')}
           onKeyDown={event => {
             if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey) return
-            const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
+            const buttons = formatButtons()
             const next = nextRovingIndex(buttons.length, buttons.indexOf(event.target as HTMLButtonElement), event.key, isRtlLocale(locale) ? 'rtl' : 'ltr')
             if (next === null) return
             event.preventDefault(); event.stopPropagation()
