@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { advanceEditorFrame, guestEditorAction, initialEditorFrame, mountEditorSession, reportDroppedEdit } from '../src/hermes/editor-frame.js'
+import { advanceEditorFrame, guestEditorAction, initialEditorFrame, mountEditorSession, rememberEditorStamp, reportDroppedEdit } from '../src/hermes/editor-frame.js'
 import { editorLoadOffersRetry, initialEditorLoad, reduceEditorLoad } from '../src/hermes/editor-load.js'
 
 const doc = { type: 'doc' as const, content: [{ type: 'paragraph' as const, content: [{ type: 'text' as const, text: 'From A' }] }] }
@@ -24,8 +24,29 @@ test('a late change after switching notes is dropped, including a return to the 
   assert.deepEqual(guestEditorAction(back, 'change', changeA), { type: 'drop', reason: 'stamp' })
   assert.equal(guestEditorAction(back, 'change', { ...changeA, generation: 2 }).type, 'change')
   assert.deepEqual(guestEditorAction(back, 'ready', null), { type: 'unhandled' })
-  const previous = guestEditorAction(noteB, 'change', changeA, noteA)
+  const previous = guestEditorAction(noteB, 'change', changeA, [noteA])
   assert.deepEqual(previous, { type: 'change', content: doc, revision: 4, documentId: 'note-a' })
+})
+
+test('a late flush from an earlier note is kept across two switches, including a return', () => {
+  const noteA = initialEditorFrame('note-a')
+  const noteB = advanceEditorFrame(noteA, 'note-b')
+  const noteC = advanceEditorFrame(noteB, 'note-c')
+  const recent = rememberEditorStamp(rememberEditorStamp([], noteA), noteB)
+  const changeA = { content: doc, revision: 2, documentId: 'note-a', generation: 0 }
+  const onC = guestEditorAction(noteC, 'change', changeA, recent)
+  assert.deepEqual(onC, { type: 'change', content: doc, revision: 2, documentId: 'note-a' })
+  const back = advanceEditorFrame(noteC, 'note-a')
+  assert.equal(back.generation, 3)
+  const onReturn = guestEditorAction(back, 'change', changeA, rememberEditorStamp(recent, noteC))
+  assert.deepEqual(onReturn, { type: 'change', content: doc, revision: 2, documentId: 'note-a' })
+  assert.equal(guestEditorAction(noteC, 'selection', { text: 'From A', documentId: 'note-a', generation: 0 }, recent).type, 'drop')
+  assert.equal(guestEditorAction(noteC, 'change', { ...changeA, generation: 9 }, recent).type, 'drop')
+  let crowded = [] as typeof recent
+  for (let generation = 0; generation < 40; generation++) crowded = rememberEditorStamp(crowded, { documentId: `n${generation}`, generation })
+  assert.equal(crowded.length, 32)
+  assert.equal(guestEditorAction(noteC, 'change', { content: doc, revision: 1, documentId: 'n0', generation: 0 }, crowded).type, 'drop')
+  assert.equal(guestEditorAction(noteC, 'change', { content: doc, revision: 1, documentId: 'n39', generation: 39 }, crowded).type, 'change')
 })
 
 test('a late change stays labeled with the note that was mounted, after the frame has moved on', () => {
@@ -45,14 +66,19 @@ test('a late change stays labeled with the note that was mounted, after the fram
   assert.equal(late.content, typed)
   assert.notEqual(late.documentId, frame.documentId)
   assert.equal(sessionA.pendingChange(typed), null)
-  const accepted = guestEditorAction({ documentId: 'note-b', generation: 1 }, 'change', late, { documentId: 'note-a', generation: 0 })
+  const accepted = guestEditorAction({ documentId: 'note-b', generation: 1 }, 'change', late, [{ documentId: 'note-a', generation: 0 }])
   assert.deepEqual(accepted, { type: 'change', content: typed, revision: late.revision, documentId: 'note-a' })
   assert.equal(sessionA.hostUpdate(docA, 0), typed)
   assert.equal(sessionB.hostUpdate(docB, 0), docB)
   assert.equal(sessionB.pendingChange(docB), null)
+  const stored = { type: 'doc' as const, content: [{ type: 'paragraph' as const, content: [{ type: 'text' as const, text: 'B', marks: [{ type: 'link' as const, attrs: { href: 'https://example.com' } }] }] }] }
+  const fromEditor = { type: 'doc' as const, content: [{ content: [{ marks: [{ attrs: { title: null, href: 'https://example.com', class: null, rel: null, target: null }, type: 'link' }], text: 'B', type: 'text' }], type: 'paragraph' }] }
+  const linked = mountEditorSession({ documentId: 'note-b', generation: 1 }, stored, 0)
+  assert.equal(linked.pendingChange(fromEditor), null)
+  assert.equal(linked.pendingChange(docB)?.documentId, 'note-b')
   const selection = sessionA.selection('from A')
   assert.equal(selection.documentId, 'note-a')
-  assert.equal(guestEditorAction({ documentId: 'note-b', generation: 1 }, 'selection', selection, { documentId: 'note-a', generation: 0 }).type, 'drop')
+  assert.equal(guestEditorAction({ documentId: 'note-b', generation: 1 }, 'selection', selection, [{ documentId: 'note-a', generation: 0 }]).type, 'drop')
 })
 
 test('a protocol mismatch drops the edit and is logged', () => {

@@ -182,13 +182,13 @@ test('link titles accept null or bounded text without widening URL and attribute
   for (const href of ['https://user:secret@example.org/a', 'https://user@example.org/a', 'http://:secret@example.org/']) {
     const stored = validateRichDoc(linked({ href }))
     assert.equal(stored.content[0]!.content![0]!.text, 'Link')
-    assert.equal(stored.content[0]!.content![0]!.marks, undefined)
+    assert.equal(stored.content[0]!.content![0]!.marks![0]!.attrs!.href, href)
   }
   const mixed = validateRichDoc({ type: 'doc', content: [{ type: 'paragraph', content: [
     { type: 'text', text: 'Link', marks: [{ type: 'bold' }, { type: 'link', attrs: { href: 'https://user:secret@example.org/a' } }] },
   ] }] })
   assert.equal(mixed.content[0]!.content![0]!.text, 'Link')
-  assert.deepEqual(mixed.content[0]!.content![0]!.marks, [{ type: 'bold' }])
+  assert.deepEqual(mixed.content[0]!.content![0]!.marks, [{ type: 'bold' }, { type: 'link', attrs: { href: 'https://user:secret@example.org/a' } }])
   assert.doesNotThrow(() => validateRichDoc(linked({ href: 'https://example.org/@user' })))
   assert.doesNotThrow(() => validateRichDoc(linked({ href: 'mailto:ada@example.org' })))
 })

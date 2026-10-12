@@ -71,17 +71,6 @@ function validateToolArgs(tool, args) {
   }
 }
 
-// src/link-href.ts
-function httpHrefHasCredentials(href) {
-  if (!/^https?:\/\//iu.test(href)) return false;
-  try {
-    const url = new URL(href);
-    return url.username !== "" || url.password !== "";
-  } catch {
-    return true;
-  }
-}
-
 // src/model.ts
 var ERROR_STATUS = {
   INVALID_INPUT: 400,
@@ -187,7 +176,6 @@ function mark(value) {
   onlyKeys(attrs, ["href", "target", "rel", "class", "title"], "link attrs");
   const href = boundedString(attrs.href, 2048, "link href", false);
   if (!/^(https?:\/\/|mailto:|tel:|#)/i.test(href) || /[\u0000-\u0020]/.test(href)) invalid("Unsafe link href");
-  if (httpHrefHasCredentials(href)) return null;
   const result = { href };
   if (attrs.target !== void 0) {
     if (attrs.target !== null && attrs.target !== "_blank" && attrs.target !== "_self") invalid("Invalid link target");

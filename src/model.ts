@@ -1,4 +1,3 @@
-import { httpHrefHasCredentials } from './link-href.js'
 
 /** JSON-only rich documents shared by the editor, persistence, and agent tools. */
 export type Actor = 'user' | 'agent'
@@ -144,9 +143,8 @@ function mark(value: unknown): RichMark | null {
   onlyKeys(attrs, ['href', 'target', 'rel', 'class', 'title'], 'link attrs')
   const href = boundedString(attrs.href, 2_048, 'link href', false)
   if (!/^(https?:\/\/|mailto:|tel:|#)/i.test(href) || /[\u0000-\u0020]/.test(href)) invalid('Unsafe link href')
-  // 旧笔记里可能已经有带账号密码的链接。打开库时留下文字、去掉链接，避免整本笔记变成损坏状态。
-  // 新建和打开这类地址仍由链接命令拒绝。
-  if (httpHrefHasCredentials(href)) return null
+  // 已经写进笔记的账号密码链接留在原文里，避免下次保存时被悄悄删掉。
+  // 新建和打开仍拒绝；导出会去掉账号密码。
   const result: RichAttrs = { href }
   if (attrs.target !== undefined) {
     if (attrs.target !== null && attrs.target !== '_blank' && attrs.target !== '_self') invalid('Invalid link target')

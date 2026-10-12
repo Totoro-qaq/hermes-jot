@@ -214,22 +214,26 @@ test('document boundaries reject HTML nodes, unsafe links, malformed nesting, an
   assert.equal((await store.getNote(note.id)).revision, 1)
 })
 
-test('an existing note with a username or password in a link still opens, and new notes do not keep that link', async t => {
+test('an existing note with a username or password in a link still opens, and a later save keeps that link', async t => {
   const { directory, store } = await fixture(t)
   const saved = await store.createNote({ title: 'Old', content: docFromText('Hello secret') })
   const raw = JSON.parse(await readFile(join(directory, STATE_FILENAME), 'utf8'))
   const textNode = raw.notes[0].content.content[0].content[0]
   textNode.marks = [{ type: 'bold' }, { type: 'link', attrs: { href: 'https://user:secret@example.com/a' } }]
   await writeFile(join(directory, STATE_FILENAME), JSON.stringify(raw))
-  const opened = await new JotStore({ directory }).getNote(saved.id)
+  const reopened = new JotStore({ directory })
+  const opened = await reopened.getNote(saved.id)
   assert.equal(opened.text, 'Hello secret')
   assert.equal(opened.content.content[0]?.content?.[0]?.text, 'Hello secret')
-  assert.deepEqual(opened.content.content[0]?.content?.[0]?.marks, [{ type: 'bold' }])
+  assert.equal(opened.content.content[0]?.content?.[0]?.marks?.[1]?.attrs?.href, 'https://user:secret@example.com/a')
+  const resaved = await reopened.updateNote(opened.id, opened.revision, { title: 'Old' })
+  assert.equal(resaved.content.content[0]?.content?.[0]?.marks?.[1]?.attrs?.href, 'https://user:secret@example.com/a')
+  assert.match(await readFile(join(directory, STATE_FILENAME), 'utf8'), /user:secret@example\.com/u)
   const created = docFromText('Hello secret')
   created.content[0]!.content![0]!.marks = [{ type: 'link', attrs: { href: 'https://user:secret@example.com/a' } }]
   const stored = await store.createNote({ title: 'New', content: created })
   assert.equal(stored.text, 'Hello secret')
-  assert.equal(stored.content.content[0]?.content?.[0]?.marks, undefined)
+  assert.equal(stored.content.content[0]?.content?.[0]?.marks?.[0]?.attrs?.href, 'https://user:secret@example.com/a')
   const script = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'no', marks: [{ type: 'link', attrs: { href: 'javascript:alert(1)' } }] }] }] }
   await assert.rejects(store.createNote({ content: script as RichDoc }), code('INVALID_INPUT'))
 })

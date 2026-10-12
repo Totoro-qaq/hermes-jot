@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { RichEditor, type RichEditorActions } from '../client/RichEditor.js'
 import type { RichDoc } from '../client/types.js'
 import { intlLocale, isRtlLocale, normalizeLocale, type JotLocale } from '../client/i18n.js'
-import { openableLinkHref } from '../link-href.js'
+import { resolveEditorLinkClick } from '../link-href.js'
 import { EDITOR_FRAME_PROTOCOL, mountEditorSession, reportDroppedEdit, type MountedEditorSession } from './editor-frame.js'
 import { jotStyles } from '../client/styles.js'
 import { HOST_THEME_PROPERTIES } from './theme.js'
@@ -134,11 +134,11 @@ function Editor() {
       const element = event.target instanceof Element ? event.target.closest('[data-jot-attachment-id]') : null
       if (element) { event.preventDefault(); event.stopPropagation(); send('preview', element.getAttribute('data-jot-attachment-id')); return }
       const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null
-      if (link && /^(?:https?:|mailto:)/i.test(link.href)) {
+      if (link) {
+        const click = resolveEditorLinkClick(link.getAttribute('href') ?? '', link.href)
+        if (!click.preventDefault) return
         event.preventDefault(); event.stopPropagation()
-        const href = openableLinkHref(link.href)
-        if (href) send('link', href)
-        return
+        if (click.open) send('link', click.open)
       }
     }
     const paste = (event: ClipboardEvent) => {

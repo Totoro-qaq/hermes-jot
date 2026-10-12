@@ -10,7 +10,7 @@ import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
 import { applyLinkEdit, normalizeLinkHref, openableLinkHref, readLinkDraft, removeLink } from './link-commands.js'
 import { taskListsNeedTidy, tidyCompletedTasks } from './list-commands.js'
-import { nextRovingIndex, styleMenuKeyboardEdge } from './roving-focus.js'
+import { nextRovingIndex, styleMenuActivationIsDuplicate, styleMenuKeyboardEdge } from './roving-focus.js'
 import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
 import { insertManagedAttachment } from './editor-attachments.js'
@@ -78,6 +78,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   const formatTrigger = useRef<HTMLButtonElement>(null)
   const formatPopover = useRef<HTMLDivElement>(null)
   const formatFocus = useRef<'first' | 'last' | null>(null)
+  const styleKeyActivation = useRef(false)
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkHref, setLinkHref] = useState('')
   const [linkText, setLinkText] = useState('')
@@ -489,6 +490,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
             const edge = styleMenuKeyboardEdge(event.key)
             if (!edge || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
             event.preventDefault(); event.stopPropagation()
+            styleKeyActivation.current = true
             formatFocus.current = edge
             setLinkOpen(false); setPaletteOpen(null)
             if (!formatOpen) { setFormatOpen(true); return }
@@ -497,8 +499,9 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
             formatFocus.current = null
           }}
           onClick={event => {
-            // Enter 和空格会再派发一次 detail 为 0 的 click。键盘路径已经在 keydown 里把焦点送进菜单。
-            if (event.detail === 0) return
+            const duplicate = styleMenuActivationIsDuplicate(event.detail, styleKeyActivation.current)
+            styleKeyActivation.current = false
+            if (duplicate) return
             formatFocus.current = null
             setLinkOpen(false); setFormatOpen(open => !open); setPaletteOpen(null)
           }}>

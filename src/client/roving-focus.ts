@@ -1,3 +1,11 @@
+/**
+ * Enter 或空格已经在 keydown 里打开菜单时，紧跟着的 detail 为 0 的 click 不要再关一次。
+ * 读屏直接发出的 click 没有这次 keydown，仍然要打开菜单。
+ */
+export function styleMenuActivationIsDuplicate(detail: number, handledKeydown: boolean): boolean {
+  return detail === 0 && handledKeydown
+}
+
 /** 键盘打开样式菜单时，焦点进入哪一端。鼠标点击不使用这个结果。 */
 export function styleMenuKeyboardEdge(key: string): 'first' | 'last' | null {
   if (key === 'ArrowUp') return 'last'

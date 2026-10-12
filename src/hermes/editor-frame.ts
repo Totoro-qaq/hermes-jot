@@ -1,4 +1,5 @@
 import type { RichDoc } from '../client/types.js'
+import { sameEditorDocument } from '../rich-equal.js'
 import { EditorSync } from './editor-sync.js'
 
 /** 访客和宿主一起发。对不上就丢掉编辑，并记一条调试日志。 */
@@ -36,18 +37,28 @@ function protocolMismatch(data: unknown): boolean {
   return (data as { protocol?: unknown }).protocol !== EDITOR_FRAME_PROTOCOL
 }
 
+/** 快速连切时要记住的代次。再旧的在途编辑不再收下。 */
+const RECENT_EDITOR_STAMPS = 32
+
+/** 离开一篇笔记时把它的代次留在名单里。同一代次不重复记。 */
+export function rememberEditorStamp(recent: readonly EditorFrameStamp[], stamp: EditorFrameStamp): EditorFrameStamp[] {
+  if (recent.some(item => item.documentId === stamp.documentId && item.generation === stamp.generation)) return [...recent]
+  const next = [...recent, stamp]
+  return next.length > RECENT_EDITOR_STAMPS ? next.slice(next.length - RECENT_EDITOR_STAMPS) : next
+}
+
 /**
- * 换笔记后，上一篇还在飞的选区不能写进当前草稿。
- * 刚刚离开的那一篇的 change 仍然收下，交给宿主写回那篇笔记，而不是丢掉最后一次按键。
+ * 换笔记后，旧选区不能写进当前草稿。
+ * 最近几篇的 change 仍按它自己的笔记和代次收下，连着切到第三篇或切回去也不会丢掉最后一次按键。
  * 其它消息仍由宿主自己处理。
  */
-export function guestEditorAction(current: EditorFrameStamp, kind: string, data: unknown, previous?: EditorFrameStamp | null): GuestEditorAction {
+export function guestEditorAction(current: EditorFrameStamp, kind: string, data: unknown, recent?: readonly EditorFrameStamp[] | null): GuestEditorAction {
   if (kind !== 'change' && kind !== 'selection') return { type: 'unhandled' }
   if (!data || typeof data !== 'object') return { type: 'drop', reason: 'shape' }
   if (protocolMismatch(data)) return { type: 'drop', reason: 'protocol' }
   const matchesCurrent = stampMatches(current, data)
-  const matchesPrevious = Boolean(previous && stampMatches(previous, data))
-  if (!matchesCurrent && !matchesPrevious) return { type: 'drop', reason: 'stamp' }
+  const matchesRecent = Boolean(recent?.some(stamp => stampMatches(stamp, data)))
+  if (!matchesCurrent && !matchesRecent) return { type: 'drop', reason: 'stamp' }
   const record = data as { text?: unknown; content?: unknown; revision?: unknown; documentId?: unknown }
   if (kind === 'selection') {
     if (!matchesCurrent || typeof record.text !== 'string') return { type: 'drop', reason: matchesCurrent ? 'shape' : 'stamp' }
@@ -92,9 +103,9 @@ export function mountEditorSession(stamp: EditorFrameStamp, value: RichDoc, _ack
   const generation = stamp.generation
   const sync = new EditorSync()
   sync.beginDocument(documentId)
-  let known = JSON.stringify(value)
+  let known: RichDoc = value
   const change = (content: RichDoc): MountedEditorChange => {
-    known = JSON.stringify(content)
+    known = content
     return { protocol: EDITOR_FRAME_PROTOCOL, ...sync.edited(content), documentId, generation }
   }
   return {
@@ -102,7 +113,7 @@ export function mountEditorSession(stamp: EditorFrameStamp, value: RichDoc, _ack
     generation,
     change,
     pendingChange(content) {
-      if (JSON.stringify(content) === known) return null
+      if (sameEditorDocument(content, known)) return null
       return change(content)
     },
     selection(text) {
@@ -110,7 +121,7 @@ export function mountEditorSession(stamp: EditorFrameStamp, value: RichDoc, _ack
     },
     hostUpdate(next, acknowledgedRevision) {
       const resolved = sync.prepareHostUpdate(next, acknowledgedRevision)()
-      known = JSON.stringify(resolved)
+      known = resolved
       return resolved
     },
   }

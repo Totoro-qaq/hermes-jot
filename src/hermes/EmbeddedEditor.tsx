@@ -3,7 +3,7 @@ import * as sdk from '@hermes/plugin-sdk'
 import { openableLinkHref } from '../link-href.js'
 import { translator } from '../client/i18n.js'
 import type { RichEditorActions, RichEditorProps } from '../client/RichEditor.js'
-import { EDITOR_FRAME_PROTOCOL, advanceEditorFrame, guestEditorAction, initialEditorFrame, reportDroppedEdit, type EditorFrameStamp } from './editor-frame.js'
+import { EDITOR_FRAME_PROTOCOL, advanceEditorFrame, guestEditorAction, initialEditorFrame, rememberEditorStamp, reportDroppedEdit, type EditorFrameStamp } from './editor-frame.js'
 import { editorLoadOffersRetry, initialEditorLoad, reduceEditorLoad, type EditorLoadState } from './editor-load.js'
 import { HOST_THEME_PROPERTIES } from './theme.js'
 
@@ -34,7 +34,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
   const token = useMemo(() => crypto.randomUUID(), [])
   // 代次只在真正把属性发给访客时递增，不在渲染期间改。
   const frameStamp = useRef<EditorFrameStamp | null>(null)
-  const previousStamp = useRef<EditorFrameStamp | null>(null)
+  const recentStamps = useRef<EditorFrameStamp[]>([])
   const [load, setLoad] = useState<EditorLoadState>(initialEditorLoad)
   const [height, setHeight] = useState(430)
   const theme = useTheme()
@@ -52,7 +52,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
     const id = callbacks.current.documentId ?? ''
     const next = frameStamp.current ? advanceEditorFrame(frameStamp.current, id) : initialEditorFrame(id)
     if (frameStamp.current && next !== frameStamp.current) {
-      previousStamp.current = frameStamp.current
+      recentStamps.current = rememberEditorStamp(recentStamps.current, frameStamp.current)
       callbacks.current.onSelectionChange?.(null)
     }
     frameStamp.current = next
@@ -94,7 +94,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
       if (event.data.kind === 'hello') { sync(); return }
       if (event.data?.token !== token) return
       const { kind, data, id } = event.data
-      const framed = guestEditorAction(frameStamp.current ?? initialEditorFrame(callbacks.current.documentId ?? ''), kind, data, previousStamp.current)
+      const framed = guestEditorAction(frameStamp.current ?? initialEditorFrame(callbacks.current.documentId ?? ''), kind, data, recentStamps.current)
       if (framed.type === 'change') callbacks.current.onChange(framed.content, framed.revision, framed.documentId)
       else if (framed.type === 'selection') callbacks.current.onSelectionChange?.(framed.text)
       else if (framed.type === 'drop' && kind === 'change') reportDroppedEdit(framed.reason, data)

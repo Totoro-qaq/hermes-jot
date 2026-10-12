@@ -4,6 +4,7 @@ import { Editor } from '@tiptap/core'
 import { history } from '@tiptap/pm/history'
 import { createJotExtensions } from '../src/client/editor-extensions.js'
 import { applyLinkEdit, normalizeLinkHref, openableLinkHref, readLinkDraft, removeLink } from '../src/client/link-commands.js'
+import { exportableLinkHref, resolveEditorLinkClick } from '../src/link-href.js'
 import { validateRichDoc } from '../src/model.js'
 
 const paragraph = (text: string) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })
@@ -29,6 +30,11 @@ test('link addresses keep the typed form and only add a scheme when the user lef
   assert.equal(openableLinkHref('ada@example.com'), 'mailto:ada@example.com')
   assert.equal(openableLinkHref('tel:+15550101'), null)
   assert.equal(openableLinkHref('#section'), null)
+  assert.deepEqual(resolveEditorLinkClick('https://user:secret@example.com/a', 'https://example.com/a'), { preventDefault: true, open: null })
+  assert.deepEqual(resolveEditorLinkClick('https://example.com/a', 'https://example.com/a'), { preventDefault: true, open: 'https://example.com/a' })
+  assert.deepEqual(resolveEditorLinkClick('#section', '#section'), { preventDefault: false, open: null })
+  assert.equal(exportableLinkHref('https://user:s3cret-token@example.com/a'), 'https://example.com/a')
+  assert.equal(exportableLinkHref('https://example.com/a?b=1'), 'https://example.com/a?b=1')
 })
 
 test('a selection becomes a link, an existing link can change, and removing it keeps the words', t => {

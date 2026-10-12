@@ -62,3 +62,29 @@ export function openableLinkHref(raw: string): string | null {
   const href = normalizeLinkHref(raw)
   return href && /^(?:https?:\/\/|mailto:)/iu.test(href) ? href : null
 }
+
+/**
+ * 编辑器里点到链接。带账号密码的地址要拦住浏览器，并且不交给宿主打开。
+ * 属性里的原文和浏览器解析后的地址都看，避免一边被剥掉账号后另一边又打开。
+ */
+export function resolveEditorLinkClick(attribute: string, property: string): { preventDefault: boolean; open: string | null } {
+  const candidates = [attribute, property].filter(value => value.length > 0)
+  if (candidates.some(httpHrefHasCredentials)) return { preventDefault: true, open: null }
+  const open = candidates.map(value => openableLinkHref(value)).find((value): value is string => Boolean(value)) ?? null
+  if (!open && !candidates.some(value => /^(?:https?:|mailto:)/iu.test(value))) return { preventDefault: false, open: null }
+  return { preventDefault: true, open }
+}
+
+/** 导出时去掉 http(s) 里的账号密码。解析不了就不要把原文写进文件。其它地址原样保留。 */
+export function exportableLinkHref(href: string): string | null {
+  if (!href) return null
+  if (!httpHrefHasCredentials(href)) return href
+  try {
+    const url = new URL(href)
+    url.username = ''
+    url.password = ''
+    return url.username === '' && url.password === '' ? url.href : null
+  } catch {
+    return null
+  }
+}

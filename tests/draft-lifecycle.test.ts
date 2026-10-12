@@ -6,7 +6,7 @@ import { test, type TestContext } from 'node:test'
 import { JotStore, StoreError } from '../src/store.js'
 import { docFromText, validateRichDoc } from '../src/model.js'
 import { draftFromNote } from '../src/client/drafts.js'
-import { editHumanDraft, takeUntouchedFreshNote } from '../src/client/draft-lifecycle.js'
+import { editHumanDraft, parkedEditorChange, takeUntouchedFreshNote } from '../src/client/draft-lifecycle.js'
 
 async function storeFor(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'dsh-jot-draft-lifecycle-'))
@@ -42,6 +42,19 @@ test('writing and then clearing a new note does not restore untouched cleanup el
     note: saved, draft: draftFromNote(saved), saving: false, keptDrafts: false,
   })) await store.purgeNotes([{ id: saved.id, revision: saved.revision }])
   assert.deepEqual(await store.getNote(note.id), saved)
+})
+
+test('a late edit to a conflicted draft is kept in the draft and is not treated as a clean save', () => {
+  const parked = draftFromNote({ id: 'note-a', title: 'A', content: docFromText('Before'), text: 'Before', folderId: null, pinned: false, revision: 3, createdAt: '', updatedAt: '', deletedAt: null })
+  assert.equal(parkedEditorChange(parked, docFromText('Before'), true), 'unchanged')
+  assert.equal(parkedEditorChange(parked, docFromText('After'), true), 'keep-conflict')
+  assert.equal(parkedEditorChange(parked, docFromText('After'), false), 'save')
+  assert.equal(parkedEditorChange(undefined, docFromText('After'), true), 'unchanged')
+  const stored = docFromText('Before')
+  stored.content[0]!.content![0]!.marks = [{ type: 'link', attrs: { href: 'https://example.com' } }]
+  const fromEditor = structuredClone(stored)
+  fromEditor.content[0]!.content![0]!.marks = [{ type: 'link', attrs: { href: 'https://example.com', target: null, rel: null, class: null, title: null } }]
+  assert.equal(parkedEditorChange({ ...parked, content: stored }, fromEditor, false), 'unchanged')
 })
 
 test('leaving a genuinely untouched empty note still cleans it up exactly once', async t => {

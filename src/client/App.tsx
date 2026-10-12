@@ -5,7 +5,7 @@ import { draftFromNote, draftFingerprint, emptyDocument, receiveLatestDraft, rec
 import type { NoteDraft } from './drafts.js'
 import type { JotPersistence } from '../hermes/persistence.js'
 import type { ReactNode } from 'react'
-import { editHumanDraft, takeUntouchedFreshNote } from './draft-lifecycle.js'
+import { editHumanDraft, parkedEditorChange, takeUntouchedFreshNote } from './draft-lifecycle.js'
 import { acceptRemoteAppend, planRemoteAppend, remoteBase, type RemoteBase } from './remote-append.js'
 import { RichEditor, type RichEditorActions } from '../hermes/EmbeddedEditor.js'
 import { appShortcut } from './app-shortcuts.js'
@@ -1288,10 +1288,11 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
                 if (id === draftRef.current?.noteId) { patchDraft({ content }); return }
                 // 切换之后才到的最后一次按键仍属于上一篇，写回那篇草稿，不写进当前笔记。
                 const parked = drafts.current.get(id)
-                if (!parked || statusesRef.current[id]?.phase === 'conflict') return
-                if (JSON.stringify(parked.content) === JSON.stringify(content)) return
+                const action = parkedEditorChange(parked, content, statusesRef.current[id]?.phase === 'conflict')
+                if (action === 'unchanged' || !parked) return
                 const next = persistDraft(editHumanDraft(parked, { content }, freshNotes.current))
                 drafts.current.set(id, next)
+                if (action === 'keep-conflict') return
                 setStatus(id, { phase: 'dirty' })
                 const pending = inFlight.current.get(id)
                 if (pending) void pending.then(() => { if (drafts.current.get(id)?.dirty) void saveDraft(id) })

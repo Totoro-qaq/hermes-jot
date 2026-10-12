@@ -176419,17 +176419,6 @@ function unzipSync(data, opts) {
   return files;
 }
 
-// src/link-href.ts
-function httpHrefHasCredentials(href) {
-  if (!/^https?:\/\//iu.test(href)) return false;
-  try {
-    const url = new URL(href);
-    return url.username !== "" || url.password !== "";
-  } catch {
-    return true;
-  }
-}
-
 // src/model.ts
 var ERROR_STATUS = {
   INVALID_INPUT: 400,
@@ -176531,7 +176520,6 @@ function mark(value) {
   onlyKeys(attrs, ["href", "target", "rel", "class", "title"], "link attrs");
   const href = boundedString(attrs.href, 2048, "link href", false);
   if (!/^(https?:\/\/|mailto:|tel:|#)/i.test(href) || /[\u0000-\u0020]/.test(href)) invalid("Unsafe link href");
-  if (httpHrefHasCredentials(href)) return null;
   const result = { href };
   if (attrs.target !== void 0) {
     if (attrs.target !== null && attrs.target !== "_blank" && attrs.target !== "_self") invalid("Invalid link target");
@@ -176697,6 +176685,29 @@ function documentAttachmentIds(doc) {
 // src/export-formats.ts
 var EXPORT_FORMATS = ["txt", "md", "pdf", "docx"];
 var LIBRARY_EXPORT_FORMATS = ["docx", "pdf", "md"];
+
+// src/link-href.ts
+function httpHrefHasCredentials(href) {
+  if (!/^https?:\/\//iu.test(href)) return false;
+  try {
+    const url = new URL(href);
+    return url.username !== "" || url.password !== "";
+  } catch {
+    return true;
+  }
+}
+function exportableLinkHref(href) {
+  if (!href) return null;
+  if (!httpHrefHasCredentials(href)) return href;
+  try {
+    const url = new URL(href);
+    url.username = "";
+    url.password = "";
+    return url.username === "" && url.password === "" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
 
 // src/client/locales/app.ts
 var app_default = {
@@ -180571,8 +180582,10 @@ function markedHtml(node) {
   for (const mark2 of node.marks ?? []) {
     const tag = { bold: "strong", italic: "em", underline: "u", strike: "s", code: "code" }[mark2.type];
     if (tag) text2 = `<${tag}>${text2}</${tag}>`;
-    else if (mark2.type === "link") text2 = `<a href="${htmlEscape(String(mark2.attrs?.href))}">${text2}</a>`;
-    else if (mark2.attrs?.color) text2 = `<span style="${mark2.type === "highlight" ? "background-color" : "color"}:${mark2.attrs.color}">${text2}</span>`;
+    else if (mark2.type === "link") {
+      const href = exportableLinkHref(String(mark2.attrs?.href ?? ""));
+      if (href) text2 = `<a href="${htmlEscape(href)}">${text2}</a>`;
+    } else if (mark2.attrs?.color) text2 = `<span style="${mark2.type === "highlight" ? "background-color" : "color"}:${mark2.attrs.color}">${text2}</span>`;
   }
   return text2;
 }
@@ -180609,8 +180622,10 @@ function inlineMarkdown(node) {
   for (const mark2 of marks) {
     if (EMPHASIS[mark2.type]) continue;
     else if (mark2.type === "underline") text2 = `<u>${text2}</u>`;
-    else if (mark2.type === "link") text2 = `[${text2}](<${String(mark2.attrs?.href).replace(/</gu, "%3C").replace(/>/gu, "%3E")}>)`;
-    else if (mark2.attrs?.color) text2 = `<span style="${mark2.type === "highlight" ? "background-color" : "color"}:${mark2.attrs.color}">${text2}</span>`;
+    else if (mark2.type === "link") {
+      const href = exportableLinkHref(String(mark2.attrs?.href ?? ""));
+      if (href) text2 = `[${text2}](<${href.replace(/</gu, "%3C").replace(/>/gu, "%3E")}>)`;
+    } else if (mark2.attrs?.color) text2 = `<span style="${mark2.type === "highlight" ? "background-color" : "color"}:${mark2.attrs.color}">${text2}</span>`;
   }
   return text2;
 }
@@ -180715,7 +180730,8 @@ function docxInline(node) {
   if (node.type === "hardBreak") return [new TextRun({ break: 1 })];
   const run = new TextRun({ text: node.text ?? "", ...markOptions(node.marks) });
   const link2 = node.marks?.find((mark2) => mark2.type === "link");
-  return [link2 ? new ExternalHyperlink({ link: String(link2.attrs?.href), children: [run] }) : run];
+  const href = link2 ? exportableLinkHref(String(link2.attrs?.href ?? "")) : null;
+  return [href ? new ExternalHyperlink({ link: href, children: [run] }) : run];
 }
 async function wordDocument(input, assets) {
   let counter = 0;
@@ -180880,7 +180896,8 @@ async function pdfDocument(input, assets, fontDirectory) {
           if (marks.some((value) => value.type === mark2)) doc.save().strokeColor(color || "#111827").lineWidth(0.6).moveTo(x, y + size * baseline).lineTo(x + fragment.width, y + size * baseline).stroke().restore();
         }
         const link2 = marks.find((mark2) => mark2.type === "link");
-        if (link2) doc.link(x, y, fragment.width, size * 1.5, String(link2.attrs?.href));
+        const href = link2 ? exportableLinkHref(String(link2.attrs?.href ?? "")) : null;
+        if (href) doc.link(x, y, fragment.width, size * 1.5, href);
         x += fragment.width;
       }
     };
