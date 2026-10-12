@@ -88,13 +88,62 @@ def notify_changed() -> None:
         pass
 
 
-def agent_call(name: str, arguments: dict) -> str:
+# 工具卡片给用户看的句子。修订号留在 error.detail，给代理决定要不要重读。
+_CONFLICT_TEXT = {
+    "en": "This note changed elsewhere, so that edit was not applied.",
+    "zh": "这条笔记已在别处更新，因此这次修改没有写入。",
+    "zh-hant": "這則筆記已在別處更新，因此這次修改沒有寫入。",
+    "ja": "このノートは別の場所で更新されたため、この編集は適用されませんでした。",
+    "ar": "تغيّرت هذه الملاحظة في مكان آخر، لذلك لم يُطبَّق هذا التعديل.",
+    "ru": "Эта заметка изменилась в другом месте, поэтому правка не применена.",
+    "fr": "Cette note a été modifiée ailleurs, donc cette modification n'a pas été appliquée.",
+    "de": "Diese Notiz wurde anderswo geändert, daher wurde diese Bearbeitung nicht übernommen.",
+    "es": "Esta nota cambió en otro lugar, así que esa edición no se aplicó.",
+}
+
+
+def tool_display_locale(locale: str | None = None) -> str:
+    """界面语言。显式 locale 优先，否则读 Hermes 的 display.language；读不到就用英语。"""
+    raw = locale
+    if raw is None:
+        try:
+            from agent.i18n import get_language
+            value = get_language()
+            raw = value if isinstance(value, str) else None
+        except Exception:
+            raw = None
+    tag = (raw or "").strip().lower().replace("_", "-")
+    if tag in _CONFLICT_TEXT:
+        return tag
+    parts = tag.split("-")
+    if parts and parts[0] == "zh" and any(part in {"hant", "tw", "hk", "mo"} for part in parts[1:]):
+        return "zh-hant"
+    base = parts[0] if parts else ""
+    return base if base in _CONFLICT_TEXT else "en"
+
+
+def present_agent_result(response: dict, locale: str | None = None) -> dict:
+    """只改给工具卡片看的冲突说明。worker 的原始 409 不经过这里。"""
+    error = response.get("error")
+    if not isinstance(error, dict) or error.get("code") != "REVISION_CONFLICT":
+        return response
+    summary = _CONFLICT_TEXT[tool_display_locale(locale)]
+    technical = error.get("message") if isinstance(error.get("message"), str) else ""
+    presented = dict(response)
+    presented["user_summary"] = summary
+    presented["error"] = {**error, "message": summary, "detail": technical}
+    return presented
+
+
+def agent_call(name: str, arguments: dict, *, locale: str | None = None) -> str:
     try:
         response = invoke({"kind": "tool", "name": name, "args": arguments})
     except JotError as error:
         return json.dumps({"error": {"code": error.code, "message": str(error)}}, ensure_ascii=False)
     if name in MUTATING_TOOLS and succeeded(response):
         notify_changed()
+    if isinstance(response, dict):
+        response = present_agent_result(response, locale)
     return json.dumps(response, ensure_ascii=False)
 
 

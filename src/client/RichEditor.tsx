@@ -8,11 +8,15 @@ import { columnResizingPluginKey } from '@tiptap/pm/tables'
 import { findMatches, replaceAllMatches, replaceMatch } from './document-find.js'
 import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
+import { applyLinkEdit, normalizeLinkHref, openableLinkHref, readLinkDraft, removeLink } from './link-commands.js'
+import { tidyCompletedTasks } from './list-commands.js'
+import { nextRovingIndex } from './roving-focus.js'
 import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
 import { insertManagedAttachment } from './editor-attachments.js'
 import { appendEditorBlocks } from './editor-append.js'
 import { JotActionIcon, type JotActionIconName } from './icons.js'
+import { getMarkRange } from '@tiptap/core'
 import { TableControls } from './TableControls.js'
 import { HIGHLIGHT_COLORS, TEXT_COLORS } from '../model.js'
 import { applySlashItem, filterSlashItems, slashLabel, slashMatch, type SlashItem, type SlashMatch } from './slash-menu.js'
@@ -71,6 +75,15 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   const [formatOpen, setFormatOpen] = useState(false)
   const formatTrigger = useRef<HTMLButtonElement>(null)
   const formatPopover = useRef<HTMLDivElement>(null)
+  const formatFocus = useRef<'first' | 'last' | null>(null)
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [linkHref, setLinkHref] = useState('')
+  const [linkText, setLinkText] = useState('')
+  const [linkError, setLinkError] = useState('')
+  const [linkEditing, setLinkEditing] = useState(false)
+  const linkTrigger = useRef<HTMLButtonElement>(null)
+  const linkPopover = useRef<HTMLDivElement>(null)
+  const linkUrlInput = useRef<HTMLInputElement>(null)
   const [paletteOpen, setPaletteOpen] = useState<'text' | 'highlight' | null>(null)
   const [findOpen, setFindOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -265,6 +278,25 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
     page.addEventListener('pointerdown', outside, true)
     return () => page.removeEventListener('pointerdown', outside, true)
   }, [formatOpen])
+  useLayoutEffect(() => {
+    if (!formatOpen) return
+    const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
+    const edge = formatFocus.current
+    formatFocus.current = null
+    ;(edge === 'last' ? buttons.at(-1) : buttons[0])?.focus()
+  }, [formatOpen])
+  useEffect(() => {
+    if (!linkOpen) return
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (linkPopover.current?.contains(target) || linkTrigger.current?.contains(target)) return
+      setLinkOpen(false)
+    }
+    const page = root.current?.ownerDocument ?? globalThis.document
+    page.addEventListener('pointerdown', outside, true)
+    return () => page.removeEventListener('pointerdown', outside, true)
+  }, [linkOpen])
+  useLayoutEffect(() => { if (linkOpen) linkUrlInput.current?.focus() }, [linkOpen])
 
   // The "/" menu is measured after rendering, then placed under the caret or above it near the viewport edge.
   useLayoutEffect(() => {
@@ -310,7 +342,46 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   const openFind = () => {
     setFindOpen(true)
     setFormatOpen(false)
+    setLinkOpen(false)
     if (findOpen) { findInput.current?.focus(); findInput.current?.select() }
+  }
+  const openLink = () => {
+    const current = instance.current
+    if (!current || callbacks.current.readOnly) return
+    const type = current.state.schema.marks.link
+    const range = type ? getMarkRange(current.state.selection.$from, type) : undefined
+    const { from, to, empty } = current.state.selection
+    const inside = Boolean(range && (empty || (from >= range.from && to <= range.to)))
+    const draft = inside ? readLinkDraft(current.state) : null
+    setLinkEditing(Boolean(draft))
+    setLinkHref(draft?.href ?? '')
+    setLinkText(draft ? draft.text : empty ? '' : current.state.doc.textBetween(from, to))
+    setLinkError('')
+    setFormatOpen(false)
+    setPaletteOpen(null)
+    setSlash(null)
+    setLinkOpen(true)
+  }
+  const applyLink = () => {
+    const current = instance.current
+    if (!current) return
+    if (!normalizeLinkHref(linkHref)) {
+      setLinkError(t('Enter a web, email, or phone link.'))
+      linkUrlInput.current?.focus()
+      return
+    }
+    if (!applyLinkEdit(current.state, current.view.dispatch, { href: linkHref, text: linkText })) {
+      setLinkError(t('Links stay within one paragraph.'))
+      return
+    }
+    setLinkOpen(false)
+    current.commands.focus()
+  }
+  const clearLink = () => {
+    const current = instance.current
+    if (!current || !removeLink(current.state, current.view.dispatch)) return
+    setLinkOpen(false)
+    current.commands.focus()
   }
   shortcutHandler.current = (action, target = globalThis.document?.activeElement) => {
     const current = instance.current
@@ -326,6 +397,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       case 'bold': current.commands.toggleBold(); break
       case 'italic': current.commands.toggleItalic(); break
       case 'underline': current.commands.toggleUnderline(); break
+      case 'link': openLink(); break
       case 'undo': current.commands.undo(); break
       case 'redo': current.commands.redo(); break
     }
@@ -396,25 +468,51 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       const action = editorShortcut(event.nativeEvent)
       if (action && shortcutHandler.current(action, event.target)) {
         event.preventDefault(); event.stopPropagation()
-      } else if (event.key === 'Escape' && (findOpen || formatOpen)) {
+      } else if (event.key === 'Escape' && (findOpen || formatOpen || linkOpen)) {
         event.preventDefault(); event.stopPropagation()
-        if (formatOpen) { setFormatOpen(false); editor?.commands.focus() } else closeFind()
+        if (linkOpen) { setLinkOpen(false); editor?.commands.focus() }
+        else if (formatOpen) { setFormatOpen(false); setPaletteOpen(null); editor?.commands.focus() }
+        else closeFind()
       }
     }}>
       <div className="jot-format-bar" role="toolbar" aria-label={t('Text formatting')}>
         <button ref={formatTrigger} type="button" className="jot-format jot-editor-control jot-format-menu" aria-expanded={formatOpen} aria-haspopup="true" disabled={readOnly || !editor}
           aria-label={t('Text styles')} title={t('Headings, lists, quotes, colors')}
-          onMouseDown={event => event.preventDefault()} onClick={() => { setFormatOpen(open => !open); setPaletteOpen(null) }}>
+          onMouseDown={event => event.preventDefault()}
+          onKeyDown={event => {
+            if ((event.key !== 'ArrowDown' && event.key !== 'ArrowUp') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+            event.preventDefault(); event.stopPropagation()
+            const edge = event.key === 'ArrowUp' ? 'last' : 'first'
+            formatFocus.current = edge
+            if (!formatOpen) { setFormatOpen(true); setPaletteOpen(null); setLinkOpen(false); return }
+            const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
+            ;(edge === 'last' ? buttons.at(-1) : buttons[0])?.focus()
+            formatFocus.current = null
+          }}
+          onClick={() => { setLinkOpen(false); setFormatOpen(open => !open); setPaletteOpen(null) }}>
           <EditorControlIcon name="format" /><span className="jot-editor-control-label">{t('Style')}</span><EditorControlIcon name="chevron" />
         </button>
         {marks.map(tool => <button key={tool.id} type="button" className={`jot-format jot-editor-control jot-editor-control-icon-only jot-format-${tool.id}`}
           aria-label={tool.label} title={shortcutTitle(tool.label, tool.id)} aria-pressed={Boolean(tool.active)} disabled={readOnly || !editor}
           aria-keyshortcuts={ariaShortcut(tool.id)} onMouseDown={event => event.preventDefault()} onClick={() => tool.run()}>{tool.text}</button>)}
+        <button ref={linkTrigger} type="button" className="jot-format jot-editor-control jot-editor-control-icon-only jot-format-link"
+          aria-label={t('Link')} title={withShortcut(t('Add or edit a link'), 'link')} aria-keyshortcuts={ariaShortcut('link')}
+          aria-pressed={Boolean(editor?.isActive('link'))} aria-expanded={linkOpen} aria-haspopup="dialog"
+          disabled={readOnly || !editor} onMouseDown={event => event.preventDefault()} onClick={openLink}>
+          <JotActionIcon name="link" size={16} className="jot-editor-control-icon" />
+        </button>
         <button type="button" className="jot-format jot-editor-control jot-editor-control-icon-only jot-format-taskList" aria-label={t('To-do list')}
           title={withShortcut(t('To-do list'), 'taskList')} aria-keyshortcuts={ariaShortcut('taskList')}
           aria-pressed={Boolean(editor?.isActive('taskList'))} disabled={readOnly || !editor}
           onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().toggleTaskList().run()}>
           <EditorControlIcon name="todo" />
+        </button>
+        <button type="button" className="jot-format jot-editor-control jot-editor-control-icon-only jot-format-tidy"
+          aria-label={t('Tidy completed items')} title={t('Move completed to-dos to the bottom of each list')}
+          disabled={readOnly || !editor || !tidyCompletedTasks(editor.state)}
+          onMouseDown={event => event.preventDefault()}
+          onClick={() => { if (editor && tidyCompletedTasks(editor.state, editor.view.dispatch)) editor.commands.focus() }}>
+          <JotActionIcon name="sort" size={16} className="jot-editor-control-icon" />
         </button>
         <span className="jot-format-divider" aria-hidden="true" />
         <button type="button" className="jot-format jot-editor-control jot-find-open" aria-expanded={findOpen} disabled={!editor}
@@ -425,7 +523,15 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
           onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>
           <EditorControlIcon name="table" /><span className="jot-editor-control-label">{t('Table')}</span>
         </button>
-        {formatOpen && <div ref={formatPopover} className="jot-format-popover" role="group" aria-label={t('Text styles')}>
+        {formatOpen && <div ref={formatPopover} className="jot-format-popover" role="group" aria-label={t('Text styles')}
+          onKeyDown={event => {
+            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey) return
+            const buttons = [...(formatPopover.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
+            const next = nextRovingIndex(buttons.length, buttons.indexOf(event.target as HTMLButtonElement), event.key)
+            if (next === null) return
+            event.preventDefault(); event.stopPropagation()
+            buttons[next]?.focus()
+          }}>
           <div className="jot-format-section" role="group" aria-label={t('Paragraph style')}>{blocks.map(tool => formatButton(tool))}</div>
           <div className="jot-format-section" role="group" aria-label={t('More formatting')}>{inline.map(tool => formatButton(tool))}</div>
           <div className="jot-format-section" role="group" aria-label={t('Color')}>
@@ -456,6 +562,24 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
               setPaletteOpen(null); setFormatOpen(false)
             }}>{t('Remove color')}</button>
           </div>}
+        </div>}
+        {linkOpen && <div ref={linkPopover} className="jot-link-popover" role="dialog" aria-label={t('Add or edit a link')}>
+          <label>{t('Link address')}
+            <input ref={linkUrlInput} className="jot-link-url" value={linkHref} aria-label={t('Link address')} aria-invalid={linkError ? true : undefined}
+              onChange={event => { setLinkHref(event.target.value); setLinkError('') }}
+              onKeyDown={event => { if (!event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && event.key === 'Enter') { event.preventDefault(); applyLink() } }} />
+          </label>
+          <label>{t('Link text')}
+            <input className="jot-link-text" value={linkText} aria-label={t('Link text')}
+              onChange={event => setLinkText(event.target.value)}
+              onKeyDown={event => { if (!event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && event.key === 'Enter') { event.preventDefault(); applyLink() } }} />
+          </label>
+          {linkError && <p className="jot-dialog-error" role="alert">{linkError}</p>}
+          <div className="jot-link-actions">
+            <button type="button" className="jot-btn jot-primary" onClick={applyLink}>{t('Apply link')}</button>
+            <button type="button" className="jot-text-btn" disabled={!linkEditing} onClick={clearLink}>{t('Remove link')}</button>
+            {openableLinkHref(linkHref) && <a className="jot-text-btn" href={openableLinkHref(linkHref)!}>{t('Open link')}</a>}
+          </div>
         </div>}
       </div>
       {findOpen && <div className="jot-document-find" role="search" aria-label={t('Find in this note')}

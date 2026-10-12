@@ -1,4 +1,4 @@
-export type EditorShortcut = 'bold' | 'italic' | 'underline' | 'undo' | 'redo' | 'find'
+export type EditorShortcut = 'bold' | 'italic' | 'underline' | 'undo' | 'redo' | 'find' | 'link'
 export interface EditorKeyEvent {
   key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean
   isComposing?: boolean; keyCode?: number
@@ -15,10 +15,10 @@ export function editorShortcut(event: EditorKeyEvent, apple = isApplePlatform())
   if (key === 'z') return event.shiftKey ? 'redo' : 'undo'
   if (!apple && key === 'y' && !event.shiftKey) return 'redo'
   if (event.shiftKey) return null
-  return ({ b: 'bold', i: 'italic', u: 'underline', f: 'find' } as const)[key as 'b' | 'i' | 'u' | 'f'] ?? null
+  return ({ b: 'bold', i: 'italic', u: 'underline', f: 'find', k: 'link' } as const)[key as 'b' | 'i' | 'u' | 'f' | 'k'] ?? null
 }
 
 export function editorShortcutLabel(action: EditorShortcut, apple = isApplePlatform()): string {
-  const key = { bold: 'B', italic: 'I', underline: 'U', undo: 'Z', redo: 'Z', find: 'F' }[action]
+  const key = { bold: 'B', italic: 'I', underline: 'U', undo: 'Z', redo: 'Z', find: 'F', link: 'K' }[action]
   return apple ? `${action === 'redo' ? '⇧' : ''}⌘${key}` : `${action === 'redo' ? 'Ctrl+Shift+' : 'Ctrl+'}${key}`
 }

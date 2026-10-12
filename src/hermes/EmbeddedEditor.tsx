@@ -7,6 +7,8 @@ import type { RichEditorActions, RichEditorProps } from '../client/RichEditor.js
 const { SandboxedFrame, useTheme } = sdk
 
 export interface EmbeddedEditorProps extends RichEditorProps {
+  /** 换笔记时只换文档，不重载 iframe。 */
+  documentId?: string
   acknowledgedRevision?: number
   loadEditor?: () => Promise<string>
   onSave?: () => void
@@ -29,6 +31,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
   const token = useMemo(() => crypto.randomUUID(), [])
   const [source, setSource] = useState('')
   const [error, setError] = useState<'' | 'unavailable' | 'failed'>('')
+  const [attempt, setAttempt] = useState(0)
   const [height, setHeight] = useState(430)
   const theme = useTheme()
   const t = translator(props.locale ?? 'en')
@@ -53,6 +56,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
       '--dsw-font-xxs-12': `400 ${size * 11 / 13}px/1.5 ${style.fontFamily}`,
     } : {}
     post('props', { value: callbacks.current.value, acknowledgedRevision: callbacks.current.acknowledgedRevision ?? 0, locale: callbacks.current.locale,
+      documentId: callbacks.current.documentId ?? '',
       readOnly: callbacks.current.readOnly, dark: (theme.renderedMode ?? theme.resolvedMode) === 'dark',
       theme: { ...Object.fromEntries(THEME_KEYS.map(key => [key, style.getPropertyValue(key)])), ...fonts } })
   }
@@ -60,9 +64,10 @@ export function RichEditor(props: EmbeddedEditorProps) {
     let live = true
     const load = props.loadEditor
     if (!load) { setError('unavailable'); return }
-    void load().then(value => { if (live) setSource(value) }, () => { if (live) setError('failed') })
+    setError('')
+    void load().then(value => { if (live) { setSource(value); setError('') } }, () => { if (live) setError('failed') })
     return () => { live = false }
-  }, [props.loadEditor])
+  }, [props.loadEditor, attempt])
   useEffect(() => {
     const actions: RichEditorActions = {
       focus: () => { frame.current?.focus(); post('focus') },
@@ -105,7 +110,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
       callbacks.current.onSelectionChange?.(null)
     }
   }, [token])
-  useEffect(sync, [props.value, props.acknowledgedRevision, props.locale, props.readOnly, source])
+  useEffect(sync, [props.value, props.acknowledgedRevision, props.locale, props.readOnly, props.documentId, source])
   useEffect(() => {
     // Hermes paints its CSS variables in the provider's effect. Child effects
     // run first, so reading immediately can send the previous palette to the
@@ -114,8 +119,11 @@ export function RichEditor(props: EmbeddedEditorProps) {
     return () => cancelAnimationFrame(repaint)
   }, [theme.resolvedMode, theme.renderedMode, theme.themeName, theme.theme])
   return <div ref={root} className="jot-embedded-editor" style={{ minWidth: 0, width: '100%' }}>
-    {error ? <p role="alert">{error === 'unavailable' ? t('Hermes editor backend is unavailable.')
-      : t('Could not load the Jot editor. Re-enable the backend and reopen this note.')}</p> : source ? <SandboxedFrame ref={frame} src={source}
+    {error ? <div role="alert" className="jot-editor-load-error">
+      <p>{error === 'unavailable' ? t('Hermes editor backend is unavailable.')
+        : t('Could not load the Jot editor. Re-enable the backend and reopen this note.')}</p>
+      {error === 'failed' && <button type="button" className="jot-text-btn" onClick={() => setAttempt(value => value + 1)}>{t('Retry')}</button>}
+    </div> : source ? <SandboxedFrame ref={frame} src={source}
       title={t('Jot document editor')} onLoad={sync}
       style={{ display: 'block', width: '100%', height, border: 0, background: 'transparent' }} />
       : <p role="status">{t('Loading editor…')}</p>}

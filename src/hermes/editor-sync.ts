@@ -4,6 +4,15 @@ import type { RichDoc } from '../client/types.js'
 export class EditorSync {
   private value: RichDoc | null = null
   private revision = 0
+  private documentId: string | null = null
+
+  /** 换笔记时清掉上一篇的修订号，否则新文档会被当成过期回声丢掉。同一篇再发属性不会重置。 */
+  beginDocument(id: string): void {
+    if (this.documentId === id) return
+    this.documentId = id
+    this.value = null
+    this.revision = 0
+  }
 
   /** React may commit after another input event. Check at application time. */
   prepareHostUpdate(value: RichDoc, acknowledged: number): () => RichDoc {

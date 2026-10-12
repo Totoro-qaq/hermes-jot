@@ -1167,7 +1167,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       {visibleNotes.length > 0 ? <NoteList key={`${folderFilter}:${effectiveSort}`} notes={visibleNotes} selectedId={draft?.noteId} onSelect={selectNote}
         selectMode={selectMode} selectedNoteIds={selectedIds} onToggleSelection={toggleSelection}
         hideFolderName={folderFilter !== '__all__'} agentEditedIds={agentEditedIds}
-        onContextMenu={(note, event) => { event.preventDefault(); if (!selectMode) { selectNote(note); setContextPosition({ x: event.clientX, y: event.clientY }) } }}
+        onContextMenu={(note, point) => { if (!selectMode) { selectNote(note); setContextPosition(point) } }}
         dateBasis={effectiveSort === 'title' ? 'none' : effectiveSort} query={query} folders={snapshot?.folders} locale={locale} view={view} /> : <div className="jot-note-list">
         {snapshot && <div className="jot-empty">
           <div className="jot-empty-title">{query.trim() ? t('No notes found') : view === 'trash' ? t('Trash is empty') : t('Leave a thought here')}</div>
@@ -1187,8 +1187,13 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
       <div className="jot-agent-line">
         <span className="jot-agent-label" title={t('When on, AI can search, read and edit notes through Jot tools when asked; nothing is read automatically.')}>
           <JotActionIcon name="sparkle" size={14} />{t('Allow AI collaboration')}</span>
-        <button type="button" className="jot-switch" role="switch" aria-checked={snapshot?.agentEnabled ?? false} disabled={busy || !snapshot}
-          aria-label={t('Allow AI collaboration')} onClick={toggleAgent} />
+        <div className="jot-agent-actions">
+          <button type="button" className="jot-text-btn jot-agent-refresh" aria-label={t('Refresh notes')}
+            title={t('Load notes changed in a chat or on another device')} disabled={busy || !snapshot}
+            onClick={() => { void refresh().catch(cause => setError(describeError(cause, locale))) }}>{t('Refresh')}</button>
+          <button type="button" className="jot-switch" role="switch" aria-checked={snapshot?.agentEnabled ?? false} disabled={busy || !snapshot}
+            aria-label={t('Allow AI collaboration')} onClick={toggleAgent} />
+        </div>
       </div>
     </div>
   )
@@ -1269,7 +1274,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
               onSelectionChange={onEditorSelection}
               onFiles={files => { if (!selectedDeleted) void uploadFiles(files) }}
               onExternalLink={url => void perform(async () => { await api.openExternal?.(url) })}
-              resolveAttachmentUrl={api.resolveAttachmentUrl} key={draft.noteId} value={draft.content} locale={locale} readOnly={selectedDeleted}
+              resolveAttachmentUrl={api.resolveAttachmentUrl} documentId={draft.noteId} value={draft.content} locale={locale} readOnly={selectedDeleted}
               onRequestAttachment={selectedDeleted || uploadBusy ? undefined : () => fileInput.current?.click()}
               onReady={actions => {
                 releaseEditorFocus(); editorActions.current = actions; editorNote.current = actions ? draft.noteId : null

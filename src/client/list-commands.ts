@@ -1,5 +1,5 @@
 import { Extension } from '@tiptap/core'
-import { Fragment } from '@tiptap/pm/model'
+import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Selection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
 
 type Dispatch = ((tr: Transaction) => void) | undefined
@@ -53,6 +53,42 @@ export function moveListItem(direction: 'up' | 'down') {
     dispatch(tr.setSelection(moved).scrollIntoView())
     return true
   }
+}
+
+/**
+ * 每个清单各自整理：未完成的保持原顺序留在上面，已完成的保持原顺序移到底部。
+ * 嵌套清单先整理，外层再重排，这样一次撤销就能回到整理前。
+ */
+export function tidyCompletedTasks(state: EditorState, dispatch?: Dispatch): boolean {
+  const lists: number[] = []
+  state.doc.descendants((node, pos) => { if (node.type.name === 'taskList') lists.push(pos) })
+  lists.sort((left, right) => right - left)
+  let tr = state.tr
+  let changed = false
+  for (const pos of lists) {
+    const mapped = tr.mapping.map(pos)
+    const list = tr.doc.nodeAt(mapped)
+    if (!list || list.type.name !== 'taskList') continue
+    let seenCompleted = false
+    let messy = false
+    for (let index = 0; index < list.childCount; index++) {
+      const completed = list.child(index).attrs.checked === true
+      if (!completed && seenCompleted) { messy = true; break }
+      if (completed) seenCompleted = true
+    }
+    if (!messy) continue
+    const pending: ProseMirrorNode[] = []
+    const done: ProseMirrorNode[] = []
+    for (let index = 0; index < list.childCount; index++) {
+      const child = list.child(index)
+      ;(child.attrs.checked === true ? done : pending).push(child)
+    }
+    tr = tr.replaceWith(mapped + 1, mapped + list.nodeSize - 1, Fragment.from([...pending, ...done]))
+    changed = true
+  }
+  if (!changed) return false
+  dispatch?.(tr.scrollIntoView())
+  return true
 }
 
 /** Keys for checklist work; they only act inside list items, so other blocks keep their defaults. */

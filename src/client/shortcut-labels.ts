@@ -8,7 +8,7 @@ interface Chord { mod?: boolean; alt?: boolean; shift?: boolean; key: string }
 export const SHORTCUTS = {
   bold: { mod: true, key: 'B' }, italic: { mod: true, key: 'I' }, underline: { mod: true, key: 'U' },
   undo: { mod: true, key: 'Z' }, redo: { mod: true, shift: true, key: 'Z' },
-  find: { mod: true, key: 'F' }, save: { mod: true, key: 'S' },
+  find: { mod: true, key: 'F' }, link: { mod: true, key: 'K' }, save: { mod: true, key: 'S' },
   paragraph: { mod: true, alt: true, key: '0' },
   heading1: { mod: true, alt: true, key: '1' }, heading2: { mod: true, alt: true, key: '2' }, heading3: { mod: true, alt: true, key: '3' },
   orderedList: { mod: true, shift: true, key: '7' }, bulletList: { mod: true, shift: true, key: '8' },
@@ -60,6 +60,7 @@ export function shortcutHelpSections(locale: JotLocale, apple = isApplePlatform(
     ] },
     { title: t('Editing'), rows: [
       row(t('Bold / italic / underline'), key('bold'), key('italic'), key('underline')),
+      row(t('Link'), key('link')),
       row(t('Undo / redo'), key('undo'), key('redo'), ...apple ? [] : ['Ctrl+Y']),
       row(t('Find in this note'), key('find')),
       row(t('Save now'), key('save')),

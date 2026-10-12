@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { activateNoteListItem, buildNoteListRows, formatNoteDate, highlightSegments, nextActiveNoteId, noteDateGroup, noteDateValue, noteExcerpt, noteMatchesQuery, searchElsewhere, titleMatchesFirst } from '../src/client/note-list.js'
+import { activateNoteListItem, buildNoteListRows, formatNoteDate, highlightSegments, isContextMenuKey, nextActiveNoteId, noteDateGroup, noteDateValue, noteExcerpt, noteMatchesQuery, searchElsewhere, titleMatchesFirst } from '../src/client/note-list.js'
 import type { Note } from '../src/client/types.js'
 
 const note = (id: string, patch: Partial<Note> = {}): Note => ({
@@ -191,4 +191,13 @@ test('an empty search names the folder or Trash that does hold matches', () => {
   assert.deepEqual(searchElsewhere(notes, '咖啡', { trash: true, folderFiltered: false }), { otherFolders: 0, otherView: 1 })
   assert.deepEqual(searchElsewhere(notes, '不存在', { trash: false, folderFiltered: true }), { otherFolders: 0, otherView: 0 })
   assert.deepEqual(searchElsewhere(notes, '  ', { trash: false, folderFiltered: true }), { otherFolders: 0, otherView: 0 })
+})
+
+test('the context menu key and Shift+F10 open a menu, and modified F10 does not', () => {
+  const base = { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false }
+  assert.equal(isContextMenuKey({ ...base, key: 'ContextMenu' }), true)
+  assert.equal(isContextMenuKey({ ...base, key: 'F10', shiftKey: true }), true)
+  assert.equal(isContextMenuKey({ ...base, key: 'F10' }), false)
+  assert.equal(isContextMenuKey({ ...base, key: 'ContextMenu', metaKey: true }), false)
+  assert.equal(isContextMenuKey({ ...base, key: 'F10', shiftKey: true, ctrlKey: true }), false)
 })

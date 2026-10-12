@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- The editor can add, edit, open, and remove a link from the toolbar or with Ctrl/⌘K. Addresses can be a web page, email, or phone number, and the popover works from the keyboard.
+- “Tidy completed items” moves checked to-dos to the bottom of each checklist, keeps their relative order, and can be undone.
+- The style menu moves with the arrow keys. A note’s menu opens from the keyboard with Shift+F10 or the Context Menu key. The title and the note body show a focus ring.
+- If the editor fails to load, Retry tries again. Switching notes reuses the editor frame instead of reloading it.
+- When an AI edit is rejected because the note changed, the tool card explains that in the interface language. The result still includes the error code, the revision detail, and recovery instructions.
+- Refresh, under the note list, loads notes changed in a chat or on another device without waiting for the fallback check.
+
 ## 0.3.1
 
 - Bundled third-party notices now include docx's prebuilt dependencies and the vendored Lucide SVG paths, with the ISC and Feather MIT copyright and license texts. Versioned license sources are fingerprinted, and packaging refuses sources changed after the last build.

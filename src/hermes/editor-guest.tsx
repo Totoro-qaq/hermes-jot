@@ -20,7 +20,7 @@ const image = (attachmentId: string) => new Promise<string>(resolve => {
 })
 
 function Editor() {
-  const [props, setProps] = useState<{ value: RichDoc; resolveExternalValue: () => RichDoc; locale: JotLocale; readOnly: boolean } | null>(null)
+  const [props, setProps] = useState<{ value: RichDoc; resolveExternalValue: () => RichDoc; locale: JotLocale; readOnly: boolean; documentId: string } | null>(null)
   const actions = useRef<RichEditorActions | null>(null)
   const synchronized = useRef(new EditorSync())
   const root = useRef<HTMLDivElement>(null)
@@ -32,6 +32,9 @@ function Editor() {
         if (token && token !== event.data.token) return
         token = event.data.token
         const locale = normalizeLocale(data.locale)
+        const documentId = typeof data.documentId === 'string' ? data.documentId : ''
+        // 先重置同步状态，再接受这篇笔记，避免上一篇的修订号把新正文丢掉。
+        synchronized.current.beginDocument(documentId)
         // The slash menu is portaled to <body>, so the language and direction belong to the whole frame.
         document.documentElement.lang = intlLocale(locale)
         document.documentElement.dir = isRtlLocale(locale) ? 'rtl' : 'ltr'
@@ -41,7 +44,7 @@ function Editor() {
         for (const [key, value] of Object.entries(data.theme ?? {})) {
           if (Object.hasOwn(HOST_THEME_PROPERTIES, key) && typeof value === 'string') document.documentElement.style.setProperty(key, value)
         }
-        setProps({ ...data, locale, resolveExternalValue: synchronized.current.prepareHostUpdate(data.value, data.acknowledgedRevision ?? 0) })
+        setProps({ ...data, locale, documentId, resolveExternalValue: synchronized.current.prepareHostUpdate(data.value, data.acknowledgedRevision ?? 0) })
       } else if (event.data.token === token) {
         if (kind === 'focus') actions.current?.focus()
         if (kind === 'insert-image' || kind === 'insert-attachment') {
@@ -142,9 +145,9 @@ function Editor() {
   }, [Boolean(props)])
   return props && <div ref={root} lang={intlLocale(props.locale)} dir={isRtlLocale(props.locale) ? 'rtl' : 'ltr'} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
     <style>{jotStyles}</style>
-    <RichEditor value={props.value} resolveExternalValue={props.resolveExternalValue} locale={props.locale} readOnly={props.readOnly}
+    <RichEditor key={props.documentId || 'default'} value={props.value} resolveExternalValue={props.resolveExternalValue} locale={props.locale} readOnly={props.readOnly}
       resolveAttachmentUrl={image} onChange={value => send('change', synchronized.current.edited(value))} onBlur={() => send('blur')}
-      onReady={value => { actions.current = value; send('ready') }} onRequestAttachment={() => send('upload')} />
+      onReady={value => { actions.current = value; if (value) send('ready') }} onRequestAttachment={() => send('upload')} />
   </div>
 }
 createRoot(document.getElementById('jot-editor-root')!).render(<Editor />)
