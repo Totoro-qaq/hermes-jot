@@ -7,7 +7,7 @@ import { closeHistory } from '@tiptap/pm/history'
 import { ActionMenu, type ActionMenuItem } from './ActionMenu.js'
 import { JotActionIcon } from './icons.js'
 import { translator, type JotLocale } from './i18n.js'
-import { abandonWidthAnnouncement, columnDividerDelta, columnWidthChange, explicitColumnWidth, flushWidthAnnouncement, nudgeTableColumn, planWidthAnnouncement, selectedTable, TABLE_CELL_MAX_WIDTH, TABLE_CELL_MIN_WIDTH, TABLE_COLUMN_NUDGE, tableActionAllowed, tableActionTransaction, type ColumnWidthSample, type TableAction, type TableTarget, type WidthAnnouncementClock } from './table-actions.js'
+import { COLUMN_WIDTH_ANNOUNCE_MS, columnDividerDelta, explicitColumnWidth, nudgeTableColumn, selectedTable, TABLE_CELL_MAX_WIDTH, TABLE_CELL_MIN_WIDTH, TABLE_COLUMN_NUDGE, tableActionAllowed, tableActionTransaction, type TableAction, type TableTarget } from './table-actions.js'
 
 interface ChromeGeometry {
   /** The table's end edge, where the append-column button and table options sit: left of the table in RTL. */
@@ -38,44 +38,26 @@ export function TableControls({ editor, readOnly, locale }: { editor: Editor; re
   const [notice, setNotice] = useState('')
   const [columnWidth, setColumnWidth] = useState(TABLE_CELL_MIN_WIDTH)
   const [widthMessage, setWidthMessage] = useState('')
-  const seenWidth = useRef<ColumnWidthSample | null>(null)
-  const announceClock = useRef<WidthAnnouncementClock | null>(null)
-  const announceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const widthSample: ColumnWidthSample | null = target
-    ? { key: `${target.tablePos}:${target.right}`, width: explicitColumnWidth(target.table, target.right - 1) }
-    : null
-  const widthText = (width: number) => t('Column {column} width {width} pixels', { column: target?.right ?? '', width })
+  // 只播报同一列已保存宽度的变化，最多一秒一次，停手后说出最后的宽度。换列或离开表格时没说的就不说了。
+  const seenWidth = useRef<{ key: string; width: number | null } | null>(null)
+  const lastSpoken = useRef(0)
+  const pendingSpeech = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dropPendingSpeech = () => { if (pendingSpeech.current) clearTimeout(pendingSpeech.current); pendingSpeech.current = null }
+  const widthKey = target ? `${target.tablePos}:${target.right}` : null
+  const savedWidth = target ? explicitColumnWidth(target.table, target.right - 1) : null
   useEffect(() => {
-    if (!widthSample) {
-      if (announceTimer.current) clearTimeout(announceTimer.current)
-      announceTimer.current = null
-      announceClock.current = abandonWidthAnnouncement(announceClock.current)
-      return
-    }
-    const next = columnWidthChange(seenWidth.current, widthSample)
-    const switched = Boolean(seenWidth.current && seenWidth.current.key !== widthSample.key)
-    seenWidth.current = widthSample
-    if (switched) {
-      if (announceTimer.current) clearTimeout(announceTimer.current)
-      announceTimer.current = null
-      if (announceClock.current) announceClock.current = { ...announceClock.current, pending: null }
-    }
-    if (next === null) return
-    const plan = planWidthAnnouncement(announceClock.current, next, Date.now())
-    announceClock.current = plan.clock
-    if (plan.announce !== null) setWidthMessage(widthText(plan.announce))
-    if (plan.waitMs != null) {
-      if (announceTimer.current) clearTimeout(announceTimer.current)
-      const wait = plan.waitMs
-      announceTimer.current = setTimeout(() => {
-        announceTimer.current = null
-        const flushed = flushWidthAnnouncement(announceClock.current ?? { lastAt: 0, pending: null }, Date.now())
-        announceClock.current = flushed.clock
-        if (flushed.announce !== null) setWidthMessage(widthText(flushed.announce))
-      }, wait)
-    }
-  }, [widthSample?.key, widthSample?.width, locale, target?.right])
-  useEffect(() => () => { if (announceTimer.current) clearTimeout(announceTimer.current) }, [])
+    const previous = seenWidth.current
+    seenWidth.current = widthKey ? { key: widthKey, width: savedWidth } : null
+    if (!previous || previous.key !== widthKey) { dropPendingSpeech(); return }
+    if (savedWidth === null || savedWidth === previous.width) return
+    const message = t('Column {column} width {width} pixels', { column: target?.right ?? '', width: savedWidth })
+    const speak = () => { pendingSpeech.current = null; lastSpoken.current = Date.now(); setWidthMessage(message) }
+    dropPendingSpeech()
+    const wait = lastSpoken.current + COLUMN_WIDTH_ANNOUNCE_MS - Date.now()
+    if (wait <= 0) speak()
+    else pendingSpeech.current = setTimeout(speak, wait)
+  }, [widthKey, savedWidth])
+  useEffect(() => dropPendingSpeech, [])
 
   useEffect(() => { setNotice('') }, [target?.tablePos, target?.table])
   // Also measured again when the locale changes: its direction mirrors the table without resizing it.
