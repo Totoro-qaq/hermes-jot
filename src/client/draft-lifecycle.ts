@@ -16,30 +16,16 @@ export function parkedEditorChange(parked: NoteDraft | undefined, content: RichD
   return conflicted ? 'keep-conflict' : 'save'
 }
 
-/** 离开时记下的挂载和代次。只有同一次离开的 flush 才能删笔记。 */
-export interface FreshFlushToken { mount: number; generation: number }
-
 /**
- * 晚到的 flush 只结算当时离开的那一次。
- * 笔记已经重新打开时不删，哪怕编号碰巧一样。
+ * 晚到的 flush 只结算离开那一刻的代次。
+ * 笔记已经重新打开时不删，哪怕代次碰巧一样。
  */
 export function freshFlushSettlement(
   openNoteId: string | null,
-  pending: FreshFlushToken | undefined,
-  flush: { noteId: string; mount: number; generation: number },
+  pendingGeneration: number | undefined,
+  flush: { noteId: string; generation: number },
 ): 'ignore' | 'settle' {
-  if (flush.noteId === openNoteId) return 'ignore'
-  if (!pending || pending.mount !== flush.mount || pending.generation !== flush.generation) return 'ignore'
-  return 'settle'
-}
-
-/**
- * 编辑器还能把这篇的正文发出来时，先别删。
- * 等 flush 落地：有字就留下，确认没改过再删。
- */
-export function planFreshNoteRelease(id: string, fresh: ReadonlySet<string>, editorCanFlush: boolean): 'wait' | 'ready' {
-  if (fresh.has(id) && editorCanFlush) return 'wait'
-  return 'ready'
+  return flush.noteId !== openNoteId && pendingGeneration === flush.generation ? 'settle' : 'ignore'
 }
 
 /**

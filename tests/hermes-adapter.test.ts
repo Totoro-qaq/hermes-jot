@@ -112,34 +112,6 @@ test('closing one editor cannot erase the other editor selection, and new focus 
 })
 
 
-test('an old generation echo with the same revision cannot replace text typed after returning', () => {
-  const sync = new EditorSync()
-  const initial = docFromText('Start'), typed = docFromText('Typed after return'), stale = docFromText('Left behind')
-  sync.beginDocument('note-a', 2)
-  assert.equal(sync.prepareHostUpdate(initial, 4, 0)(), initial)
-  const sent = sync.edited(typed)
-  assert.equal(sent.revision, 1, 'the old generation’s revision is not the new visit’s baseline')
-  assert.equal(sync.prepareHostUpdate(stale, 1, 0)(), typed)
-  assert.equal(sync.prepareHostUpdate(stale, 9, 0)(), typed)
-  assert.equal(sync.prepareHostUpdate(typed, sent.revision, 2)(), typed)
-  sync.beginDocument('note-a', 2)
-  assert.equal(sync.prepareHostUpdate(stale, 0, 2)(), typed, 'the same generation keeps keystrokes ahead of an older echo')
-})
-
-test('switching notes resets the editor sync, and another update of the same note does not', () => {
-  const sync = new EditorSync()
-  const first = docFromText('First'), typed = docFromText('First typed'), second = docFromText('Second')
-  sync.beginDocument('note-a')
-  sync.prepareHostUpdate(first, 4)()
-  const sent = sync.edited(typed)
-  assert.equal(sent.revision, 5)
-  sync.beginDocument('note-a')
-  assert.equal(sync.prepareHostUpdate(first, 0)(), typed, 'the same note must keep keystrokes ahead of an older echo')
-  sync.beginDocument('note-b')
-  assert.equal(sync.prepareHostUpdate(second, 0)(), second, 'a different note replaces the previous document')
-  assert.equal(sync.edited(docFromText('Second typed')).revision, 1)
-})
-
 test('a host echo queued before typing is checked when React applies it, not when it arrives', () => {
   const sync = new EditorSync()
   const initial = docFromText('Start'), first = docFromText('Start A'), second = docFromText('Start AB')

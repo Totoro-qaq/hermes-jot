@@ -20,13 +20,11 @@ const image = (attachmentId: string) => new Promise<string>(resolve => {
   send('image', attachmentId, id)
 })
 
-function BoundNoteEditor({ documentId, generation, mount, value, acknowledgedRevision, acknowledgedGeneration, locale, readOnly, sessionRef, actionsRef, selectionGate }: {
+function BoundNoteEditor({ documentId, generation, value, acknowledgedRevision, locale, readOnly, sessionRef, actionsRef, selectionGate }: {
   documentId: string
   generation: number
-  mount: number
   value: RichDoc
   acknowledgedRevision: number
-  acknowledgedGeneration: number
   locale: JotLocale
   readOnly: boolean
   sessionRef: MutableRefObject<MountedEditorSession | null>
@@ -34,13 +32,13 @@ function BoundNoteEditor({ documentId, generation, mount, value, acknowledgedRev
   selectionGate: MutableRefObject<{ muted: boolean; last: string }>
 }) {
   const session = useRef<MountedEditorSession | null>(null)
-  if (!session.current) session.current = mountEditorSession({ documentId, generation, mount }, value, acknowledgedRevision)
+  if (!session.current) session.current = mountEditorSession({ documentId, generation }, value)
   const bound = session.current
   useEffect(() => {
     sessionRef.current = bound
     return () => { if (sessionRef.current === bound) sessionRef.current = null }
   }, [bound, sessionRef])
-  const resolveExternalValue = useMemo(() => () => bound.hostUpdate(value, acknowledgedRevision, acknowledgedGeneration), [bound, value, acknowledgedRevision, acknowledgedGeneration])
+  const resolveExternalValue = useMemo(() => () => bound.hostUpdate(value, acknowledgedRevision), [bound, value, acknowledgedRevision])
   return <RichEditor value={value} resolveExternalValue={resolveExternalValue} locale={locale} readOnly={readOnly}
     resolveAttachmentUrl={image} onChange={content => send('change', bound.change(content))} onBlur={() => send('blur')}
     onReady={editor => {
@@ -55,7 +53,7 @@ function BoundNoteEditor({ documentId, generation, mount, value, acknowledgedRev
 }
 
 function Editor() {
-  const [props, setProps] = useState<{ value: RichDoc; locale: JotLocale; readOnly: boolean; documentId: string; generation: number; mount: number; acknowledgedRevision: number; acknowledgedGeneration: number } | null>(null)
+  const [props, setProps] = useState<{ value: RichDoc; locale: JotLocale; readOnly: boolean; documentId: string; generation: number; acknowledgedRevision: number } | null>(null)
   const actions = useRef<RichEditorActions | null>(null)
   const root = useRef<HTMLDivElement>(null)
   const activeSession = useRef<MountedEditorSession | null>(null)
@@ -70,18 +68,16 @@ function Editor() {
         const locale = normalizeLocale(data.locale)
         const documentId = typeof data.documentId === 'string' ? data.documentId : ''
         const generation = Number.isSafeInteger(data.generation) && data.generation >= 0 ? data.generation : 0
-        const mount = Number.isSafeInteger(data.mount) && data.mount >= 0 ? data.mount : 0
         if (typeof data.protocol === 'number' && data.protocol !== EDITOR_FRAME_PROTOCOL) {
           reportDroppedEdit('protocol', data)
           return
         }
         const current = activeSession.current
-        const switched = !current || current.documentId !== documentId || current.generation !== generation || current.mount !== mount
-        if (switched && current) {
+        if (current && (current.documentId !== documentId || current.generation !== generation)) {
           // 外层代次还没换到这篇编辑器身上。先用挂载时记下的笔记把还没发出去的正文发出去。
           flushMountedNote()
           selectionGate.current = { muted: true, last: '' }
-          send('selection', { protocol: EDITOR_FRAME_PROTOCOL, text: '', documentId, generation, mount })
+          send('selection', { protocol: EDITOR_FRAME_PROTOCOL, text: '', documentId, generation })
         }
         // The slash menu is portaled to <body>, so the language and direction belong to the whole frame.
         document.documentElement.lang = intlLocale(locale)
@@ -93,8 +89,7 @@ function Editor() {
           if (Object.hasOwn(HOST_THEME_PROPERTIES, key) && typeof value === 'string') document.documentElement.style.setProperty(key, value)
         }
         const acknowledgedRevision = Number.isSafeInteger(data.acknowledgedRevision) ? data.acknowledgedRevision : 0
-        const acknowledgedGeneration = Number.isSafeInteger(data.acknowledgedGeneration) && data.acknowledgedGeneration >= 0 ? data.acknowledgedGeneration : generation
-        setProps({ value: data.value, locale, readOnly: Boolean(data.readOnly), documentId, generation, mount, acknowledgedRevision, acknowledgedGeneration })
+        setProps({ value: data.value, locale, readOnly: Boolean(data.readOnly), documentId, generation, acknowledgedRevision })
       } else if (event.data.token === token) {
         if (kind === 'focus') actions.current?.focus()
         if (kind === 'insert-image' || kind === 'insert-attachment') {
@@ -172,7 +167,7 @@ function Editor() {
       const content = actions.current?.readDocument?.()
       const pending = content ? current.pendingChange(content) : null
       if (pending) send('change', pending)
-      send('flushed', { protocol: EDITOR_FRAME_PROTOCOL, documentId: current.documentId, generation: current.generation, mount: current.mount })
+      send('flushed', { protocol: EDITOR_FRAME_PROTOCOL, documentId: current.documentId, generation: current.generation })
     }
     const publishSelection = (text: string, force = false) => {
       const session = activeSession.current
@@ -216,8 +211,8 @@ function Editor() {
   }, [Boolean(props)])
   return props && <div ref={root} lang={intlLocale(props.locale)} dir={isRtlLocale(props.locale) ? 'rtl' : 'ltr'} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
     <style>{jotStyles}</style>
-    <BoundNoteEditor key={`${props.documentId}:${props.mount}:${props.generation}`} documentId={props.documentId} generation={props.generation} mount={props.mount}
-      value={props.value} acknowledgedRevision={props.acknowledgedRevision} acknowledgedGeneration={props.acknowledgedGeneration} locale={props.locale} readOnly={props.readOnly}
+    <BoundNoteEditor key={`${props.documentId}:${props.generation}`} documentId={props.documentId} generation={props.generation}
+      value={props.value} acknowledgedRevision={props.acknowledgedRevision} locale={props.locale} readOnly={props.readOnly}
       sessionRef={activeSession} actionsRef={actions} selectionGate={selectionGate} />
   </div>
 }

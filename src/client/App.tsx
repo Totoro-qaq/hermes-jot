@@ -5,9 +5,9 @@ import { draftFromNote, draftFingerprint, emptyDocument, receiveLatestDraft, rec
 import type { NoteDraft } from './drafts.js'
 import type { JotPersistence } from '../hermes/persistence.js'
 import type { ReactNode } from 'react'
-import { editHumanDraft, freshFlushSettlement, parkedDraftForLateEdit, parkedEditorChange, planFreshNoteRelease, takeUntouchedFreshNote, type FreshFlushToken } from './draft-lifecycle.js'
+import { editHumanDraft, freshFlushSettlement, parkedDraftForLateEdit, parkedEditorChange, takeUntouchedFreshNote } from './draft-lifecycle.js'
 import { acceptRemoteAppend, planRemoteAppend, remoteBase, type RemoteBase } from './remote-append.js'
-import { acceptEditorRevision, claimEditorMount, type EditorFrameStamp, type EditorGenerationRevision } from '../hermes/editor-frame.js'
+import { acceptEditorRevision, type EditorFrameStamp, type EditorRevision } from '../hermes/editor-frame.js'
 import { RichEditor, type RichEditorActions } from '../hermes/EmbeddedEditor.js'
 import { appShortcut } from './app-shortcuts.js'
 import { ActionMenu, type ActionMenuEntry } from './ActionMenu.js'
@@ -33,7 +33,6 @@ import { IMPORT_ACCEPT, importFileProblem, mergeImportResults, summarizeImport }
 import type { AttachmentInfo, ExportFormat, ImportResult, JotApi, JotLocale, JotState, LibraryExportFormat, Note, RichNode } from './types.js'
 import type { AttachmentDialogRequest } from './attachment-dialog.js'
 import { intlLocale, isRtlLocale, translator } from './i18n.js'
-import { toastDeadline, toastRemainingAfter, toastTimerDeps } from './toasts.js'
 
 export interface JotAppProps {
   readSelectedText?: () => string
@@ -102,18 +101,11 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const [draft, setDraft] = useState<NoteDraft | null>(null)
   const draftRef = useRef<NoteDraft | null>(null)
   const editorActions = useRef<RichEditorActions | null>(null)
-  const editorRevisionsRef = useRef<Record<string, EditorGenerationRevision>>({})
-  const [editorRevisions, setEditorRevisions] = useState<Record<string, EditorGenerationRevision>>({})
-  const editorMountRef = useRef(0)
-  const editorMountFloor = useRef(0)
+  const editorRevisionsRef = useRef<Record<string, EditorRevision>>({})
+  const [editorRevisions, setEditorRevisions] = useState<Record<string, EditorRevision>>({})
   const frameStampRef = useRef<EditorFrameStamp | null>(null)
-  const pendingFreshFlush = useRef(new Map<string, FreshFlushToken>())
-  const claimEditorMountId = useCallback(() => {
-    const mount = claimEditorMount(editorMountRef.current)
-    editorMountRef.current = mount
-    editorMountFloor.current = mount
-    return mount
-  }, [])
+  /** 离开时还在等 flush 的新建笔记，值是离开那一刻的代次。 */
+  const pendingFreshFlush = useRef(new Map<string, number>())
   const editorFocusLease = useRef<(() => void) | null>(null)
   const releaseEditorFocus = useCallback(() => {
     editorFocusLease.current?.()
@@ -201,24 +193,17 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const showToast = useCallback((text: string, action?: Toast['action']) => {
     setToast({ id: ++toastSequence.current, text, action })
   }, [])
-  const toastClock = useRef<{ id: number; remainingMs: number } | null>(null)
-  // 普通通知的 paused 一直是 false，busy 变化不会重开计时器。撤销提示才会在忙碌时暂停。
-  const toastTiming = toast ? toastTimerDeps(toast.id, Boolean(toast.action), busy) : null
+  // 撤销提示在界面忙碌时暂停，之后接着剩下的时间走。普通通知不看 busy。
+  const toastLeft = useRef({ id: 0, ms: 0 })
+  const toastPaused = Boolean(toast?.action) && busy
   useEffect(() => {
-    if (!toast || !toastTiming) { toastClock.current = null; return }
-    const decision = toastDeadline({
-      id: toastTiming.id, hasAction: Boolean(toast.action), busy: toastTiming.paused, clock: toastClock.current,
-    })
-    toastClock.current = decision.clock
-    if (decision.delayMs === null) return
+    if (!toast || toastPaused) return
+    if (toastLeft.current.id !== toast.id) toastLeft.current = { id: toast.id, ms: toast.action ? 6000 : 3500 }
+    const left = toastLeft.current
     const started = Date.now()
-    const timer = setTimeout(() => setToast(current => current?.id === toast.id ? null : current), decision.delayMs)
-    return () => {
-      clearTimeout(timer)
-      if (!toastClock.current || toastClock.current.id !== toast.id) return
-      toastClock.current = { id: toast.id, remainingMs: toastRemainingAfter(toastClock.current.remainingMs, Date.now() - started) }
-    }
-  }, [toast, toastTiming?.id, toastTiming?.paused])
+    const timer = setTimeout(() => setToast(current => current?.id === toast.id ? null : current), left.ms)
+    return () => { clearTimeout(timer); left.ms = Math.max(0, left.ms - (Date.now() - started)) }
+  }, [toast, toastPaused])
   const fileInput = useRef<HTMLInputElement>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const mounted = useRef(true)
@@ -460,23 +445,17 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
 
   /** Leaving a note this panel created without writing anything removes it permanently. */
   const releaseFreshNote = useCallback((id: string) => {
-    const editorCanFlush = editorNote.current === id && editorActions.current !== null
-    if (planFreshNoteRelease(id, freshNotes.current, editorCanFlush) === 'wait') {
+    // 编辑器还能把这篇的正文发出来时，等 flush 落地再决定删不删。
+    if (freshNotes.current.has(id) && editorNote.current === id && editorActions.current) {
       const stamp = frameStampRef.current
-      pendingFreshFlush.current.set(id, stamp && stamp.documentId === id
-        ? { mount: stamp.mount, generation: stamp.generation }
-        : { mount: -1, generation: -1 })
+      pendingFreshFlush.current.set(id, stamp?.documentId === id ? stamp.generation : -1)
       return
     }
     purgeUntouchedFreshNote(id)
   }, [purgeUntouchedFreshNote])
 
-  const settleFreshFlush = useCallback((id: string, generation = 0, mount = 0) => {
-    const decision = freshFlushSettlement(draftRef.current?.noteId ?? null, pendingFreshFlush.current.get(id), { noteId: id, mount, generation })
-    if (decision !== 'settle') {
-      if (draftRef.current?.noteId === id) pendingFreshFlush.current.delete(id)
-      return
-    }
+  const settleFreshFlush = useCallback((id: string, generation: number) => {
+    if (freshFlushSettlement(draftRef.current?.noteId ?? null, pendingFreshFlush.current.get(id), { noteId: id, generation }) !== 'settle') return
     pendingFreshFlush.current.delete(id)
     purgeUntouchedFreshNote(id)
   }, [purgeUntouchedFreshNote])
@@ -1324,7 +1303,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
                   event.preventDefault(); editorActions.current?.focus()
                 }
               }} />
-            <RichEditor editorRevision={editorRevisions[draft.noteId]} onFlushSettled={settleFreshFlush} claimEditorMount={claimEditorMountId}
+            <RichEditor editorRevision={editorRevisions[draft.noteId]} onFlushSettled={settleFreshFlush}
               onFrameStamp={stamp => { frameStampRef.current = stamp }} loadEditor={api.loadEditor} onSave={() => void saveDraft(draft.noteId)} onPreviewAttachment={previewAttachment}
               onSelectionChange={onEditorSelection}
               onFiles={files => { if (!selectedDeleted) void uploadFiles(files) }}
@@ -1337,19 +1316,15 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
                 const remote = actions ? snapshotRef.current?.notes.find(note => note.id === draft.noteId) : undefined
                 if (remote) followRemote(remote)
               }}
-              onChange={(content, revision, editedNoteId, generation, mount) => {
+              onChange={(content, revision, editedNoteId, generation) => {
                 const id = editedNoteId || draft.noteId
                 if (revision !== undefined && generation !== undefined) {
-                  const decision = acceptEditorRevision(editorRevisionsRef.current[id], { mount, generation, revision }, editorMountFloor.current)
-                  if (!decision.accept) return
-                  editorRevisionsRef.current = { ...editorRevisionsRef.current, [id]: decision.next }
+                  const incoming = { generation, revision }
+                  if (!acceptEditorRevision(editorRevisionsRef.current[id], incoming)) return
+                  editorRevisionsRef.current = { ...editorRevisionsRef.current, [id]: incoming }
                   setEditorRevisions(editorRevisionsRef.current)
                 }
-                if (id === draftRef.current?.noteId) {
-                  pendingFreshFlush.current.delete(id)
-                  patchDraft({ content })
-                  return
-                }
+                if (id === draftRef.current?.noteId) { patchDraft({ content }); return }
                 // 切换之后才到的最后一次按键仍属于上一篇，写回那篇草稿，不写进当前笔记。
                 const waiting = pendingFreshFlush.current.has(id)
                 const parked = parkedDraftForLateEdit(drafts.current.get(id), snapshotRef.current?.notes.find(item => item.id === id), waiting)
