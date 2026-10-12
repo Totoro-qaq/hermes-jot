@@ -1,5 +1,5 @@
 import { getMarkRange } from '@tiptap/core'
-import type { Mark, MarkType } from '@tiptap/pm/model'
+import type { Mark, MarkType, Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
 import { httpHrefHasCredentials, normalizeLinkHref, openableLinkHref } from '../link-href.js'
 import { validateRichDoc } from '../model.js'
@@ -103,25 +103,45 @@ function rangeCarriesLink(state: EditorState, range: { from: number; to: number 
   return carries && sawText
 }
 
+/** 选区里一段连续文字和它的链接地址。没有链接时 href 为 null。 */
+export interface LinkHrefSegment { text: string; href: string | null }
+
+/** 选区里每一段文字当时的地址。相邻且地址相同的并成一段。 */
+export function linkHrefSegments(doc: ProseMirrorNode, from: number, to: number): LinkHrefSegment[] {
+  const link = doc.type.schema.marks.link
+  if (!link || from >= to) return []
+  const segments: LinkHrefSegment[] = []
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isText || !node.text) return
+    const text = node.text.slice(Math.max(0, from - pos), Math.min(node.text.length, to - pos))
+    if (!text) return
+    const mark = link.isInSet(node.marks)
+    const href = mark && mark.attrs.href ? String(mark.attrs.href) : null
+    const last = segments.at(-1)
+    if (last && last.href === href) last.text += text
+    else segments.push({ text, href })
+  })
+  return segments
+}
+
+function sameHrefSegments(left: readonly LinkHrefSegment[], right: readonly LinkHrefSegment[]): boolean {
+  return left.length === right.length && left.every((segment, index) => segment.text === right[index]?.text && segment.href === right[index]?.href)
+}
+
 /** 这一段里的链接地址。混着不同地址或有的字没有链接时返回 null。 */
 function hrefInRange(state: EditorState, from: number, to: number): string | null {
-  const link = state.schema.marks.link
-  if (!link || from === to) return null
-  let href: string | null | undefined
-  state.doc.nodesBetween(from, to, node => {
-    if (!node.isText) return
-    const mark = link.isInSet(node.marks)
-    const value = mark ? String(mark.attrs.href ?? '') : null
-    if (href === undefined) href = value
-    else if (href !== value) href = null
-  })
-  return href || null
+  const segments = linkHrefSegments(state.doc, from, to)
+  return segments.length === 1 ? segments[0]!.href : null
 }
 
 export function applyLinkEdit(
   state: EditorState,
   dispatch: ((tr: Transaction) => void) | undefined,
-  input: { href: string; text: string; from?: number; to?: number; original?: string; originalHref?: string | null },
+  input: {
+    href: string; text: string; from?: number; to?: number; original?: string; originalHref?: string | null
+    /** 浮层打开时每一段的地址。混合选区收成一个地址时只剩 null，别人改过其中一段也看不出来。 */
+    originalSegments?: readonly LinkHrefSegment[]
+  },
 ): boolean | 'stale' {
   const type = state.schema.marks.link
   if (!type) return false
@@ -135,7 +155,9 @@ export function applyLinkEdit(
     const from = input.from as number
     const to = input.to as number
     if (from < 0 || to < from || from > size || to > size || state.doc.textBetween(from, to) !== input.original) return 'stale'
-    if (input.originalHref !== undefined && hrefInRange(state, from, to) !== input.originalHref) return 'stale'
+    if (input.originalSegments !== undefined) {
+      if (!sameHrefSegments(linkHrefSegments(state.doc, from, to), input.originalSegments)) return 'stale'
+    } else if (input.originalHref !== undefined && hrefInRange(state, from, to) !== input.originalHref) return 'stale'
     const $from = state.doc.resolve(from)
     const $to = state.doc.resolve(to)
     if (!$from.sameParent($to) || !$from.parent.isTextblock || !$from.parent.type.allowsMarkType(type)) return false

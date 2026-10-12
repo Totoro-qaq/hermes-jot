@@ -173,6 +173,12 @@ export function flushWidthAnnouncement(clock: WidthAnnouncementClock, now: numbe
   return { clock: { lastAt: now, pending: null }, announce: clock.pending }
 }
 
+/** 离开表格时丢掉还没说的宽度，避免光标已经不在表格里才播报。 */
+export function abandonWidthAnnouncement(clock: WidthAnnouncementClock | null): WidthAnnouncementClock | null {
+  if (!clock || clock.pending == null) return clock
+  return { lastAt: clock.lastAt, pending: null }
+}
+
 /** 键盘调整列宽时每按一次方向键移动的像素。 */
 export const TABLE_COLUMN_NUDGE = 16
 

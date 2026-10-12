@@ -4,6 +4,8 @@
 
 Open Jot through its Hermes navigation entry, side panel, composer icon or command palette. Write ordinary documents without learning Markdown. Folders are optional and named by you.
 
+Select text and press Ctrl/⌘K, or use the link button, to add a link. With the caret in a link, the same popover edits its address or text, opens it, or removes it. A click or middle-click on a link opens it once through Hermes. In a read-only note, Enter on a focused link does the same. An address stored with a username or password does not open.
+
 Recent shows pinned notes and a few recently edited notes; All scrolls continuously. Search covers titles and body text. Sort order, list width and layout preferences are local and separated by connection/profile.
 
 To put the panel away, right-click its toolbar and choose the host’s **Minimize** action. The composer Jot button restores it. Hermes keeps the last tab in a zone visible, so its **Hide Jot** menu action may be refused when Jot is that zone’s only tab.

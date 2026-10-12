@@ -75,6 +75,17 @@ export function resolveEditorLinkClick(attribute: string, property: string): { p
   return { preventDefault: true, open }
 }
 
+/**
+ * 访客 iframe 里链接上的 click 和 auxclick。主键 click（包括键盘 Enter 触发的 click）和中键 auxclick 由 Jot 打开一次。
+ * 别的按键的 click 不处理，免得给中键补发 click 的浏览器再开一次。右键交给浏览器。
+ */
+export function editorLinkEventAction(event: { type: string; button: number }, attribute: string, property: string): { preventDefault: boolean; open: string | null } {
+  const primary = event.type === 'click' && event.button === 0
+  const middle = event.type === 'auxclick' && event.button === 1
+  if (!primary && !middle) return { preventDefault: false, open: null }
+  return resolveEditorLinkClick(attribute, property)
+}
+
 /** 导出时去掉 http(s) 里的账号密码。解析不了就不要把原文写进文件。其它地址原样保留。 */
 export function exportableLinkHref(href: string): string | null {
   if (!href) return null

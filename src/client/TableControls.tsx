@@ -7,7 +7,7 @@ import { closeHistory } from '@tiptap/pm/history'
 import { ActionMenu, type ActionMenuItem } from './ActionMenu.js'
 import { JotActionIcon } from './icons.js'
 import { translator, type JotLocale } from './i18n.js'
-import { columnDividerDelta, columnWidthChange, explicitColumnWidth, flushWidthAnnouncement, nudgeTableColumn, planWidthAnnouncement, selectedTable, TABLE_CELL_MAX_WIDTH, TABLE_CELL_MIN_WIDTH, TABLE_COLUMN_NUDGE, tableActionAllowed, tableActionTransaction, type ColumnWidthSample, type TableAction, type TableTarget, type WidthAnnouncementClock } from './table-actions.js'
+import { abandonWidthAnnouncement, columnDividerDelta, columnWidthChange, explicitColumnWidth, flushWidthAnnouncement, nudgeTableColumn, planWidthAnnouncement, selectedTable, TABLE_CELL_MAX_WIDTH, TABLE_CELL_MIN_WIDTH, TABLE_COLUMN_NUDGE, tableActionAllowed, tableActionTransaction, type ColumnWidthSample, type TableAction, type TableTarget, type WidthAnnouncementClock } from './table-actions.js'
 
 interface ChromeGeometry {
   /** The table's end edge, where the append-column button and table options sit: left of the table in RTL. */
@@ -46,7 +46,12 @@ export function TableControls({ editor, readOnly, locale }: { editor: Editor; re
     : null
   const widthText = (width: number) => t('Column {column} width {width} pixels', { column: target?.right ?? '', width })
   useEffect(() => {
-    if (!widthSample) return
+    if (!widthSample) {
+      if (announceTimer.current) clearTimeout(announceTimer.current)
+      announceTimer.current = null
+      announceClock.current = abandonWidthAnnouncement(announceClock.current)
+      return
+    }
     const next = columnWidthChange(seenWidth.current, widthSample)
     const switched = Boolean(seenWidth.current && seenWidth.current.key !== widthSample.key)
     seenWidth.current = widthSample

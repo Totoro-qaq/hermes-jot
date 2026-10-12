@@ -6,7 +6,7 @@ import { CellSelection, columnResizingPluginKey, TableMap } from '@tiptap/pm/tab
 import { createJotExtensions } from '../src/client/editor-extensions.js'
 import { syncEditorContent } from '../src/client/editor-content.js'
 import { persistableTableWidthPlugin } from '../src/client/table-view.js'
-import { COLUMN_WIDTH_ANNOUNCE_MS, columnDividerDelta, columnWidthChange, explicitColumnWidth, flushWidthAnnouncement, nudgeTableColumn, planWidthAnnouncement, selectedTable, TABLE_CELL_MAX_WIDTH, TABLE_COLUMN_NUDGE, tableActionAllowed, tableActionTransaction, type TableAction } from '../src/client/table-actions.js'
+import { abandonWidthAnnouncement, COLUMN_WIDTH_ANNOUNCE_MS, columnDividerDelta, columnWidthChange, explicitColumnWidth, flushWidthAnnouncement, nudgeTableColumn, planWidthAnnouncement, selectedTable, TABLE_CELL_MAX_WIDTH, TABLE_COLUMN_NUDGE, tableActionAllowed, tableActionTransaction, type TableAction } from '../src/client/table-actions.js'
 import { docToText, MAX_DOC_BYTES, validateRichDoc } from '../src/model.js'
 
 const paragraph = (text?: string) => ({ type: 'paragraph', ...(text ? { content: [{ type: 'text', text }] } : {}) })
@@ -412,6 +412,13 @@ test('the column divider ignores modified arrows and width announcements stay th
   assert.equal(flushed.clock.pending, null)
   const again = planWidthAnnouncement(flushed.clock, 168, flushed.clock.lastAt + COLUMN_WIDTH_ANNOUNCE_MS)
   assert.equal(again.announce, 168)
+  const pending = planWidthAnnouncement(again.clock, 184, again.clock.lastAt + 100)
+  assert.equal(pending.clock.pending, 184)
+  const left = abandonWidthAnnouncement(pending.clock)
+  assert.deepEqual(left, { lastAt: pending.clock.lastAt, pending: null })
+  assert.equal(flushWidthAnnouncement(left!, pending.clock.lastAt + COLUMN_WIDTH_ANNOUNCE_MS).announce, null)
+  assert.equal(abandonWidthAnnouncement(null), null)
+  assert.equal(abandonWidthAnnouncement(again.clock), again.clock)
 })
 
 test('nudging a column writes the new width and stops at the limit', t => {

@@ -3,9 +3,10 @@ import { test } from 'node:test'
 import { Editor } from '@tiptap/core'
 import { history } from '@tiptap/pm/history'
 import { createJotExtensions } from '../src/client/editor-extensions.js'
-import { applyLinkEdit, blockCredentialLinkEvent, linkMarkHref, linkUnderCaret, normalizeLinkHref, openableLinkHref, openedLinkRange, readLinkDraft, removeLink } from '../src/client/link-commands.js'
+import { TextSelection } from '@tiptap/pm/state'
+import { applyLinkEdit, blockCredentialLinkEvent, linkHrefSegments, linkMarkHref, linkUnderCaret, normalizeLinkHref, openableLinkHref, openedLinkRange, readLinkDraft, removeLink } from '../src/client/link-commands.js'
 import { translator } from '../src/client/i18n.js'
-import { exportableLinkHref, resolveEditorLinkClick } from '../src/link-href.js'
+import { editorLinkEventAction, exportableLinkHref, resolveEditorLinkClick } from '../src/link-href.js'
 import { MAX_TEXT_LENGTH, validateRichDoc } from '../src/model.js'
 
 const paragraph = (text: string) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })
@@ -36,6 +37,25 @@ test('link addresses keep the typed form and only add a scheme when the user lef
   assert.deepEqual(resolveEditorLinkClick('#section', '#section'), { preventDefault: false, open: null })
   assert.equal(exportableLinkHref('https://user:s3cret-token@example.com/a'), 'https://example.com/a')
   assert.equal(exportableLinkHref('https://example.com/a?b=1'), 'https://example.com/a?b=1')
+})
+
+test('the editor frame opens a link once for a click, Enter on a focused link, or a middle-click', () => {
+  const href = 'https://example.com/a'
+  const opened = { preventDefault: true, open: href }
+  const ignored = { preventDefault: false, open: null }
+  // Enter on a focused link in a read-only note is delivered as a primary-button click.
+  assert.deepEqual(editorLinkEventAction({ type: 'click', button: 0 }, href, href), opened)
+  assert.deepEqual(editorLinkEventAction({ type: 'auxclick', button: 1 }, href, href), opened)
+  assert.deepEqual(editorLinkEventAction({ type: 'click', button: 1 }, href, href), ignored, 'a click the browser adds for the middle button does not open a second time')
+  assert.deepEqual(editorLinkEventAction({ type: 'auxclick', button: 2 }, href, href), ignored, 'right-click stays with the browser')
+  assert.deepEqual(editorLinkEventAction({ type: 'mouseup', button: 1 }, href, href), ignored)
+  let middleOpens = 0
+  for (const event of [{ type: 'mouseup', button: 1 }, { type: 'click', button: 1 }, { type: 'auxclick', button: 1 }]) {
+    if (editorLinkEventAction(event, href, href).open) middleOpens++
+  }
+  assert.equal(middleOpens, 1)
+  assert.deepEqual(editorLinkEventAction({ type: 'auxclick', button: 1 }, 'https://user:secret@example.com/a', 'https://example.com/a'), { preventDefault: true, open: null })
+  assert.deepEqual(editorLinkEventAction({ type: 'auxclick', button: 1 }, '#section', '#section'), ignored)
 })
 
 test('a selection becomes a link, an existing link can change, and removing it keeps the words', t => {
@@ -269,4 +289,39 @@ test('saving a link does not overwrite an address that changed after the popover
   }), true)
   assert.equal(editor.state.doc.textContent, 'guide')
   assert.equal(linkUnderCaret(editor.state)?.href, 'https://example.com/new')
+})
+
+test('saving a selection that mixes links checks each stretch and does not overwrite a later change', t => {
+  const credential = 'https://user:secret@one.example/a'
+  const editor = headless({ type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'one', marks: [{ type: 'link', attrs: { href: credential } }] },
+    { type: 'text', text: ' and ' },
+    { type: 'text', text: 'two', marks: [{ type: 'link', attrs: { href: 'https://two.example' } }] },
+  ] }] })
+  t.after(() => editor.destroy())
+  assert.equal(validateRichDoc(editor.getJSON()).content[0]!.content![0]!.marks?.[0]?.attrs?.href, credential)
+  const from = 1
+  const to = editor.state.doc.content.size - 1
+  const original = editor.state.doc.textBetween(from, to)
+  assert.equal(original, 'one and two')
+  const segments = linkHrefSegments(editor.state.doc, from, to)
+  assert.deepEqual(segments, [
+    { text: 'one', href: credential },
+    { text: ' and ', href: null },
+    { text: 'two', href: 'https://two.example' },
+  ])
+  assert.deepEqual(linkHrefSegments(editor.state.doc, 2, 3), [{ text: 'n', href: credential }])
+  assert.deepEqual(linkHrefSegments(editor.state.doc, 3, 3), [])
+  editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from, to)))
+  const two = { from: to - 3, to }
+  editor.view.dispatch(editor.state.tr.addMark(two.from, two.to, editor.schema.marks.link!.create({ href: 'https://changed.example' })))
+  const before = editor.getJSON()
+  const input = { from, to, original, originalHref: null, originalSegments: segments, text: original, href: 'https://example.com/all' }
+  assert.equal(applyLinkEdit(editor.state, undefined, { ...input, originalSegments: undefined }), true, 'one collapsed address cannot see the change')
+  assert.equal(applyLinkEdit(editor.state, undefined, input), 'stale')
+  assert.equal(applyLinkEdit(editor.state, editor.view.dispatch, input), 'stale')
+  assert.deepEqual(editor.getJSON(), before)
+  assert.deepEqual(linkHrefSegments(editor.state.doc, two.from, two.to), [{ text: 'two', href: 'https://changed.example' }])
+  assert.equal(applyLinkEdit(editor.state, editor.view.dispatch, { ...input, originalSegments: linkHrefSegments(editor.state.doc, from, to) }), true)
+  assert.deepEqual(linkHrefSegments(editor.state.doc, from, to), [{ text: 'one and two', href: 'https://example.com/all' }])
 })

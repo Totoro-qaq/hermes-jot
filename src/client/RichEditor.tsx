@@ -9,7 +9,7 @@ import { columnResizingPluginKey } from '@tiptap/pm/tables'
 import { findMatches, replaceAllMatches, replaceMatch } from './document-find.js'
 import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
-import { applyLinkEdit, blockCredentialLinkEvent, linkMarkHref, linkUnderCaret, normalizeLinkHref, openableLinkHref, openedLinkRange, removeLink } from './link-commands.js'
+import { applyLinkEdit, blockCredentialLinkEvent, linkHrefSegments, linkMarkHref, linkUnderCaret, normalizeLinkHref, openableLinkHref, openedLinkRange, removeLink, type LinkHrefSegment } from './link-commands.js'
 import { taskListsNeedTidy, tidyCompletedTasks } from './list-commands.js'
 import { nextRovingIndex, styleMenuActivationIsDuplicate, styleMenuArmsClickDedupe, styleMenuDedupeShouldRelease, styleMenuDismissFocus, styleMenuKeyboardEdge } from './roving-focus.js'
 import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
@@ -104,7 +104,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
   const linkPopover = useRef<HTMLDivElement>(null)
   const linkUrlInput = useRef<HTMLInputElement>(null)
   /** 浮层打开时文档里的地址和原文。之后改输入框不能拿来和文档比对。 */
-  const openedLink = useRef<{ from: number; to: number; original: string; originalHref: string | null } | null>(null)
+  const openedLink = useRef<{ from: number; to: number; original: string; originalHref: string | null; originalSegments: LinkHrefSegment[] } | null>(null)
   const [paletteOpen, setPaletteOpen] = useState<'text' | 'highlight' | null>(null)
   const [findOpen, setFindOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -390,6 +390,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       to: sourceTo,
       original: current.state.doc.textBetween(sourceFrom, sourceTo),
       originalHref: editing?.href ?? null,
+      originalSegments: linkHrefSegments(current.state.doc, sourceFrom, sourceTo),
     }
     setLinkEditing(Boolean(editing))
     setLinkHref(editing?.href ?? '')
@@ -412,7 +413,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
     const result = applyLinkEdit(current.state, current.view.dispatch, {
       href: linkHref,
       text: linkText,
-      ...(captured ? { from: captured.from, to: captured.to, original: captured.original, originalHref: captured.originalHref } : {}),
+      ...(captured ? { from: captured.from, to: captured.to, original: captured.original, originalHref: captured.originalHref, originalSegments: captured.originalSegments } : {}),
     })
     if (result === 'stale') {
       setLinkError(t('The note changed. Open the link again.'))

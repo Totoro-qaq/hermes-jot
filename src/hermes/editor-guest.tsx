@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { RichEditor, type RichEditorActions } from '../client/RichEditor.js'
 import type { RichDoc } from '../client/types.js'
 import { intlLocale, isRtlLocale, normalizeLocale, type JotLocale } from '../client/i18n.js'
-import { resolveEditorLinkClick } from '../link-href.js'
+import { editorLinkEventAction } from '../link-href.js'
 import { EDITOR_FRAME_PROTOCOL, mountEditorSession, reportDroppedEdit, type MountedEditorSession } from './editor-frame.js'
 import { jotStyles } from '../client/styles.js'
 import { HOST_THEME_PROPERTIES } from './theme.js'
@@ -135,13 +135,16 @@ function Editor() {
     }
     const click = (event: MouseEvent) => {
       const element = event.target instanceof Element ? event.target.closest('[data-jot-attachment-id]') : null
-      if (element) { event.preventDefault(); event.stopPropagation(); send('preview', element.getAttribute('data-jot-attachment-id')); return }
+      if (element) {
+        if (event.type !== 'click' || event.button !== 0) return
+        event.preventDefault(); event.stopPropagation(); send('preview', element.getAttribute('data-jot-attachment-id')); return
+      }
       const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null
       if (link) {
-        const click = resolveEditorLinkClick(link.getAttribute('href') ?? '', link.href)
-        if (!click.preventDefault) return
+        const action = editorLinkEventAction(event, link.getAttribute('href') ?? '', link.href)
+        if (!action.preventDefault) return
         event.preventDefault(); event.stopPropagation()
-        if (click.open) send('link', click.open)
+        if (action.open) send('link', action.open)
       }
     }
     const paste = (event: ClipboardEvent) => {
@@ -187,6 +190,7 @@ function Editor() {
     window.addEventListener('pagehide', flushMountedNote)
     window.addEventListener('keydown', key, true)
     document.addEventListener('click', click, true)
+    document.addEventListener('auxclick', click, true)
     document.addEventListener('paste', paste, true)
     document.addEventListener('dragover', drag)
     document.addEventListener('drop', drop, true)
@@ -196,7 +200,8 @@ function Editor() {
     parent.postMessage({ channel: 'jot-editor', kind: 'hello' }, '*')
     return () => {
       window.removeEventListener('message', receive); window.removeEventListener('pagehide', flushMountedNote); window.removeEventListener('keydown', key, true)
-      document.removeEventListener('click', click, true); document.removeEventListener('paste', paste, true)
+      document.removeEventListener('click', click, true); document.removeEventListener('auxclick', click, true)
+      document.removeEventListener('paste', paste, true)
       document.removeEventListener('dragover', drag); document.removeEventListener('drop', drop, true)
       document.removeEventListener('selectionchange', selection)
       window.removeEventListener('focus', focused)
