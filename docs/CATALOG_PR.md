@@ -1,6 +1,6 @@
 # Catalog PR description
 
-Title: **plugin-catalog: update Jot to 0.3.1**
+Title: **plugin-catalog: update Jot to 0.4.0**
 
 Substitute `@FULL_COMMIT_SHA@` with the reviewed release commit after checks pass. Use the same commit for image URLs.
 
@@ -8,8 +8,9 @@ Substitute `@FULL_COMMIT_SHA@` with the reviewed release commit after checks pas
 
 ## What does this PR do?
 
-Updates `plugin-catalog/jot.yaml` from Jot 0.2.0 to 0.3.1, pinned to `@FULL_COMMIT_SHA@` in https://github.com/Totoro-qaq/hermes-jot.
+Updates `plugin-catalog/jot.yaml` from Jot 0.3.1 to 0.4.0, pinned to `@FULL_COMMIT_SHA@` in https://github.com/Totoro-qaq/hermes-jot.
 
+- The editor can add, edit, open and remove links, tidy completed checklist items, and use the style menu, note menu and column-width control from the keyboard. Web addresses with a username or password stay in existing notes, do not open, and are omitted from exports.
 - Adds user-typed `/jot ai on|off|status` and a note-library summary outside Desktop (introduced in 0.3.0).
 - Includes complete notices for dependencies inlined in docx and the vendored SVG icon paths. Versioned license sources participate in the build fingerprint and package freshness check.
 - Asks the agent to read the note fresh in each editing turn. Rejected writes retain the original 409 / `REVISION_CONFLICT` error and add `applied: false` with guidance to read again and reconsider the edit before retrying. Existing hosts retain their existing error display.
@@ -26,4 +27,4 @@ Before publishing this template, record the completed release checks: Linux/macO
 
 Requires Hermes >=0.21.5 with the current SandboxedFrame and gateway download SDK, and Node.js 22.19+. The package uses fixed-argument local Node subprocesses and an isolated editor frame, with no model credentials, self-updater or telemetry. Word attachments download or open in the default application on the tested host.
 
-Screenshot assets are the existing 0.2.0 native Hermes captures using synthetic notes; this patch release does not replace them.
+Screenshot assets are the existing 0.2.0 native Hermes captures using synthetic notes; this release does not replace them.
