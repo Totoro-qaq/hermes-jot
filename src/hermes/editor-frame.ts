@@ -19,10 +19,28 @@ export function advanceEditorFrame(current: EditorFrameStamp, documentId: string
 }
 
 export type GuestEditorAction =
-  | { type: 'change'; content: RichDoc; revision: number; documentId: string }
+  | { type: 'change'; content: RichDoc; revision: number; documentId: string; generation: number }
   | { type: 'selection'; text: string }
+  | { type: 'flushed'; documentId: string; generation: number }
   | { type: 'drop'; reason: 'protocol' | 'stamp' | 'shape' }
   | { type: 'unhandled' }
+
+/** 一篇笔记已经发出去的最新代次和它自己的修订号。旧代次不能再用同一个数字盖回来。 */
+export interface EditorGenerationRevision { generation: number; revision: number }
+
+/**
+ * 修订号按笔记和代次一起记。
+ * 新代次一旦发过编辑，更旧代次的回声一律丢掉，即使两边的修订号都是 1。
+ */
+export function acceptEditorRevision(known: EditorGenerationRevision | undefined, incoming: EditorGenerationRevision): { accept: boolean; next: EditorGenerationRevision } {
+  if (!Number.isSafeInteger(incoming.generation) || !Number.isSafeInteger(incoming.revision) || incoming.generation < 0 || incoming.revision < 0) {
+    return { accept: false, next: known ?? { generation: 0, revision: 0 } }
+  }
+  if (known && (incoming.generation < known.generation || (incoming.generation === known.generation && incoming.revision < known.revision))) {
+    return { accept: false, next: known }
+  }
+  return { accept: true, next: { generation: incoming.generation, revision: incoming.revision } }
+}
 
 function stampMatches(current: EditorFrameStamp, data: unknown): boolean {
   if (!data || typeof data !== 'object') return false
@@ -53,21 +71,23 @@ export function rememberEditorStamp(recent: readonly EditorFrameStamp[], stamp: 
  * 其它消息仍由宿主自己处理。
  */
 export function guestEditorAction(current: EditorFrameStamp, kind: string, data: unknown, recent?: readonly EditorFrameStamp[] | null): GuestEditorAction {
-  if (kind !== 'change' && kind !== 'selection') return { type: 'unhandled' }
+  if (kind !== 'change' && kind !== 'selection' && kind !== 'flushed') return { type: 'unhandled' }
   if (!data || typeof data !== 'object') return { type: 'drop', reason: 'shape' }
   if (protocolMismatch(data)) return { type: 'drop', reason: 'protocol' }
   const matchesCurrent = stampMatches(current, data)
   const matchesRecent = Boolean(recent?.some(stamp => stampMatches(stamp, data)))
   if (!matchesCurrent && !matchesRecent) return { type: 'drop', reason: 'stamp' }
-  const record = data as { text?: unknown; content?: unknown; revision?: unknown; documentId?: unknown }
+  const record = data as { text?: unknown; content?: unknown; revision?: unknown; documentId?: unknown; generation?: unknown }
   if (kind === 'selection') {
     if (!matchesCurrent || typeof record.text !== 'string') return { type: 'drop', reason: matchesCurrent ? 'shape' : 'stamp' }
     return { type: 'selection', text: record.text }
   }
-  if (typeof record.documentId !== 'string' || !record.content || typeof record.content !== 'object' || (record.content as { type?: unknown }).type !== 'doc' || !Number.isSafeInteger(record.revision)) {
+  if (typeof record.documentId !== 'string' || typeof record.generation !== 'number' || !Number.isSafeInteger(record.generation)) return { type: 'drop', reason: 'shape' }
+  if (kind === 'flushed') return { type: 'flushed', documentId: record.documentId, generation: record.generation }
+  if (!record.content || typeof record.content !== 'object' || (record.content as { type?: unknown }).type !== 'doc' || !Number.isSafeInteger(record.revision)) {
     return { type: 'drop', reason: 'shape' }
   }
-  return { type: 'change', content: record.content as RichDoc, revision: record.revision as number, documentId: record.documentId }
+  return { type: 'change', content: record.content as RichDoc, revision: record.revision as number, documentId: record.documentId, generation: record.generation }
 }
 
 /** 协议或代次对不上、因而丢掉一次编辑时记下来。正常切换不会刷屏。 */
@@ -95,14 +115,14 @@ export interface MountedEditorSession {
   /** 正文和上次记下的一样就返回 null，切换时不把没改过的笔记再存一遍。 */
   pendingChange(content: RichDoc): MountedEditorChange | null
   selection(text: string): { protocol: number; text: string; documentId: string; generation: number }
-  hostUpdate(value: RichDoc, acknowledged: number): RichDoc
+  hostUpdate(value: RichDoc, acknowledged: number, acknowledgedGeneration?: number): RichDoc
 }
 
 export function mountEditorSession(stamp: EditorFrameStamp, value: RichDoc, _acknowledged: number): MountedEditorSession {
   const documentId = stamp.documentId
   const generation = stamp.generation
   const sync = new EditorSync()
-  sync.beginDocument(documentId)
+  sync.beginDocument(documentId, generation)
   let known: RichDoc = value
   const change = (content: RichDoc): MountedEditorChange => {
     known = content
@@ -119,8 +139,8 @@ export function mountEditorSession(stamp: EditorFrameStamp, value: RichDoc, _ack
     selection(text) {
       return { protocol: EDITOR_FRAME_PROTOCOL, text, documentId, generation }
     },
-    hostUpdate(next, acknowledgedRevision) {
-      const resolved = sync.prepareHostUpdate(next, acknowledgedRevision)()
+    hostUpdate(next, acknowledgedRevision, acknowledgedGeneration = generation) {
+      const resolved = sync.prepareHostUpdate(next, acknowledgedRevision, acknowledgedGeneration)()
       known = resolved
       return resolved
     },

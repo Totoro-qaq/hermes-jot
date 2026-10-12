@@ -5,8 +5,9 @@ import { draftFromNote, draftFingerprint, emptyDocument, receiveLatestDraft, rec
 import type { NoteDraft } from './drafts.js'
 import type { JotPersistence } from '../hermes/persistence.js'
 import type { ReactNode } from 'react'
-import { editHumanDraft, parkedEditorChange, takeUntouchedFreshNote } from './draft-lifecycle.js'
+import { editHumanDraft, parkedDraftForLateEdit, parkedEditorChange, planFreshNoteRelease, takeUntouchedFreshNote } from './draft-lifecycle.js'
 import { acceptRemoteAppend, planRemoteAppend, remoteBase, type RemoteBase } from './remote-append.js'
+import { acceptEditorRevision, type EditorGenerationRevision } from '../hermes/editor-frame.js'
 import { RichEditor, type RichEditorActions } from '../hermes/EmbeddedEditor.js'
 import { appShortcut } from './app-shortcuts.js'
 import { ActionMenu, type ActionMenuEntry } from './ActionMenu.js'
@@ -100,7 +101,9 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
   const [draft, setDraft] = useState<NoteDraft | null>(null)
   const draftRef = useRef<NoteDraft | null>(null)
   const editorActions = useRef<RichEditorActions | null>(null)
-  const [editorRevisions, setEditorRevisions] = useState<Record<string, number>>({})
+  const editorRevisionsRef = useRef<Record<string, EditorGenerationRevision>>({})
+  const [editorRevisions, setEditorRevisions] = useState<Record<string, EditorGenerationRevision>>({})
+  const pendingFreshFlush = useRef(new Set<string>())
   const editorFocusLease = useRef<(() => void) | null>(null)
   const releaseEditorFocus = useCallback(() => {
     editorFocusLease.current?.()
@@ -416,8 +419,8 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     if (statusesRef.current[current.noteId]?.phase !== 'conflict') setStatus(current.noteId, { phase: 'dirty' })
   }
 
-  /** Leaving a note this panel created without writing anything removes it permanently. */
-  const releaseFreshNote = useCallback((id: string) => {
+  /** 确认这篇新建笔记仍然是空的之后才永久删除。编辑若在删除请求回来之前到达，就留下。 */
+  const purgeUntouchedFreshNote = useCallback((id: string) => {
     const note = snapshotRef.current?.notes.find(item => item.id === id)
     const local = drafts.current.get(id)
     if (!takeUntouchedFreshNote(id, freshNotes.current, {
@@ -425,8 +428,27 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
     }) || !note) return
     const purge = apiRef.current.purgeNote
     if (!purge) return
-    void purge(id, note.revision).then(() => { drafts.current.delete(id); return refresh() }).catch(() => { /* an edited or moved note stays */ })
+    void purge(id, note.revision).then(() => {
+      if (drafts.current.get(id)?.dirty || freshNotes.current.has(id)) return
+      drafts.current.delete(id)
+      return refresh()
+    }).catch(() => { /* an edited or moved note stays */ })
   }, [refresh])
+
+  /** Leaving a note this panel created without writing anything removes it permanently. */
+  const releaseFreshNote = useCallback((id: string) => {
+    const editorCanFlush = editorNote.current === id && editorActions.current !== null
+    if (planFreshNoteRelease(id, freshNotes.current, editorCanFlush) === 'wait') {
+      pendingFreshFlush.current.add(id)
+      return
+    }
+    purgeUntouchedFreshNote(id)
+  }, [purgeUntouchedFreshNote])
+
+  const settleFreshFlush = useCallback((id: string) => {
+    if (!pendingFreshFlush.current.delete(id)) return
+    purgeUntouchedFreshNote(id)
+  }, [purgeUntouchedFreshNote])
 
   const selectNote = useCallback((note: Note, handoff?: NoteOpenRequest) => {
     selectionGeneration.current++
@@ -1270,7 +1292,7 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
                   event.preventDefault(); editorActions.current?.focus()
                 }
               }} />
-            <RichEditor acknowledgedRevision={editorRevisions[draft.noteId] ?? 0} loadEditor={api.loadEditor} onSave={() => void saveDraft(draft.noteId)} onPreviewAttachment={previewAttachment}
+            <RichEditor editorRevision={editorRevisions[draft.noteId]} onFlushSettled={settleFreshFlush} loadEditor={api.loadEditor} onSave={() => void saveDraft(draft.noteId)} onPreviewAttachment={previewAttachment}
               onSelectionChange={onEditorSelection}
               onFiles={files => { if (!selectedDeleted) void uploadFiles(files) }}
               onExternalLink={url => void perform(async () => { await api.openExternal?.(url) })}
@@ -1282,14 +1304,25 @@ export function JotApp({ readSelectedText, onEditorSelection, persistence, attac
                 const remote = actions ? snapshotRef.current?.notes.find(note => note.id === draft.noteId) : undefined
                 if (remote) followRemote(remote)
               }}
-              onChange={(content, revision, editedNoteId) => {
+              onChange={(content, revision, editedNoteId, generation) => {
                 const id = editedNoteId || draft.noteId
-                if (revision !== undefined) setEditorRevisions(previous => ({ ...previous, [id]: revision }))
-                if (id === draftRef.current?.noteId) { patchDraft({ content }); return }
+                if (revision !== undefined && generation !== undefined) {
+                  const decision = acceptEditorRevision(editorRevisionsRef.current[id], { generation, revision })
+                  if (!decision.accept) return
+                  editorRevisionsRef.current = { ...editorRevisionsRef.current, [id]: decision.next }
+                  setEditorRevisions(editorRevisionsRef.current)
+                }
+                if (id === draftRef.current?.noteId) {
+                  pendingFreshFlush.current.delete(id)
+                  patchDraft({ content })
+                  return
+                }
                 // 切换之后才到的最后一次按键仍属于上一篇，写回那篇草稿，不写进当前笔记。
-                const parked = drafts.current.get(id)
+                const waiting = pendingFreshFlush.current.has(id)
+                const parked = parkedDraftForLateEdit(drafts.current.get(id), snapshotRef.current?.notes.find(item => item.id === id), waiting)
                 const action = parkedEditorChange(parked, content, statusesRef.current[id]?.phase === 'conflict')
                 if (action === 'unchanged' || !parked) return
+                pendingFreshFlush.current.delete(id)
                 const next = persistDraft(editHumanDraft(parked, { content }, freshNotes.current))
                 drafts.current.set(id, next)
                 if (action === 'keep-conflict') return

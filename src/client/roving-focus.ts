@@ -6,6 +6,16 @@ export function styleMenuActivationIsDuplicate(detail: number, handledKeydown: b
   return detail === 0 && handledKeydown
 }
 
+/** 只有 Enter 和空格会再发一次 click。方向键不会，不能拿来挡住之后的读屏点击。 */
+export function styleMenuArmsClickDedupe(key: string): boolean {
+  return key === 'Enter' || key === ' '
+}
+
+/** Escape 关掉样式菜单后，焦点回到「样式」按钮。 */
+export function styleMenuDismissFocus(): 'trigger' {
+  return 'trigger'
+}
+
 /** 键盘打开样式菜单时，焦点进入哪一端。鼠标点击不使用这个结果。 */
 export function styleMenuKeyboardEdge(key: string): 'first' | 'last' | null {
   if (key === 'ArrowUp') return 'last'

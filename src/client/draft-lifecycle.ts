@@ -1,4 +1,4 @@
-import { editDraft, type NoteDraft } from './drafts.js'
+import { draftFromNote, editDraft, type NoteDraft } from './drafts.js'
 import { sameEditorDocument } from '../rich-equal.js'
 import type { Note, RichDoc } from './types.js'
 
@@ -14,6 +14,25 @@ type DraftPatch = Partial<Pick<NoteDraft, 'title' | 'content' | 'folderId' | 'pi
 export function parkedEditorChange(parked: NoteDraft | undefined, content: RichDoc, conflicted: boolean): 'unchanged' | 'save' | 'keep-conflict' {
   if (!parked || sameEditorDocument(parked.content, content)) return 'unchanged'
   return conflicted ? 'keep-conflict' : 'save'
+}
+
+/**
+ * 编辑器还能把这篇的正文发出来时，先别删。
+ * 等 flush 落地：有字就留下，确认没改过再删。
+ */
+export function planFreshNoteRelease(id: string, fresh: ReadonlySet<string>, editorCanFlush: boolean): 'wait' | 'ready' {
+  if (fresh.has(id) && editorCanFlush) return 'wait'
+  return 'ready'
+}
+
+/**
+ * 晚到的正文到达时草稿可能已经被清掉。
+ * 还在等这篇的 flush 时，用库里的笔记把草稿重新建出来。
+ */
+export function parkedDraftForLateEdit(parked: NoteDraft | undefined, note: Note | undefined, waiting: boolean): NoteDraft | undefined {
+  if (parked) return parked
+  if (waiting && note && !note.deletedAt) return draftFromNote(note)
+  return undefined
 }
 
 /** Any intentional edit, including metadata, ends automatic empty-note cleanup. */

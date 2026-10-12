@@ -10,7 +10,7 @@ import { highlightWindow } from './find-highlights.js'
 import { editorShortcut, editorShortcutLabel, type EditorShortcut } from './editor-shortcuts.js'
 import { applyLinkEdit, normalizeLinkHref, openableLinkHref, readLinkDraft, removeLink } from './link-commands.js'
 import { taskListsNeedTidy, tidyCompletedTasks } from './list-commands.js'
-import { nextRovingIndex, styleMenuActivationIsDuplicate, styleMenuKeyboardEdge } from './roving-focus.js'
+import { nextRovingIndex, styleMenuActivationIsDuplicate, styleMenuArmsClickDedupe, styleMenuDismissFocus, styleMenuKeyboardEdge } from './roving-focus.js'
 import { createJotExtensions, managedAttachmentUrl, refreshLocalizedNodeLabels } from './editor-extensions.js'
 import { syncEditorContent } from './editor-content.js'
 import { insertManagedAttachment } from './editor-attachments.js'
@@ -29,7 +29,7 @@ export interface RichEditorProps {
   value: RichDoc
   /** Resolve a delayed host update against edits made before this React effect. */
   resolveExternalValue?: () => RichDoc
-  onChange: (content: RichDoc, editorRevision?: number, documentId?: string) => void
+  onChange: (content: RichDoc, editorRevision?: number, documentId?: string, generation?: number) => void
   onBlur?: () => void
   readOnly?: boolean
   locale?: JotLocale
@@ -478,7 +478,10 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
       } else if (event.key === 'Escape' && (findOpen || formatOpen || linkOpen)) {
         event.preventDefault(); event.stopPropagation()
         if (linkOpen) { setLinkOpen(false); editor?.commands.focus() }
-        else if (formatOpen) { setFormatOpen(false); setPaletteOpen(null); editor?.commands.focus() }
+        else if (formatOpen) {
+          setFormatOpen(false); setPaletteOpen(null)
+          if (styleMenuDismissFocus() === 'trigger') formatTrigger.current?.focus()
+        }
         else closeFind()
       }
     }}>
@@ -490,7 +493,7 @@ export function RichEditor({ value, resolveExternalValue, onChange, onBlur, read
             const edge = styleMenuKeyboardEdge(event.key)
             if (!edge || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
             event.preventDefault(); event.stopPropagation()
-            styleKeyActivation.current = true
+            styleKeyActivation.current = styleMenuArmsClickDedupe(event.key)
             formatFocus.current = edge
             setLinkOpen(false); setPaletteOpen(null)
             if (!formatOpen) { setFormatOpen(true); return }

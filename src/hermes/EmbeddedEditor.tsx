@@ -3,7 +3,7 @@ import * as sdk from '@hermes/plugin-sdk'
 import { openableLinkHref } from '../link-href.js'
 import { translator } from '../client/i18n.js'
 import type { RichEditorActions, RichEditorProps } from '../client/RichEditor.js'
-import { EDITOR_FRAME_PROTOCOL, advanceEditorFrame, guestEditorAction, initialEditorFrame, rememberEditorStamp, reportDroppedEdit, type EditorFrameStamp } from './editor-frame.js'
+import { EDITOR_FRAME_PROTOCOL, advanceEditorFrame, guestEditorAction, initialEditorFrame, rememberEditorStamp, reportDroppedEdit, type EditorFrameStamp, type EditorGenerationRevision } from './editor-frame.js'
 import { editorLoadOffersRetry, initialEditorLoad, reduceEditorLoad, type EditorLoadState } from './editor-load.js'
 import { HOST_THEME_PROPERTIES } from './theme.js'
 
@@ -12,7 +12,10 @@ const { SandboxedFrame, useTheme } = sdk
 export interface EmbeddedEditorProps extends RichEditorProps {
   /** 换笔记时只换文档，不重载 iframe。 */
   documentId?: string
-  acknowledgedRevision?: number
+  /** 当前这篇笔记已经发出去的代次和修订号。代次对不上时按 0 回传，避免旧代次的数字盖掉新编辑。 */
+  editorRevision?: EditorGenerationRevision
+  /** 离开这篇笔记的正文已经发出，空的新建笔记这时才可以删除。 */
+  onFlushSettled?: (documentId: string) => void
   loadEditor?: () => Promise<string>
   onSave?: () => void
   onPreviewAttachment?: (id: string) => void
@@ -66,7 +69,9 @@ export function RichEditor(props: EmbeddedEditorProps) {
       '--dsw-font-xs-13': `400 ${size * 12 / 13}px/1.5 ${style.fontFamily}`,
       '--dsw-font-xxs-12': `400 ${size * 11 / 13}px/1.5 ${style.fontFamily}`,
     } : {}
-    post('props', { value: callbacks.current.value, acknowledgedRevision: callbacks.current.acknowledgedRevision ?? 0, locale: callbacks.current.locale,
+    const recorded = callbacks.current.editorRevision
+    const acknowledgedRevision = recorded && recorded.generation === next.generation ? recorded.revision : 0
+    post('props', { value: callbacks.current.value, acknowledgedRevision, acknowledgedGeneration: next.generation, locale: callbacks.current.locale,
       protocol: EDITOR_FRAME_PROTOCOL, documentId: next.documentId, generation: next.generation,
       readOnly: callbacks.current.readOnly, dark: (theme.renderedMode ?? theme.resolvedMode) === 'dark',
       theme: { ...Object.fromEntries(THEME_KEYS.map(key => [key, style.getPropertyValue(key)])), ...fonts } })
@@ -95,7 +100,8 @@ export function RichEditor(props: EmbeddedEditorProps) {
       if (event.data?.token !== token) return
       const { kind, data, id } = event.data
       const framed = guestEditorAction(frameStamp.current ?? initialEditorFrame(callbacks.current.documentId ?? ''), kind, data, recentStamps.current)
-      if (framed.type === 'change') callbacks.current.onChange(framed.content, framed.revision, framed.documentId)
+      if (framed.type === 'change') callbacks.current.onChange(framed.content, framed.revision, framed.documentId, framed.generation)
+      else if (framed.type === 'flushed') callbacks.current.onFlushSettled?.(framed.documentId)
       else if (framed.type === 'selection') callbacks.current.onSelectionChange?.(framed.text)
       else if (framed.type === 'drop' && kind === 'change') reportDroppedEdit(framed.reason, data)
       else if (kind === 'inserted' && Number.isSafeInteger(data?.id)) {
@@ -124,7 +130,7 @@ export function RichEditor(props: EmbeddedEditorProps) {
       callbacks.current.onSelectionChange?.(null)
     }
   }, [token])
-  useEffect(sync, [props.value, props.acknowledgedRevision, props.locale, props.readOnly, props.documentId, load.source])
+  useEffect(sync, [props.value, props.editorRevision, props.locale, props.readOnly, props.documentId, load.source])
   useEffect(() => {
     // Hermes paints its CSS variables in the provider's effect. Child effects
     // run first, so reading immediately can send the previous palette to the

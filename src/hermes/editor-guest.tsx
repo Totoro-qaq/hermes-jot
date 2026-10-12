@@ -20,11 +20,12 @@ const image = (attachmentId: string) => new Promise<string>(resolve => {
   send('image', attachmentId, id)
 })
 
-function BoundNoteEditor({ documentId, generation, value, acknowledgedRevision, locale, readOnly, sessionRef, actionsRef, selectionGate }: {
+function BoundNoteEditor({ documentId, generation, value, acknowledgedRevision, acknowledgedGeneration, locale, readOnly, sessionRef, actionsRef, selectionGate }: {
   documentId: string
   generation: number
   value: RichDoc
   acknowledgedRevision: number
+  acknowledgedGeneration: number
   locale: JotLocale
   readOnly: boolean
   sessionRef: MutableRefObject<MountedEditorSession | null>
@@ -38,7 +39,7 @@ function BoundNoteEditor({ documentId, generation, value, acknowledgedRevision, 
     sessionRef.current = bound
     return () => { if (sessionRef.current === bound) sessionRef.current = null }
   }, [bound, sessionRef])
-  const resolveExternalValue = useMemo(() => () => bound.hostUpdate(value, acknowledgedRevision), [bound, value, acknowledgedRevision])
+  const resolveExternalValue = useMemo(() => () => bound.hostUpdate(value, acknowledgedRevision, acknowledgedGeneration), [bound, value, acknowledgedRevision, acknowledgedGeneration])
   return <RichEditor value={value} resolveExternalValue={resolveExternalValue} locale={locale} readOnly={readOnly}
     resolveAttachmentUrl={image} onChange={content => send('change', bound.change(content))} onBlur={() => send('blur')}
     onReady={editor => {
@@ -53,7 +54,7 @@ function BoundNoteEditor({ documentId, generation, value, acknowledgedRevision, 
 }
 
 function Editor() {
-  const [props, setProps] = useState<{ value: RichDoc; locale: JotLocale; readOnly: boolean; documentId: string; generation: number; acknowledgedRevision: number } | null>(null)
+  const [props, setProps] = useState<{ value: RichDoc; locale: JotLocale; readOnly: boolean; documentId: string; generation: number; acknowledgedRevision: number; acknowledgedGeneration: number } | null>(null)
   const actions = useRef<RichEditorActions | null>(null)
   const root = useRef<HTMLDivElement>(null)
   const activeSession = useRef<MountedEditorSession | null>(null)
@@ -76,9 +77,7 @@ function Editor() {
         const switched = !current || current.documentId !== documentId || current.generation !== generation
         if (switched && current) {
           // 外层代次还没换到这篇编辑器身上。先用挂载时记下的笔记把还没发出去的正文发出去。
-          const content = actions.current?.readDocument?.()
-          const pending = content ? current.pendingChange(content) : null
-          if (pending) send('change', pending)
+          flushMountedNote()
           selectionGate.current = { muted: true, last: '' }
           send('selection', { protocol: EDITOR_FRAME_PROTOCOL, text: '', documentId, generation })
         }
@@ -91,7 +90,9 @@ function Editor() {
         for (const [key, value] of Object.entries(data.theme ?? {})) {
           if (Object.hasOwn(HOST_THEME_PROPERTIES, key) && typeof value === 'string') document.documentElement.style.setProperty(key, value)
         }
-        setProps({ value: data.value, locale, readOnly: Boolean(data.readOnly), documentId, generation, acknowledgedRevision: Number.isSafeInteger(data.acknowledgedRevision) ? data.acknowledgedRevision : 0 })
+        const acknowledgedRevision = Number.isSafeInteger(data.acknowledgedRevision) ? data.acknowledgedRevision : 0
+        const acknowledgedGeneration = Number.isSafeInteger(data.acknowledgedGeneration) && data.acknowledgedGeneration >= 0 ? data.acknowledgedGeneration : generation
+        setProps({ value: data.value, locale, readOnly: Boolean(data.readOnly), documentId, generation, acknowledgedRevision, acknowledgedGeneration })
       } else if (event.data.token === token) {
         if (kind === 'focus') actions.current?.focus()
         if (kind === 'insert-image' || kind === 'insert-attachment') {
@@ -160,6 +161,14 @@ function Editor() {
         editor.setPointerCapture(event.pointerId)
       }
     }
+    const flushMountedNote = () => {
+      const current = activeSession.current
+      if (!current) return
+      const content = actions.current?.readDocument?.()
+      const pending = content ? current.pendingChange(content) : null
+      if (pending) send('change', pending)
+      send('flushed', { protocol: EDITOR_FRAME_PROTOCOL, documentId: current.documentId, generation: current.generation })
+    }
     const publishSelection = (text: string, force = false) => {
       const session = activeSession.current
       if (!session || selectionGate.current.muted) return
@@ -173,6 +182,7 @@ function Editor() {
     }
     const focused = () => publishSelection(document.getSelection()?.toString() ?? '', true)
     window.addEventListener('message', receive)
+    window.addEventListener('pagehide', flushMountedNote)
     window.addEventListener('keydown', key, true)
     document.addEventListener('click', click, true)
     document.addEventListener('paste', paste, true)
@@ -183,7 +193,7 @@ function Editor() {
     document.addEventListener('pointerdown', captureResize, true)
     parent.postMessage({ channel: 'jot-editor', kind: 'hello' }, '*')
     return () => {
-      window.removeEventListener('message', receive); window.removeEventListener('keydown', key, true)
+      window.removeEventListener('message', receive); window.removeEventListener('pagehide', flushMountedNote); window.removeEventListener('keydown', key, true)
       document.removeEventListener('click', click, true); document.removeEventListener('paste', paste, true)
       document.removeEventListener('dragover', drag); document.removeEventListener('drop', drop, true)
       document.removeEventListener('selectionchange', selection)
@@ -200,7 +210,7 @@ function Editor() {
   return props && <div ref={root} lang={intlLocale(props.locale)} dir={isRtlLocale(props.locale) ? 'rtl' : 'ltr'} className="jot-app jot-editor-frame" style={{ height: 'auto', display: 'block', minHeight: 340 }}>
     <style>{jotStyles}</style>
     <BoundNoteEditor key={`${props.documentId}:${props.generation}`} documentId={props.documentId} generation={props.generation}
-      value={props.value} acknowledgedRevision={props.acknowledgedRevision} locale={props.locale} readOnly={props.readOnly}
+      value={props.value} acknowledgedRevision={props.acknowledgedRevision} acknowledgedGeneration={props.acknowledgedGeneration} locale={props.locale} readOnly={props.readOnly}
       sessionRef={activeSession} actionsRef={actions} selectionGate={selectionGate} />
   </div>
 }
