@@ -1,30 +1,29 @@
 # Catalog PR description
 
-Title: **plugin-catalog: update Jot to 0.4.0**
+Title: **plugin-catalog: update Jot to 0.4.1**
 
 Substitute `@FULL_COMMIT_SHA@` with the reviewed release commit after checks pass. Use the same commit for image URLs.
 
 ---
 
-## What does this PR do?
+## What changes
 
-Updates `plugin-catalog/jot.yaml` from Jot 0.3.1 to 0.4.0, pinned to `@FULL_COMMIT_SHA@` in https://github.com/Totoro-qaq/hermes-jot.
+Updates `plugin-catalog/jot.yaml` from Jot 0.4.0 to 0.4.1, pinned to `@FULL_COMMIT_SHA@` in https://github.com/Totoro-qaq/hermes-jot. The three image references use that same commit.
 
-- The editor can add, edit, open and remove links, tidy completed checklist items, and use the style menu, note menu and column-width control from the keyboard. Web addresses with a username or password stay in existing notes, do not open, and are omitted from exports.
-- Adds user-typed `/jot ai on|off|status` and a note-library summary outside Desktop (introduced in 0.3.0).
-- Includes complete notices for dependencies inlined in docx and the vendored SVG icon paths. Versioned license sources participate in the build fingerprint and package freshness check.
-- Asks the agent to read the note fresh in each editing turn. Rejected writes retain the original 409 / `REVISION_CONFLICT` error and add `applied: false` with guidance to read again and reconsider the edit before retrying. Existing hosts retain their existing error display.
+Jot no longer imports the private Hermes language or session-context modules. Conflict copy reads language through public, profile-scoped APIs, including live configuration changes and existing language aliases. Its existing Desktop composer middleware forwards bare `/jot` as `/jot open`, so the Python handler no longer guesses the caller's surface. Attached/rejected drafts retain their contents.
 
-The entry still points to the same repository and declares the same six tools. AI collaboration defaults to off. Notes remain profile-scoped; only users can enable collaboration and undo agent edits.
+The six tools, hooks/middleware declarations, default-off AI collaboration and note data format are unchanged. This adds no core override, network service, updater, telemetry or model credentials.
 
-## Scope and validation
+## Validation
 
-Only `plugin-catalog/jot.yaml` changes in this PR: version, exact commit and image references. The package includes its compiled Desktop/editor/engine assets and license texts.
+Record the final release CI and exact pin checks before submitting: typecheck, 354 Node tests, compiled Desktop module, 39 Python/API cases (two real-Hermes cases skipped in standalone CI), isolated package verification, source/extracted-package Hermes validation and catalog schema validation. Real Hermes 0.22.1 checks exercised two profiles in both in-process and isolated plugin-host modes. The admission validator reports no private-import warnings and a safe security scan.
 
-Before publishing this template, record the completed release checks: Linux/macOS/Windows CI, type checking, core and Python/API tests, compiled Desktop-module loading, source and extracted-archive Hermes validation, isolated package checks, and the catalog validator. Detailed evidence and compatibility limits are in https://github.com/Totoro-qaq/hermes-jot/blob/@FULL_COMMIT_SHA@/docs/VALIDATION.md.
+Detailed evidence and limits: https://github.com/Totoro-qaq/hermes-jot/blob/@FULL_COMMIT_SHA@/docs/VALIDATION.md
 
 ## Compatibility
 
-Requires Hermes >=0.21.5 with the current SandboxedFrame and gateway download SDK, and Node.js 22.19+. The package uses fixed-argument local Node subprocesses and an isolated editor frame, with no model credentials, self-updater or telemetry. Word attachments download or open in the default application on the tested host.
+Requires Hermes >=0.21.5 with SandboxedFrame and gateway file-download SDK support, and Node.js 22.19+. The plugin uses fixed-argument local Node subprocesses and a sandboxed editor. Word attachments download or open in the default application on the tested host.
 
-Screenshot assets are the existing 0.2.0 native Hermes captures using synthetic notes; this release does not replace them.
+Stock Hermes 0.22.1 Desktop rejects plugin slash execution with `unsupported_command`; the original Jot 0.4.0 reproduces the same result. The Jot button and collaboration switch remain available. Hermes main already has the generic host fix in 84662a1 and the profile-routing follow-up ff5a49a. This plugin patch does not claim to fix that host limitation.
+
+Screenshot assets remain the existing native captures of synthetic notes.

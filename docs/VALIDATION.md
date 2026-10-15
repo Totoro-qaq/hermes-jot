@@ -2,6 +2,18 @@
 
 These are separate evidence levels, not a blanket completion claim.
 
+## 0.4.1
+
+Date: 2026-10-15, Asia/Shanghai. This patch removes private Hermes language/session imports and keeps the six tools, collaboration default and stored note format unchanged.
+
+- Type checking, 354 Node tests, the full build and the compiled Desktop-module probe passed. The probe checks bare `/jot` forwarding, explicit open/new/capture, attachment retention, failed health checks and profile/connection changes.
+- All 39 Python/API tests passed in the isolated Hermes 0.22.1 PM environment. Standalone CI skips the two cases that require real Hermes profile APIs.
+- Two real profiles passed eight checks each in `in_process` and `plugins.isolation: host` modes, including separate plugin child processes, profile language overrides, live configuration changes, revision-conflict preservation, command handlers and isolated note data. These handler checks do not claim to test the Desktop gateway's slash dispatcher.
+- The Hermes 0.22.1 admission validator passed with a safe security scan and no private-import warnings. The package freshness gate includes the changed Python adapter and rebuilt Desktop bundle.
+- Native macOS Desktop opened Jot and consumed the rewritten `/jot open` draft. Its 0.22.1 canonical gateway then returned `unsupported_command`; an exact original Jot 0.4.0 bundle reproduced the same error for bare `/jot`. The generic host fix is [84662a1](https://github.com/NousResearch/hermes-agent/commit/84662a1c2d74307588c8bee5be5ae8ad263aff33), with [ff5a49a](https://github.com/NousResearch/hermes-agent/commit/ff5a49a89e7e95ea590fcd4f9562244f3b759063) correcting profile-specific routing. Stock 0.22.1 native slash execution is not marked passed.
+
+No model request or credential was needed for this patch's checks. The earlier 0.4.0 note-editing and real-model acceptance remains separate evidence. Native checks used a local build of the official Hermes 0.22.1 source (`297552a9d646119871391d202509822cd86330df`), not a signed-installation upgrade or a Windows/Linux Desktop run. Hosted CI and the exact release assets are linked from the release; catalog merge remains maintainer-controlled.
+
 ## 0.4.0
 
 Date: 2026-10-12, Asia/Shanghai. This release adds link editing, checklist tidy and editor keyboard access. It does not change the six agent tools or the collaboration default.

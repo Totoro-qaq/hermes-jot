@@ -172,7 +172,7 @@ export default {
       { id: 'composer', area: 'composer.actions', order: 30, render: () => <ComposerButton /> },
       { id: 'slash', area: 'composer.middleware', data: { handler: async (draft: { text: string; attachments?: unknown[] }) => {
         const text = draft.text.trim()
-        if (!/^\/jot(?:\s+(?:new|capture))?$/i.test(text)) return draft
+        if (!/^\/jot(?:\s+(?:open|new|capture))?$/i.test(text)) return draft
         const owner = ownerNow()
         try {
           if (!(await ctx.rest<{ ready: boolean }>('/health')).ready) throw new Error('Jot needs a complete local build.')
@@ -182,9 +182,11 @@ export default {
         }
         if (ownerNow() !== owner) return null
         open(/\snew$/i.test(text) ? 'new' : /\scapture$/i.test(text) ? 'capture' : 'open', undefined, 'compact')
-        // A draft carrying attachments is kept intact. For a bare command the
-        // registered Python handler lets the host own normal draft consumption.
-        return draft.attachments?.length ? null : draft
+        // null retains the draft, including its attachments. A submitted open
+        // carries its intent explicitly, so Python needs no private session API
+        // to distinguish it from the CLI's bare /jot library summary.
+        if (draft.attachments?.length) return null
+        return /^\/jot$/i.test(text) ? { ...draft, text: '/jot open' } : draft
       } } },
     ])
     ctx.onDispose(() => { stopLabels(); hostLocale.dispose(); stopEvents?.(); stopProfile(); stopConnection(); controls.dispose(); for (const api of apis) api.dispose(); apis.clear() })

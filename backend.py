@@ -102,17 +102,40 @@ _CONFLICT_TEXT = {
 }
 
 
+_LANGUAGE_ALIASES = {
+    "english": "en", "chinese": "zh", "mandarin": "zh", "traditional-chinese": "zh-hant",
+    "japanese": "ja", "jp": "ja", "german": "de", "deutsch": "de",
+    "french": "fr", "français": "fr", "france": "fr", "spanish": "es", "español": "es", "espanol": "es",
+    "russian": "ru", "русский": "ru", "arabic": "ar", "العربية": "ar",
+}
+
+
+def _host_display_language() -> str | None:
+    """Read the current profile on demand through public host APIs, never process-global env."""
+    try:
+        from agent.secret_scope import get_secret
+        value = get_secret("HERMES_LANGUAGE")
+        if isinstance(value, str) and value:
+            return value
+    except Exception:
+        # A missing/unbound secret scope must not fall back to another profile's environment.
+        pass
+    try:
+        from hermes_cli.config import load_config_readonly
+        config = load_config_readonly()
+        display = config.get("display") if isinstance(config, dict) else None
+        value = display.get("language") if isinstance(display, dict) else None
+        return value if isinstance(value, str) else None
+    except Exception:
+        # Conflict presentation must not turn a valid worker result into an adapter failure.
+        return None
+
+
 def tool_display_locale(locale: str | None = None) -> str:
-    """界面语言。显式 locale 优先，否则读 Hermes 的 display.language；读不到就用英语。"""
-    raw = locale
-    if raw is None:
-        try:
-            from agent.i18n import get_language
-            value = get_language()
-            raw = value if isinstance(value, str) else None
-        except Exception:
-            raw = None
+    """Explicit locale, then the profile's HERMES_LANGUAGE/display.language, then English."""
+    raw = locale if locale is not None else _host_display_language()
     tag = (raw or "").strip().lower().replace("_", "-")
+    tag = _LANGUAGE_ALIASES.get(tag, tag)
     if tag in _CONFLICT_TEXT:
         return tag
     parts = tag.split("-")
@@ -287,50 +310,14 @@ def stage_import(source, extension: str, directory: Path | None = None) -> Path:
 # Slash commands are dispatched by Hermes before a model turn. This is the same
 # PATCH /settings write the Desktop switch uses (actor "user" inside the engine).
 HELP = (
-    "Jot: /jot shows the AI switch, note count and recent titles outside Hermes Desktop. "
-    "/jot, /jot new and /jot capture open Jot in Hermes Desktop. "
+    "Jot: /jot shows the AI switch, note count and recent titles outside the Desktop Jot UI. "
+    "/jot, /jot open, /jot new and /jot capture open Jot in Hermes Desktop. "
     "/jot ai on, /jot ai off and /jot ai status control AI collaboration for this profile. "
     "Only you can change that switch; the agent cannot."
 )
 AI_USAGE = "Usage: /jot ai on|off|status"
-_DESKTOP_OPEN = frozenset({"new", "capture"})
+_DESKTOP_OPEN = frozenset({"open", "new", "capture"})
 _AI_ACTIONS = frozenset({"on", "off", "status"})
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
-
-
-def _truthy(value: str | None) -> bool:
-    return (value or "").strip().lower() in _TRUTHY
-
-
-def _session_surface() -> tuple[str, str]:
-    """Hermes binds the chat surface on the slash-command thread. Empty when it did not."""
-    try:
-        from gateway.session_context import get_session_env
-    except Exception:
-        get_session_env = None
-    if get_session_env is None:
-        return (
-            os.environ.get("HERMES_SESSION_SOURCE", "").strip().lower(),
-            os.environ.get("HERMES_SESSION_PLATFORM", "").strip().lower(),
-        )
-    return (
-        get_session_env("HERMES_SESSION_SOURCE", "").strip().lower(),
-        get_session_env("HERMES_SESSION_PLATFORM", "").strip().lower(),
-    )
-
-
-def desktop_chat() -> bool:
-    """True only for Hermes Desktop chat, where composer middleware already opened Jot.
-
-    CLI, TUI, the Desktop terminal (``HERMES_DESKTOP_TERMINAL``) and messaging
-    gateways are not that surface, so ``/jot`` has to answer there itself.
-    """
-    source, platform = _session_surface()
-    if source == "desktop" or platform == "desktop":
-        return True
-    if source or platform:
-        return False
-    return _truthy(os.environ.get("HERMES_DESKTOP")) and not _truthy(os.environ.get("HERMES_DESKTOP_TERMINAL"))
 
 
 def _engine(method: str, path: str, body: dict | None = None) -> dict:
@@ -398,17 +385,17 @@ def _ai_command(tokens: list[str]) -> str:
 
 
 def handle_command(raw_args: str) -> str | None:
-    """``/jot`` for CLI, TUI, gateways and Desktop. Returns None when Desktop owns the draft."""
+    """Bare /jot reports status; explicit UI actions let Hermes consume the Desktop draft."""
     try:
         tokens = raw_args.split() if isinstance(raw_args, str) else []
         if len(tokens) == 1 and tokens[0].lower() in {"help", "-h", "--help"}:
             return HELP
         head = tokens[0].lower() if len(tokens) == 1 else ""
-        if not tokens or head in _DESKTOP_OPEN:
-            # Desktop chat already opened the pane for these. A reply would replace
-            # the host's "no output" notice. new/capture have no CLI equivalent.
-            if desktop_chat() or head in _DESKTOP_OPEN:
-                return None
+        if head in _DESKTOP_OPEN:
+            # The public composer middleware already handled this action. An
+            # explicit argument also crosses isolated plugin-host processes.
+            return None
+        if not tokens:
             return library_summary(_engine("GET", "/state"))
         if tokens and tokens[0].lower() == "ai":
             return _ai_command(tokens[1:])
