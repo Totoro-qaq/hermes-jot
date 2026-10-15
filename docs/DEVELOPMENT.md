@@ -66,7 +66,7 @@ The page, side panel and composer button register through the Hermes SDK in `src
 
 At load, Jot checks for the SDK features it needs (`SandboxedFrame`, gateway file download, the theme hook, pane visibility and `revealPane`) and otherwise shows “Jot requires a recent Hermes Desktop SDK with SandboxedFrame and gateway file downloads.”
 
-`/jot`, `/jot new` and `/jot capture` are handled by Desktop composer middleware, which opens the side panel. The Python command returns no text for those three in Desktop chat, so Hermes consumes them without a model turn. Outside Desktop, `/jot` replies with the AI switch, the note count and a few recent titles. `/jot ai on`, `/jot ai off` and `/jot ai status` read and write the same `agentEnabled` flag as the Desktop switch (`PATCH /settings` as the user). Any other argument returns help text. The agent has no tool that can change the switch.
+`/jot`, `/jot open`, `/jot new` and `/jot capture` are handled by Desktop composer middleware, which opens the side panel. After a successful open, the middleware rewrites bare `/jot` to the explicit `/jot open` command and lets Hermes consume the draft normally. Python returns no text for `open`, `new` and `capture`, without a model turn or a private host-session lookup. A draft carrying attachments, a failed backend health check or a changed profile/connection cancels submission and keeps the original draft. Outside Desktop, bare `/jot` replies with the AI switch, the note count and a few recent titles. `/jot ai on`, `/jot ai off` and `/jot ai status` read and write the same `agentEnabled` flag as the Desktop switch (`PATCH /settings` as the user). Any other argument returns help text. The agent has no tool that can change the switch.
 
 ### Note engine and IPC
 

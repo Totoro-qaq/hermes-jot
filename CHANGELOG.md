@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+- Removed both private Hermes imports. Conflict notices use public, profile-scoped language and configuration APIs; explicit locale and environment overrides keep their precedence, existing language aliases remain supported, and configuration changes are visible on the next call.
+- Desktop's existing composer middleware sends bare `/jot` as the explicit `/jot open` action, removing backend guesses about the caller's interface. Attached drafts and failed submissions keep their contents. Bare `/jot` outside the Desktop middleware continues to show the library summary, and the user-only AI collaboration commands are unchanged.
+- Added regression coverage for language overrides, profile isolation, command forwarding and draft retention. Validation on Hermes 0.22.1 no longer reports private core imports. No note-data migration is required.
+
+Hermes 0.22.1 has a separate Desktop plugin slash-command dispatch limitation: both Jot 0.4.0 and this release can open the pane but receive `unsupported_command`. Use the Jot button and the collaboration switch in that host version. The generic host fix is already on [Hermes main](https://github.com/NousResearch/hermes-agent/commit/84662a1c2d74307588c8bee5be5ae8ad263aff33); this release does not patch Hermes core.
+
 ## 0.4.0
 
 - The editor can add, edit, open, and remove a link from the toolbar or with Ctrl/⌘K. Addresses can be a web page, email, or phone number, and the popover works from the keyboard. Adding a link keeps the selected words, spaces, and formatting, and a partly linked selection or a link across a line break is linked all the way through. Saving or removing a link asks you to open it again when the note changed after the popover opened. A click, a middle-click, or Enter on a focused link in a read-only note opens it once through Hermes; right-click stays with the browser.

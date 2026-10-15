@@ -24,7 +24,9 @@ AI collaboration starts off. Turn on **Allow AI collaboration** at the bottom of
 
 Outside Hermes Desktop, type `/jot ai on` in the CLI, TUI or a gateway chat to turn it on for this profile, and `/jot ai off` to turn it off. `/jot` there shows the switch, how many notes you have, and a few recent titles. The agent cannot change the switch.
 
-To keep a note beside the chat, click the Jot button in the message box or type `/jot`. **Ask Hermes about this note**, in the editor toolbar and the note menu, saves what you have written and puts a reference to the note in the message box, or copies it if no message box is open. Then you only have to say what you want.
+To keep a note beside the chat, click the Jot button in the message box or type `/jot` (also `/jot open`). **Ask Hermes about this note**, in the editor toolbar and the note menu, saves what you have written and puts a reference to the note in the message box, or copies it if no message box is open. Then you only have to say what you want.
+
+On **Hermes 0.22.1**, Desktop plugin slash commands can return `unsupported_command`; use the Jot button and **Allow AI collaboration** switch instead. This host limitation also affects Jot 0.4.0 and is [fixed upstream on Hermes main](https://github.com/NousResearch/hermes-agent/commit/84662a1c2d74307588c8bee5be5ae8ad263aff33).
 
 In the screenshot below, Hermes was asked for two more checks before shipping. It read the release checklist and added two items to the end, and the open note now shows **AI edited**.
 

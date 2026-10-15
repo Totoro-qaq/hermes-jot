@@ -7,7 +7,7 @@ maintainer: Totoro-qaq
 tier: community
 category: desktop
 requires_hermes: '>=0.21.5'
-version: '0.4.0'
+version: '0.4.1'
 title: 'Jot'
 readme: true
 image: https://raw.githubusercontent.com/Totoro-qaq/hermes-jot/@FULL_COMMIT_SHA@/assets/readme/banner.png

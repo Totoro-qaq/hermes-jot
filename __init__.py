@@ -16,5 +16,5 @@ def register(ctx):
     ctx.register_command(
         "jot", handle_command,
         description="Open Jot or turn AI collaboration on or off",
-        args_hint="[new|capture|ai on|off|status|help]",
+        args_hint="[open|new|capture|ai on|off|status|help]",
     )

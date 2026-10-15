@@ -129,6 +129,91 @@ for (const scenario of scenarios) {
   if (subscribed) assert.equal(subscribed.subscriptions[0].live, false, `${scenario.name}: disposed with the plugin`)
 }
 
+// Exercise the registered middleware from the shipped bundle. A Desktop open
+// must still reach Hermes' submit path so it consumes the draft; null means
+// cancellation and restores it. The explicit "open" intent lets Python remain
+// independent of the host's private session context (including host isolation).
+async function slashFixture(health = async () => ({ ready: true })) {
+  const opens = [], errors = [], requests = []
+  let profile = 'default', connectionId = null
+  const sdk = createSdk()
+  sdk.host.state.profile = { get: () => profile, subscribe: () => () => {} }
+  sdk.host.state.connectionId = { get: () => connectionId, subscribe: () => () => {} }
+  sdk.host.revealPane = id => opens.push(id)
+  sdk.host.notifyError = message => errors.push(message)
+  const { ctx, latest, disposals } = pluginContext({ rest: async path => {
+    requests.push(path)
+    return health()
+  } })
+  const plugin = await loadPlugin(sdk)
+  plugin.register(ctx)
+  return {
+    handler: latest().get('composer.middleware:slash').data.handler,
+    opens, errors, requests,
+    switchProfile: () => { profile = 'another-profile' },
+    switchConnection: () => { connectionId = 'another-connection' },
+    dispose: () => { for (const dispose of disposals.reverse()) dispose() },
+  }
+}
+{
+  const fixture = await slashFixture()
+  try {
+    for (const text of ['/jot', '/jot open', '/jot new', '/jot capture', ' /JOT ']) {
+      const draft = { text, attachments: [] }
+      const result = await fixture.handler(draft)
+      assert.ok(result, `${text}: normal host submission consumes the command`)
+      assert.equal(result.text, text.trim().toLowerCase() === '/jot' ? '/jot open' : text,
+        `${text}: explicit Desktop intent, never an inferred session surface`)
+      assert.equal(result.attachments, draft.attachments, `${text}: retain the draft payload`)
+      assert.equal(draft.text, text, `${text}: do not mutate the caller's draft`)
+    }
+    assert.deepEqual(fixture.opens, Array(5).fill('jot:notes'))
+    assert.deepEqual(fixture.requests, Array(5).fill('/health'))
+    assert.deepEqual(fixture.errors, [])
+    for (const text of ['/jot', '/jot open', '/jot new', '/jot capture']) {
+      const attachment = { id: 'kept-file', name: 'workshop.pdf' }
+      const draft = { text, attachments: [attachment] }
+      assert.equal(await fixture.handler(draft), null, `${text}: cancel to preserve attached draft`)
+      assert.equal(draft.text, text)
+      assert.equal(draft.attachments[0], attachment)
+    }
+    assert.equal(fixture.opens.length, 9, 'attached drafts can open Jot without being consumed')
+    const requestCount = fixture.requests.length
+    for (const text of ['/jot ai on', '/jot ai off', '/jot ai status', '/jot help', '/jot other', 'a note']) {
+      const draft = { text }
+      assert.equal(await fixture.handler(draft), draft, `${text}: untouched backend/model dispatch`)
+    }
+    assert.equal(fixture.requests.length, requestCount, 'other commands do not depend on Desktop health')
+    assert.equal(fixture.opens.length, 9)
+  } finally { fixture.dispose() }
+}
+for (const health of [async () => ({ ready: false }), async () => { throw new Error('offline') }]) {
+  const fixture = await slashFixture(health)
+  try {
+    for (const text of ['/jot', '/jot open', '/jot new', '/jot capture']) {
+      const draft = { text }
+      assert.equal(await fixture.handler(draft), null, `${text}: unavailable backend retains the draft`)
+      assert.equal(draft.text, text)
+    }
+    assert.deepEqual(fixture.opens, [], 'unavailable backend must not issue pane or note actions')
+    assert.equal(fixture.errors.length, 4)
+  } finally { fixture.dispose() }
+}
+for (const changeOwner of ['switchProfile', 'switchConnection']) {
+  let releaseHealth
+  const fixture = await slashFixture(() => new Promise(resolve => { releaseHealth = resolve }))
+  try {
+    const draft = { text: '/jot new' }
+    const pending = fixture.handler(draft)
+    fixture[changeOwner]()
+    releaseHealth({ ready: true })
+    assert.equal(await pending, null, `${changeOwner}: cancel the old owner's pending open`)
+    assert.deepEqual(fixture.opens, [])
+    assert.deepEqual(fixture.errors, [])
+    assert.equal(draft.text, '/jot new')
+  } finally { fixture.dispose() }
+}
+
 // Language. Without ctx.i18n or useI18n (older hosts) every label is English.
 {
   const { ctx, latest, disposals } = pluginContext()
@@ -216,4 +301,4 @@ function latestLabelCount(latest) {
   live = 'zh-hant'
   assert.equal(render(latest().get('panes:notes').data.tabTitle()), '隨記')
 }
-console.log('PASS compiled Desktop module: ESM evaluation, public imports, entry points, three keybindings, notes.changed subscription with and without host events, and labels (pane title and outdated-host error included) in the Hermes language with and without ctx.i18n, onLocaleChange and useI18n')
+console.log('PASS compiled Desktop module: ESM evaluation, public imports, entry points, three keybindings, slash intent and draft preservation, notes.changed subscription with and without host events, and labels (pane title and outdated-host error included) in the Hermes language with and without ctx.i18n, onLocaleChange and useI18n')

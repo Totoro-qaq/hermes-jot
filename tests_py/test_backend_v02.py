@@ -460,7 +460,7 @@ class SlashCommand(Base):
         self.package.register(ctx)
         self.command = ctx.commands[0][0][1]
         self.handlers = {tool["name"]: tool["handler"] for tool in ctx.tools}
-        self.assertEqual(ctx.commands[0][1]["args_hint"], "[new|capture|ai on|off|status|help]")
+        self.assertEqual(ctx.commands[0][1]["args_hint"], "[open|new|capture|ai on|off|status|help]")
         self.assertFalse(any("agentEnabled" in tool["schema"]["parameters"].get("properties", {}) for tool in ctx.tools))
 
     def saved(self):
@@ -519,28 +519,20 @@ class SlashCommand(Base):
         self.assertEqual(self.command("ai off"), self.OFF)
         self.assertEqual(self.events.calls, [("jot", "notes.changed", {})])
 
-    def test_desktop_chat_stays_silent_for_open_new_and_capture(self):
-        quiet = {"HERMES_DESKTOP": "1", "HERMES_DESKTOP_TERMINAL": "", "HERMES_SESSION_SOURCE": "", "HERMES_SESSION_PLATFORM": ""}
-        with patch.dict(os.environ, quiet), patch.object(self.package_backend, "invoke", side_effect=AssertionError("engine")):
-            self.assertIsNone(self.command(""))
-            self.assertIsNone(self.command("new"))
-            self.assertIsNone(self.command("NEW"))
-            self.assertIsNone(self.command("capture"))
-        # The embedded terminal and a real TUI/gateway session are not the Desktop composer.
-        with patch.dict(os.environ, {**quiet, "HERMES_DESKTOP_TERMINAL": "1"}):
-            self.assertIn("No notes yet.", self.command(""))
-        with patch.dict(os.environ, {**quiet, "HERMES_SESSION_SOURCE": "tui"}):
-            self.assertIn("No notes yet.", self.command(""))
-        with patch.dict(os.environ, {**quiet, "HERMES_SESSION_PLATFORM": "telegram"}):
-            self.assertIn("No notes yet.", self.command(""))
-        with patch.dict(os.environ, {"HERMES_SESSION_SOURCE": "desktop", "HERMES_DESKTOP": ""}), \
-                patch.object(self.package_backend, "invoke", side_effect=AssertionError("engine")):
-            self.assertIsNone(self.command(""))
-            self.assertIsNone(self.command("capture"))
-        # The switch still works when the composer is Desktop; middleware does not swallow /jot ai.
-        with patch.dict(os.environ, quiet):
-            self.assertEqual(self.command("ai on"), self.ON)
-            self.assertTrue(self.saved()["agentEnabled"])
+    def test_explicit_desktop_actions_need_no_session_or_environment_guessing(self):
+        # Desktop middleware sends an explicit action; the handler also works in
+        # an isolated plugin process, where the caller's contextvars are absent.
+        with patch.object(self.package_backend, "invoke", side_effect=AssertionError("engine")):
+            for action in ("open", "OPEN", "new", "NEW", "capture"):
+                self.assertIsNone(self.command(action), action)
+        # An unhandled bare command always reports status, including terminals
+        # inheriting Desktop's environment or Desktop with its UI plugin off.
+        for surface in ({"HERMES_DESKTOP": "1"}, {"HERMES_SESSION_SOURCE": "desktop"},
+                        {"HERMES_SESSION_SOURCE": "tui"}, {"HERMES_SESSION_PLATFORM": "telegram"}):
+            with self.subTest(surface=surface), patch.dict(os.environ, surface):
+                self.assertIn("No notes yet.", self.command(""))
+        self.assertEqual(self.command("ai on"), self.ON)
+        self.assertTrue(self.saved()["agentEnabled"])
 
     def test_agent_cannot_flip_the_switch(self):
         refused = json.loads(self.handlers["jot_list"]({}))

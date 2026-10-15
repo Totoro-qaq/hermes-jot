@@ -131,6 +131,39 @@ class Integration(unittest.TestCase):
                 reset_hermes_home_override(token)
             self.assertTrue((first / "plugin-data/jot/jot.json").exists())
 
+    def test_conflict_language_follows_live_profile_config_without_global_env_leaks(self):
+        try:
+            from hermes_constants import set_hermes_home_override, reset_hermes_home_override
+            from agent.secret_scope import (set_secret_scope, reset_secret_scope,
+                                           set_multiplex_context, reset_multiplex_context)
+        except ImportError:
+            self.skipTest("Run with Hermes to exercise its public profile-scoped APIs.")
+        multiplex = set_multiplex_context(True)
+        try:
+            with patch.dict("os.environ", {"HERMES_LANGUAGE": "zh"}):
+                for name, language in (("profile-a", "fr"), ("profile-b", "ja")):
+                    home = self.directory / name
+                    home.mkdir()
+                    config = home / "config.yaml"
+                    config.write_text(f"display:\n  language: {language}\n")
+                    scope = set_secret_scope({}, profile_home=str(home))
+                    token = set_hermes_home_override(home)
+                    try:
+                        self.assertEqual(api._backend.tool_display_locale(), language)
+                        config.write_text("display:\n  language: de-DE\n")
+                        self.assertEqual(api._backend.tool_display_locale(), "de")
+                        override = set_secret_scope({"HERMES_LANGUAGE": "zh-HK"}, profile_home=str(home))
+                        try:
+                            self.assertEqual(api._backend.tool_display_locale(), "zh-hant")
+                            self.assertEqual(api._backend.tool_display_locale("en"), "en")
+                        finally:
+                            reset_secret_scope(override)
+                    finally:
+                        reset_hermes_home_override(token)
+                        reset_secret_scope(scope)
+        finally:
+            reset_multiplex_context(multiplex)
+
     def test_editor_is_pinned_local_content_with_no_network_or_host_access(self):
         response = self.client.get("/api/plugins/jot/editor")
         self.assertEqual(response.status_code, 200)
